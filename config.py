@@ -47,10 +47,10 @@ def get_config(flags):
     config.epoch = config.epoch if hasattr(config, 'epoch') else 0
     config.only_val = config.only_val if hasattr(config, 'only_val') else False
 
-    if config.data_set == 'NTURGBD' or config.data_set == 'NTURGBD_rtpose':
+    if config.data_set == 'NTURGBD':
         config.num_actions = 60
         config.num_subjects = 40
-        config.njoints = 18  # *2, Note: only taking first skeleton
+        config.njoints = 25  # *2, Note: only taking first skeleton
         config.max_plen = 300
 
     return config

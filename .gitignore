@@ -1,0 +1,36 @@
+# Linux ignores
+.*
+!.gitignore
+*~
+*.sw[a-p]
+
+# Python ignores
+__pycache__/
+*.pyc
+
+# Eclipse ignores
+*.pydevproject
+.project
+.metadata
+bin/**
+tmp/**
+tmp/**/*
+*.tmp
+*.bak
+*.swp
+*~.nib
+local.properties
+.classpath
+.settings/
+.loadpath
+
+# Pycharm
+.idea
+.idea/*
+
+# CDT-specific
+.cproject
+
+# Project specific ignores
+data/*
+save/*

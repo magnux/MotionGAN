@@ -1,7 +1,7 @@
 {
     ## Data Options
-    'data_path': 'data/',
-    # Datasets: HumanEvaI, Human36, NTURGBD
+    'data_path': '../DMNN/data/',
+    # Datasets: SBU_inter, MSRC12, NTURGBD
     'data_set': 'NTURGBD',
     'data_set_version': 'v1',
     # Format input as distance matrix
@@ -26,8 +26,10 @@
     'learning_rate': 1.0e-3,
     # Train using learning rate decay
     'lr_decay': True,
-    # Number of the random picks
+    # Number of the random picks (0 == deactivated)
     'pick_num': 20,
+    # Size of the random crop (0 == deactivated)
+    'crop_len': 0,
 
 
     ## Environment Options

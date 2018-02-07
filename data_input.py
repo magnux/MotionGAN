@@ -34,13 +34,13 @@ class DataInput(object):
         self.len_train_keys = len(self.train_keys)
         self.len_val_keys = len(self.val_keys)
 
-        self.train_epoch_size = (self.len_train_keys // self.batch_size) + 1
-        self.val_epoch_size = (self.len_val_keys // self.batch_size) + 1
+        self.train_epoch_size = (self.len_train_keys // self.batch_size) #+ 1
+        self.val_epoch_size = (self.len_val_keys // self.batch_size) #+ 1
 
-        self.pshape = [config.njoints, 3, None]
+        self.pshape = [config.njoints, None, 3]
         self.max_plen = config.max_plen
 
-        self.pshape[2] = self.pick_num if self.pick_num > 0 else (self.crop_len if self.crop_len > 0 else None)
+        self.pshape[1] = self.pick_num if self.pick_num > 0 else (self.crop_len if self.crop_len > 0 else None)
 
         if not self.only_val:
             self.train_batches = self.pre_comp_batches(True)
@@ -66,7 +66,7 @@ class DataInput(object):
     def load_to_ram(self, is_training):
         len_keys = self.len_train_keys if is_training else self.len_val_keys
         labs = np.empty([len_keys, 4], dtype=np.int32)
-        poses = np.empty([len_keys, self.pshape[0], self.pshape[1], self.max_plen], dtype=np.float32)
+        poses = np.empty([len_keys, self.pshape[0], self.max_plen, self.pshape[2]], dtype=np.float32)
         splitname = 'train' if is_training else 'val'
         print('Loading "%s" data to ram...' % splitname)
         t = trange(len_keys, dynamic_ncols=True)
@@ -75,7 +75,7 @@ class DataInput(object):
             pose = pose[:, :, :self.max_plen] if plen > self.max_plen else pose
             plen = self.max_plen if plen > self.max_plen else plen
             labs[k, :] = [key_idx, subject, action, plen]
-            poses[k, :, :, :plen] = pose
+            poses[k, :, :plen, :] = pose
 
         return labs, poses
 
@@ -109,14 +109,15 @@ class DataInput(object):
             pose = pose[:, :3, :]
             pose[np.isnan(pose)] = 0
 
+        pose = np.transpose(pose, (0, 2, 1))
+
         return pose, plen
 
     def sub_sample_pose(self, pose, plen):
 
         def pad_pose():
-            pad_len = self.crop_len if self.random_crop else self.pick_num
-            padpose = np.zeros((np.size(pose, 0), np.size(pose, 1), pad_len), dtype=np.float32)
-            padpose[:, :, :plen] = pose
+            padpose = np.zeros(self.pshape, dtype=np.float32)
+            padpose[:, :plen, :] = pose
             return padpose
 
         if self.pick_num > 0:
@@ -126,14 +127,14 @@ class DataInput(object):
                 subplen = plen / self.pick_num
                 picks = np.random.randint(0, subplen, size=(self.pick_num)) + \
                         np.arange(0, plen, subplen, dtype=np.int32)
-                pose = pose[:, :, picks]
+                pose = pose[:, picks, :]
             # plen = np.int32(self.pick_num)
         elif self.crop_len > 0:
             if self.crop_len > plen:
                 pose = pad_pose()
             elif self.crop_len < plen:
                 indx = np.random.randint(0, plen - self.crop_len)
-                pose = pose[:, :, indx:indx + self.crop_len]
+                pose = pose[:, indx:indx + self.crop_len, :]
             # plen = np.int32(self.crop_len)
 
         return pose  #, plen
@@ -141,12 +142,12 @@ class DataInput(object):
     def sub_sample_batch(self, batch):
         labs_batch, poses_batch = batch
 
-        if self.pshape[2] is not None:
+        if self.pshape[1] is not None:
             new_labs_batch = np.empty([self.batch_size, 4], dtype=np.int32)
             new_poses_batch = np.empty(
                 [self.batch_size, self.pshape[0], self.pshape[1], self.pshape[2]], dtype=np.float32)
             new_labs_batch[:, :3] = labs_batch[:, :3]
-            new_labs_batch[:, 3] = self.pshape[2]
+            new_labs_batch[:, 3] = self.pshape[1]
             for i in range(self.batch_size):
                 new_poses_batch[i, ...] = self.sub_sample_pose(poses_batch[i, ...], labs_batch[i, 3])
 

@@ -12,10 +12,18 @@
     'model_type': 'motiongan',
     # Model version to train
     'model_version': 'v1',
-    # Type of joint unfolding
-    'unfold': None,
     # Dropout Rate
     'dropout': 0.0,
+    # Lambda for gradient penalty
+    'lambda_grads': 10,
+    # Action label conditional model
+    'action_cond': True,
+    # Latent factor conditional model, size (0 means no condition)
+    'latent_cond_dim': 16,
+    # Type of unfolding
+    # 'unfold': None,
+    # Size of the noise vector
+    # 'z_dim': 64,
 
     ## Training Options
     # It's the batch size

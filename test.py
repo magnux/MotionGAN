@@ -81,30 +81,32 @@ if __name__ == "__main__":
         gen_inputs.append(latent_noise)
     gen_outputs = model_wrap.gen_model.predict(gen_inputs, config.batch_size)
 
-    poses_batch = gen_outputs
-
     import matplotlib.pyplot as plt
     import utils.viz as viz
 
     # === Plot and animate ===
-    fig = plt.figure(dpi=160)
-    ax = plt.gca(projection='3d')
-    ax.view_init(elev=90, azim=-90)
-    # ax.view_init(elev=0, azim=90)
-    # plt.subplot(1, 3, 1)
-    ob = viz.Ax3DPose(plt.gca())
+    fig = plt.figure(dpi=160, figsize=plt.figaspect(1 / 2))
+
+    ax0 = fig.add_subplot(1, 2, 1, projection='3d')
+    ax0.view_init(elev=90, azim=-90)
+    # ax0.view_init(elev=0, azim=90)
+    ob0 = viz.Ax3DPose(ax0)
+
+    ax1 = fig.add_subplot(1, 2, 2, projection='3d')
+    ax1.view_init(elev=90, azim=-90)
+    ob1 = viz.Ax3DPose(ax1)
 
     rand_indices = np.random.permutation(config.batch_size)
 
     for j in range(config.batch_size):
         seq_idx = rand_indices[j]
-        poses = poses_batch[seq_idx, ...]
         seq_idx, subject, action, plen = labs_batch[seq_idx, ...]
 
         print("action: %s  subject: %d  seq_idx: %d  length: %d" %
               (NTU_ACTIONS[action], subject, seq_idx, plen))
         for i in range(plen):
-            ob.update(poses[:, i, :])
+            ob0.update(poses_batch[seq_idx, :, i, :])
+            ob1.update(gen_outputs[seq_idx, :, i, :])
 
             plt.show(block=False)
             fig.canvas.draw()

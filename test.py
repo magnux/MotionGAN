@@ -4,12 +4,15 @@ import tensorflow as tf
 import numpy as np
 from config import get_config
 from data_input import DataInput
+from models.motiongan import MotionGANV1, MotionGANV2
+from utils.restore_keras_model import restore_keras_model
+
 
 logging = tf.logging
 flags = tf.flags
 flags.DEFINE_bool("verbose", False, "To talk or not to talk")
 flags.DEFINE_string("save_path", None, "Model output directory")
-flags.DEFINE_string("config_file", "motiongan_v1", "Model config file")
+flags.DEFINE_string("config_file", None, "Model config file")
 FLAGS = flags.FLAGS
 
 NTU_ACTIONS = ["drink water", "eat meal/snack", "brushing teeth",
@@ -44,10 +47,41 @@ if __name__ == "__main__":
     config.only_val = True
     # config.pick_num = 0
     data_input = DataInput(config)
+    val_batches = data_input.train_epoch_size
+    val_generator = data_input.batch_generator(False)
 
-    labs_batch, poses_batch = data_input.batch_generator(False).next()
+    # Model building
+    if config.model_type == 'motiongan':
+        if config.model_version == 'v1':
+            model_wrap = MotionGANV1(config)
+        if config.model_version == 'v2':
+            model_wrap = MotionGANV2(config)
 
-    print(np.shape(poses_batch), np.shape(labs_batch))
+    if FLAGS.verbose:
+        print('Discriminator model:')
+        print(model_wrap.disc_model.summary())
+        print('Generator model:')
+        print(model_wrap.gen_model.summary())
+        print('GAN model:')
+        print(model_wrap.gan_model.summary())
+
+    assert config.epoch > 0, 'Nothing to test in an untrained model'
+
+    model_wrap.disc_model = restore_keras_model(
+        model_wrap.disc_model, config.save_path + '_disc_weights.hdf5', False)
+    model_wrap.gen_model = restore_keras_model(
+        model_wrap.gen_model, config.save_path + '_gen_weights.hdf5', False)
+
+    labs_batch, poses_batch = val_generator.next()
+
+    gen_inputs = [poses_batch]
+    if config.latent_cond_dim > 0:
+        latent_noise = np.random.uniform(
+            size=(config.batch_size, config.latent_cond_dim))
+        gen_inputs.append(latent_noise)
+    gen_outputs = model_wrap.gen_model.predict(gen_inputs, config.batch_size)
+
+    poses_batch = gen_outputs
 
     import matplotlib.pyplot as plt
     import utils.viz as viz

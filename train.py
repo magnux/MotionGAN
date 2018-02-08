@@ -50,6 +50,9 @@ if __name__ == "__main__":
     tensorboard = TensorBoard(log_dir=config.save_path + '_logs')
     tensorboard.set_model(model_wrap.gan_model)
 
+    def gen_latent_noise():
+        return np.random.uniform(size=(config.batch_size, config.latent_cond_dim))
+
     for epoch in range(config.epoch, config.num_epochs):
 
         if config.lr_decay:
@@ -77,7 +80,7 @@ if __name__ == "__main__":
                 if config.action_cond:
                     place_holders.append(labs_batch[:, 2])
                 if config.latent_cond_dim > 0:
-                    latent_noise = np.random.uniform(size=(config.batch_size, config.latent_cond_dim))
+                    latent_noise = gen_latent_noise()
                     gen_inputs.append(latent_noise)
 
                 disc_loss = model_wrap.disc_train(disc_inputs + gen_inputs + place_holders)
@@ -94,7 +97,7 @@ if __name__ == "__main__":
             if config.action_cond:
                 place_holders.append(labs_batch[:, 2])
             if config.latent_cond_dim > 0:
-                latent_noise = np.random.uniform(size=(config.batch_size, config.latent_cond_dim))
+                latent_noise = gen_latent_noise()
                 gen_inputs.append(latent_noise)
 
             gen_loss = model_wrap.gen_train(gen_inputs + place_holders)

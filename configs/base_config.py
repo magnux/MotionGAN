@@ -22,6 +22,8 @@
     'latent_cond_dim': 16,
     # Shape coherence loss
     'coherence_loss': True,
+    # Displacement loss
+    'displacement_loss': True,
     # Type of unfolding
     # 'unfold': None,
     # Size of the noise vector

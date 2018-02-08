@@ -2,7 +2,7 @@ from __future__ import absolute_import, division, print_function
 import numpy as np
 from tensorflow.contrib.keras.api.keras.backend import sum, mean, \
     square, sqrt, random_uniform, gradients, placeholder, set_value, \
-    sparse_categorical_crossentropy, constant, expand_dims
+    sparse_categorical_crossentropy, cast_to_floatx, expand_dims, max
 from tensorflow.contrib.keras.api.keras.backend import function as K_function
 from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
@@ -50,7 +50,8 @@ def _shape_seq_out(x, njoints, seq_len):
 def _edm(x):
     x1 = expand_dims(x, axis=1)
     x2 = expand_dims(x, axis=2)
-    return sqrt(sum(square(x1 - x2), axis=-1))
+    # epsilon needed in sqrt to avoid numerical issues
+    return sqrt(sum(square(x1 - x2), axis=-1) + 1e-8)
 
 
 class _MotionGAN(object):
@@ -71,6 +72,8 @@ class _MotionGAN(object):
         self.latent_scale_g = 1e-1
         self.coherence_loss = config.coherence_loss
         self.coherence_scale = 1e-1
+        self.displacement_loss = config.displacement_loss
+        self.displacement_scale = 1e-2
 
         self.seq_len = config.pick_num if config.pick_num > 0 else (
                        config.crop_len if config.crop_len > 0 else None)
@@ -86,7 +89,8 @@ class _MotionGAN(object):
         self.gen_training = (self.disc_training == False)
 
         # Discriminator
-        real_seq = Input(batch_shape=(self.batch_size, config.njoints, self.seq_len, 3), name='real_seq')
+        real_seq = Input(batch_shape=(self.batch_size, config.njoints, self.seq_len, 3),
+                         name='real_seq', dtype='float32')
         self.disc_inputs = [real_seq]
         self.real_outputs = self._proc_disc_outputs(self.discriminator(real_seq))
         self.disc_model = Model(self.disc_inputs,
@@ -97,7 +101,7 @@ class _MotionGAN(object):
         self.gen_inputs = [real_seq]
         if self.latent_cond_dim > 0:
             latent_cond_input = Input(batch_shape=(self.batch_size, self.latent_cond_dim),
-                                      name='latent_cond_input')
+                                      name='latent_cond_input', dtype='float32')
             self.gen_inputs.append(latent_cond_input)
         x, seq_head = self._prep_gen_inputs(self.gen_inputs)
         gen_seq = Concatenate(axis=2, name='gen_seq')([seq_head, self.generator(x)])
@@ -144,11 +148,11 @@ class _MotionGAN(object):
 
         # Interpolates
         alpha = random_uniform((self.batch_size, 1, 1, 1))
-        inter_img = (alpha * (self.disc_inputs[0])) + ((1 - alpha) * self.gen_outputs[0])
+        interpolates = (alpha * (self.disc_inputs[0])) + ((1 - alpha) * self.gen_outputs[0])
 
         # Gradient penalty
-        inter_out = _get_tensor(self.disc_model(inter_img), 'discriminator/score_out')
-        grad_mixed = gradients(inter_out, [inter_img])[0]
+        inter_out = _get_tensor(self.disc_model(interpolates), 'discriminator/score_out')
+        grad_mixed = gradients(inter_out, [interpolates])[0]
         norm_grad_mixed = sqrt(sum(square(grad_mixed), axis=(1, 2, 3)))
         grad_penalty = mean(square(norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2))
 
@@ -178,13 +182,20 @@ class _MotionGAN(object):
             disc_loss += (self.latent_scale_d * loss_latent)
             gen_loss += (self.latent_scale_g * loss_latent)
         if self.coherence_loss:
-            seq_tail = _get_tensor(self.gen_inputs, 'real_seq')[:, :, self.seq_len // 2:, :]
+            seq_tail = self.gen_inputs[0][:, :, self.seq_len // 2:, :]
             gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
-            exp_decay = 1 / np.exp(np.linspace(0, 2, self.seq_len // 2))
+            exp_decay = 1.0 / np.exp(np.linspace(0.0, 2.0, self.seq_len // 2, dtype='float32'))
             exp_decay = np.reshape(exp_decay, (1, self.seq_len // 2))
-            exp_decay = constant(exp_decay, dtype='float32')
-            loss_coh = mean(square(sum(_edm(seq_tail) - _edm(gen_tail), axis=[1, 2])) * exp_decay)
+            loss_coh = square(sum(_edm(seq_tail) - _edm(gen_tail), axis=[1, 2]))
+            loss_coh = loss_coh / (max(loss_coh, axis=1, keepdims=True) + 1e-8)
+            loss_coh = mean(loss_coh * exp_decay)
             gen_loss += (self.coherence_scale * loss_coh)
+        if self.displacement_loss:
+            gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
+            gen_tail_s = self.gen_outputs[0][:, :, (self.seq_len // 2)-1:-1, :]
+            loss_disp = mean(square(gen_tail - gen_tail_s))
+            # loss_disp = mean(square(sum(_edm(gen_tail) - _edm(gen_tail_s), axis=[1, 2])))
+            gen_loss += (self.displacement_scale * loss_disp)
 
         return loss_real, loss_fake, disc_loss, gen_loss
 

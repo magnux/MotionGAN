@@ -2,13 +2,13 @@ from __future__ import absolute_import, division, print_function
 import numpy as np
 from tensorflow.contrib.keras.api.keras.backend import sum, mean, \
     square, sqrt, random_uniform, gradients, placeholder, set_value, \
-    sparse_categorical_crossentropy
+    sparse_categorical_crossentropy, constant, expand_dims
 from tensorflow.contrib.keras.api.keras.backend import function as K_function
 from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, \
     Conv2D, Dense, Dropout, Flatten, LeakyReLU, Reshape, Activation,\
-    BatchNormalization, Lambda, Add, Concatenate, AveragePooling2D, Cropping2D, Permute
+    BatchNormalization, Lambda, Add, Concatenate, Cropping2D, Permute
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.initializers import RandomNormal
 from tensorflow.contrib.keras.api.keras.regularizers import l2
@@ -35,6 +35,7 @@ def _conv_block(x, out_filters, bneck_factor, kernel_size, strides, i, j, net_na
                   name='%s/block_%d/branch_%d/conv_out' % (net_name, i, j), **conv_args)(x)
     return x
 
+
 def _shape_seq_out(x, njoints, seq_len):
     conv_args = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
     x = Permute((3, 2, 1))(x)  # filters, time, joints
@@ -46,6 +47,12 @@ def _shape_seq_out(x, njoints, seq_len):
     return x
 
 
+def _edm(x):
+    x1 = expand_dims(x, axis=1)
+    x2 = expand_dims(x, axis=2)
+    return sqrt(sum(square(x1 - x2), axis=-1))
+
+
 class _MotionGAN(object):
     def __init__(self, config):
         self.name = config.model_type + '_' + config.model_version
@@ -55,13 +62,16 @@ class _MotionGAN(object):
         self.num_actions = config.num_actions
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
-        self.gamma_grads = 1.0
-        self.class_scale_d = 1.
-        self.class_scale_g = .1
-        self.latent_scale_d = 1.
-        self.latent_scale_g = .1
+        self.gamma_grads = 1e0
         self.action_cond = config.action_cond
+        self.action_scale_d = 1e0
+        self.action_scale_g = 1e-1
         self.latent_cond_dim = config.latent_cond_dim
+        self.latent_scale_d = 1e0
+        self.latent_scale_g = 1e-1
+        self.coherence_loss = config.coherence_loss
+        self.coherence_scale = 1e-1
+
         self.seq_len = config.pick_num if config.pick_num > 0 else (
                        config.crop_len if config.crop_len > 0 else None)
         self.njoints = config.njoints
@@ -160,13 +170,21 @@ class _MotionGAN(object):
             loss_class_fake = mean(sparse_categorical_crossentropy(
                 _get_tensor(self.place_holders, 'true_label'),
                 _get_tensor(self.fake_outputs, 'label_out'), True))
-            disc_loss += (self.class_scale_d * (loss_class_real + loss_class_fake))
-            gen_loss += (self.class_scale_g * loss_class_fake)
+            disc_loss += (self.action_scale_d * (loss_class_real + loss_class_fake))
+            gen_loss += (self.action_scale_g * loss_class_fake)
         if self.latent_cond_dim > 0:
             loss_latent = mean(square(_get_tensor(self.fake_outputs, 'latent_cond_out')
                                       - _get_tensor(self.gen_inputs, 'latent_cond_input')))
             disc_loss += (self.latent_scale_d * loss_latent)
             gen_loss += (self.latent_scale_g * loss_latent)
+        if self.coherence_loss:
+            seq_tail = _get_tensor(self.gen_inputs, 'real_seq')[:, :, self.seq_len // 2:, :]
+            gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
+            exp_decay = 1 / np.exp(np.linspace(0, 2, self.seq_len // 2))
+            exp_decay = np.reshape(exp_decay, (1, self.seq_len // 2))
+            exp_decay = constant(exp_decay, dtype='float32')
+            loss_coh = mean(square(sum(_edm(seq_tail) - _edm(gen_tail), axis=[1, 2])) * exp_decay)
+            gen_loss += (self.coherence_scale * loss_coh)
 
         return loss_real, loss_fake, disc_loss, gen_loss
 
@@ -200,7 +218,7 @@ class _MotionGAN(object):
         x = seq_head
 
         for i in range(3):
-            num_block = n_hidden * ((i // 2) + 1)
+            num_block = n_hidden * (((i + 1) // 2) + 1)
             shortcut = Conv2D(num_block, 1, 2,
                               name='generator/img_fex/block_%d/shortcut' % i, **conv_args)(x)
             pi = _conv_block(x, num_block, 8, 3, 2, i, 0, 'generator/img_fex', self.gen_training)
@@ -347,8 +365,8 @@ class MotionGANV2(_MotionGAN):
 
         x = BatchNormalization(name='generator/bn_out')(x, training=self.gen_training)
         x = Activation('relu', name='generator/relu_out')(x)
-        x = Conv2D(3, 3, 1, name='generator/conv_out', **conv_args)(x)
-        x = Activation('tanh', name='generator/seq_tail')(x)
+
+        x = _shape_seq_out(x, self.njoints, self.seq_len)
 
         return x
 

@@ -376,14 +376,15 @@ class MotionGANV2(_MotionGAN):
                              'generator', self.gen_training, Conv2DTranspose)
             # For condition injecting
             # squeeze_kernel = (x.shape[1], x.shape[2])
-            gamma = _conv_block(x, n_filters, 8, 3, strides, i, 1,
-                                'generator', self.gen_training)
-            gamma = Flatten(name='generator/block_%d/gamma_flatten' % i)(gamma)
-            # For condition injecting
+            # gamma = _conv_block(x, n_filters, 8, squeeze_kernel, squeeze_kernel, i, 1,
+            #                     'generator', self.gen_training)
+            # gamma = Flatten(name='generator/block_%d/gamma_flatten' % i)(gamma)
             # gamma = Concatenate(name='generator/block_%d/cond_concat' % i)([gamma, z])
-            gamma = BatchNormalization(name='generator/block_%d/cond_bn' % i)(gamma, training=self.gen_training)
-            gamma = Activation('relu', name='generator/block_%d/cond_relu' % i)(gamma)
-            gamma = Dense(n_filters, name='generator/block_%d/cond_dense' % i)(gamma)
+            # gamma = BatchNormalization(name='generator/block_%d/cond_bn' % i)(gamma, training=self.gen_training)
+            # gamma = Activation('relu', name='generator/block_%d/cond_relu' % i)(gamma)
+            # gamma = Dense(n_filters, name='generator/block_%d/cond_dense' % i)(gamma)
+            gamma = _conv_block(x, n_filters, 4, 3, strides, i, 1,
+                                'generator', self.gen_training, Conv2DTranspose)
             gamma = Activation('sigmoid', name='generator/block_%d/gamma_sigmoid' % i)(gamma)
             gamma = Reshape((1, 1, n_filters), name='generator/block_%d/gamma_reshape' % i)(gamma)
 

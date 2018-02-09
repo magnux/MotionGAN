@@ -71,9 +71,11 @@ class _MotionGAN(object):
         self.latent_scale_d = 1e0
         self.latent_scale_g = 1e-1
         self.coherence_loss = config.coherence_loss
-        self.coherence_scale = 1e-1
+        self.coherence_scale = 1e0
         self.displacement_loss = config.displacement_loss
-        self.displacement_scale = 1e-2
+        self.displacement_scale = 1e-1
+        self.shape_loss = config.shape_loss
+        self.shape_scale = 1e0
 
         self.seq_len = config.pick_num if config.pick_num > 0 else (
                        config.crop_len if config.crop_len > 0 else None)
@@ -187,15 +189,23 @@ class _MotionGAN(object):
             exp_decay = 1.0 / np.exp(np.linspace(0.0, 2.0, self.seq_len // 2, dtype='float32'))
             exp_decay = np.reshape(exp_decay, (1, self.seq_len // 2))
             loss_coh = square(sum(_edm(seq_tail) - _edm(gen_tail), axis=[1, 2]))
-            loss_coh = loss_coh / (max(loss_coh, axis=1, keepdims=True) + 1e-8)
+            # loss_coh = loss_coh / (max(loss_coh, axis=1, keepdims=True) + 1e-8)
             loss_coh = mean(loss_coh * exp_decay)
             gen_loss += (self.coherence_scale * loss_coh)
         if self.displacement_loss:
             gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
             gen_tail_s = self.gen_outputs[0][:, :, (self.seq_len // 2)-1:-1, :]
             loss_disp = mean(square(gen_tail - gen_tail_s))
-            # loss_disp = mean(square(sum(_edm(gen_tail) - _edm(gen_tail_s), axis=[1, 2])))
             gen_loss += (self.displacement_scale * loss_disp)
+        if self.shape_loss:
+            mask = np.ones((self.njoints, self.njoints), dtype='float32')
+            mask = np.triu(mask, 1) - np.triu(mask, 2)
+            mask = np.reshape(mask, (1, self.njoints, self.njoints, 1))
+            real_shape = mean(_edm(self.gen_inputs[0]), axis=-1, keepdims=True) * mask
+            gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
+            gen_shape = _edm(gen_tail) * mask
+            loss_shape = mean(square(real_shape - gen_shape))
+            gen_loss += (self.shape_scale * loss_shape)
 
         return loss_real, loss_fake, disc_loss, gen_loss
 

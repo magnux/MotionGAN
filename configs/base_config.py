@@ -20,10 +20,12 @@
     'action_cond': True,
     # Latent factor conditional model, size (0 means no condition)
     'latent_cond_dim': 16,
-    # Shape coherence loss
+    # Motion coherence loss
     'coherence_loss': True,
-    # Displacement loss
+    # Total displacement loss
     'displacement_loss': True,
+    # Body shape conservation loss
+    'shape_loss': True,
     # Type of unfolding
     # 'unfold': None,
     # Size of the noise vector

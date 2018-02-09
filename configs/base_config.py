@@ -19,7 +19,7 @@
     # Action label conditional model
     'action_cond': True,
     # Latent factor conditional model, size (0 means no condition)
-    'latent_cond_dim': 16,
+    'latent_cond_dim': 0,
     # Motion coherence loss
     'coherence_loss': True,
     # Total displacement loss

@@ -231,7 +231,7 @@ class _MotionGAN(object):
 
     def _prep_gen_inputs(self, input_tensors):
         conv_args = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
-        n_hidden = 64
+        n_hidden = 128
         seq_head = _get_tensor(input_tensors, 'real_seq')
         seq_head = Cropping2D(((0, 0), (0, self.seq_len // 2)), name='seq_head')(seq_head)
         x = seq_head
@@ -239,12 +239,12 @@ class _MotionGAN(object):
         for i in range(3):
             num_block = n_hidden * (((i + 1) // 2) + 1)
             shortcut = Conv2D(num_block, 1, 2,
-                              name='generator/img_fex/block_%d/shortcut' % i, **conv_args)(x)
-            pi = _conv_block(x, num_block, 8, 3, 2, i, 0, 'generator/img_fex', self.gen_training)
-            x = Add(name='generator/img_fex/block_%d/add' % i)([shortcut, pi])
-            x = Activation('relu', name='generator/img_fex/block_%d/relu_out' % i)(x)
+                              name='generator/seq_fex/block_%d/shortcut' % i, **conv_args)(x)
+            pi = _conv_block(x, num_block, 8, 3, 2, i, 0, 'generator/seq_fex', self.gen_training)
+            x = Add(name='generator/seq_fex/block_%d/add' % i)([shortcut, pi])
+            x = Activation('relu', name='generator/seq_fex/block_%d/relu_out' % i)(x)
 
-        x = Lambda(lambda x: mean(x, axis=(1, 2)), name='generator/img_fex/mean_pool')(x)
+        x = Lambda(lambda x: mean(x, axis=(1, 2)), name='generator/seq_fex/mean_pool')(x)
         x = [x]
         if self.latent_cond_dim > 0:
             x_lat = _get_tensor(input_tensors, 'latent_cond_input')

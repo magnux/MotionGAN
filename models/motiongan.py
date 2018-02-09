@@ -71,11 +71,11 @@ class _MotionGAN(object):
         self.latent_scale_d = 1e0
         self.latent_scale_g = 1e-1
         self.coherence_loss = config.coherence_loss
-        self.coherence_scale = 1e0
+        self.coherence_scale = 1e-1
         self.displacement_loss = config.displacement_loss
-        self.displacement_scale = 1e-1
+        self.displacement_scale = 1e-2
         self.shape_loss = config.shape_loss
-        self.shape_scale = 1e0
+        self.shape_scale = 1e-1
 
         self.seq_len = config.pick_num if config.pick_num > 0 else (
                        config.crop_len if config.crop_len > 0 else None)
@@ -187,10 +187,8 @@ class _MotionGAN(object):
             seq_tail = self.gen_inputs[0][:, :, self.seq_len // 2:, :]
             gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
             exp_decay = 1.0 / np.exp(np.linspace(0.0, 2.0, self.seq_len // 2, dtype='float32'))
-            exp_decay = np.reshape(exp_decay, (1, self.seq_len // 2))
-            loss_coh = square(sum(_edm(seq_tail) - _edm(gen_tail), axis=[1, 2]))
-            # loss_coh = loss_coh / (max(loss_coh, axis=1, keepdims=True) + 1e-8)
-            loss_coh = mean(loss_coh * exp_decay)
+            exp_decay = np.reshape(exp_decay, (1, 1, 1, self.seq_len // 2))
+            loss_coh = mean(square(_edm(seq_tail) - _edm(gen_tail)) * exp_decay)
             gen_loss += (self.coherence_scale * loss_coh)
         if self.displacement_loss:
             gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]

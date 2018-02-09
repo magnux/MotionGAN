@@ -76,6 +76,7 @@ class _MotionGAN(object):
         self.displacement_scale = 1e-2
         self.shape_loss = config.shape_loss
         self.shape_scale = 1e-1
+        self.time_pres_emb = config.time_pres_emb
 
         self.seq_len = config.pick_num if config.pick_num > 0 else (
                        config.crop_len if config.crop_len > 0 else None)
@@ -231,20 +232,22 @@ class _MotionGAN(object):
 
     def _prep_gen_inputs(self, input_tensors):
         conv_args = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
-        n_hidden = 128
+        n_hidden = 32 if self.time_pres_emb else 128
         seq_head = _get_tensor(input_tensors, 'real_seq')
         seq_head = Cropping2D(((0, 0), (0, self.seq_len // 2)), name='seq_head')(seq_head)
         x = seq_head
 
+        strides = (2, 1) if self.time_pres_emb else 2
         for i in range(3):
             num_block = n_hidden * (((i + 1) // 2) + 1)
-            shortcut = Conv2D(num_block, 1, 2,
+            shortcut = Conv2D(num_block, 1, strides,
                               name='generator/seq_fex/block_%d/shortcut' % i, **conv_args)(x)
-            pi = _conv_block(x, num_block, 8, 3, 2, i, 0, 'generator/seq_fex', self.gen_training)
+            pi = _conv_block(x, num_block, 8, 3, strides, i, 0, 'generator/seq_fex', self.gen_training)
             x = Add(name='generator/seq_fex/block_%d/add' % i)([shortcut, pi])
             x = Activation('relu', name='generator/seq_fex/block_%d/relu_out' % i)(x)
 
-        x = Lambda(lambda x: mean(x, axis=(1, 2)), name='generator/seq_fex/mean_pool')(x)
+        if not self.time_pres_emb:
+            x = Lambda(lambda x: mean(x, axis=(1, 2)), name='generator/seq_fex/mean_pool')(x)
         x = [x]
         if self.latent_cond_dim > 0:
             x_lat = _get_tensor(input_tensors, 'latent_cond_input')
@@ -288,13 +291,16 @@ class MotionGANV1(_MotionGAN):
         block_factors = [2, 2, 2]
         block_strides = [2, 2, 2]
 
-        x = Dense(4 * 4 * n_hidden * block_factors[0], name='generator/dense_in')(x)
-        x = Reshape((4, 4, n_hidden * block_factors[0]), name='generator/reshape_in')(x)
+        if not self.time_pres_emb:
+            x = Dense(4 * 4 * n_hidden * block_factors[0], name='generator/dense_in')(x)
+            x = Reshape((4, 4, n_hidden * block_factors[0]), name='generator/reshape_in')(x)
+
         for i, factor in enumerate(block_factors):
             n_filters = n_hidden * factor
-            shortcut = Conv2DTranspose(n_filters, block_strides[i], block_strides[i],
+            strides = (block_strides[i], 1) if self.time_pres_emb else block_strides[i]
+            shortcut = Conv2DTranspose(n_filters, strides, strides,
                                        name='generator/block_%d/shortcut' % i, **conv_args)(x)
-            pi = _conv_block(x, n_filters, 1, 3, block_strides[i], i, 0,
+            pi = _conv_block(x, n_filters, 1, 3, strides, i, 0,
                              'generator', self.gen_training, Conv2DTranspose)
 
             x = Add(name='generator/block_%d/add' % i)([shortcut, pi])
@@ -345,30 +351,36 @@ class MotionGANV2(_MotionGAN):
         block_factors = [2, 2, 2]
         block_strides = [2, 2, 2]
 
-        z = x
+        # For condition injecting
+        # z = x
 
-        for i in range(2):
-            if i > 0:
-                x = BatchNormalization(name='generator/dense_block%d/bn' % i)(x, training=self.gen_training)
-                x = Activation('relu', name='generator/dense_block%d/relu' % i)(x)
-            x = Dense(n_hidden * 4, name='generator/dense_block%d/dense' % i)(x)
+        if not self.time_pres_emb:
+            for i in range(2):
+                if i > 0:
+                    x = BatchNormalization(name='generator/dense_block%d/bn' % i)(x, training=self.gen_training)
+                    x = Activation('relu', name='generator/dense_block%d/relu' % i)(x)
+                x = Dense(n_hidden * 4, name='generator/dense_block%d/dense' % i)(x)
 
-        x = BatchNormalization(name='generator/bn_conv_in')(x, training=self.gen_training)
-        x = Activation('relu', name='generator/relu_conv_in')(x)
-        x = Dense(4 * 4 * n_hidden * block_factors[0], name='generator/dense_conv_in')(x)
-        x = Reshape((4, 4, n_hidden * block_factors[0]), name='generator/reshape_conv_in')(x)
+            x = BatchNormalization(name='generator/bn_conv_in')(x, training=self.gen_training)
+            x = Activation('relu', name='generator/relu_conv_in')(x)
+            x = Dense(4 * 4 * n_hidden * block_factors[0], name='generator/dense_conv_in')(x)
+            x = Reshape((4, 4, n_hidden * block_factors[0]), name='generator/reshape_conv_in')(x)
+
         for i, factor in enumerate(block_factors):
             n_filters = n_hidden * factor
-            shortcut = Conv2DTranspose(n_filters, block_strides[i], block_strides[i],
+            strides = (block_strides[i], 1) if self.time_pres_emb else block_strides[i]
+            shortcut = Conv2DTranspose(n_filters, strides, strides,
                                        name='generator/block_%d/shortcut' % i, **conv_args)(x)
 
-            pi = _conv_block(x, n_filters, 2, 3, block_strides[i], i, 0,
+            pi = _conv_block(x, n_filters, 2, 3, strides, i, 0,
                              'generator', self.gen_training, Conv2DTranspose)
-
-            gamma = _conv_block(x, n_filters, 8, int(x.shape[1]), int(x.shape[1]), i, 1,
+            # For condition injecting
+            # squeeze_kernel = (x.shape[1], x.shape[2])
+            gamma = _conv_block(x, n_filters, 8, 3, strides, i, 1,
                                 'generator', self.gen_training)
             gamma = Flatten(name='generator/block_%d/gamma_flatten' % i)(gamma)
-            gamma = Concatenate(name='generator/block_%d/cond_concat' % i)([gamma, z])
+            # For condition injecting
+            # gamma = Concatenate(name='generator/block_%d/cond_concat' % i)([gamma, z])
             gamma = BatchNormalization(name='generator/block_%d/cond_bn' % i)(gamma, training=self.gen_training)
             gamma = Activation('relu', name='generator/block_%d/cond_relu' % i)(gamma)
             gamma = Dense(n_filters, name='generator/block_%d/cond_dense' % i)(gamma)

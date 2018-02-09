@@ -26,6 +26,8 @@
     'displacement_loss': True,
     # Body shape conservation loss
     'shape_loss': True,
+    # Time preserving embedding (NOT COMPATIBLE with latent factor model)
+    'time_pres_emb': False,
     # Type of unfolding
     # 'unfold': None,
     # Size of the noise vector

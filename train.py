@@ -110,14 +110,14 @@ if __name__ == "__main__":
             t.set_postfix(disc_loss='%.2e' % (disc_loss_sum / (batch_num + 1)),
                           gen_loss='%.2e' % (gen_loss_sum / (batch_num + 1)))
 
-            logs = {
-                'disc_loss': (disc_loss / disc_batches),
-                'loss_real': (loss_real / disc_batches),
-                'loss_fake': (loss_fake / disc_batches),
-                'gen_loss': gen_loss[0]
-            }
-
-            tensorboard.on_batch_end(batch_num, logs)
+            # logs = {
+            #     'disc_loss': (disc_loss / disc_batches),
+            #     'loss_real': (loss_real / disc_batches),
+            #     'loss_fake': (loss_fake / disc_batches),
+            #     'gen_loss': gen_loss[0]
+            # }
+            #
+            # tensorboard.on_batch_end(batch_num, logs)
 
             # gen_outputs = model_wrap.gen_model.predict(gen_inputs, config.batch_size)
             # if config.img_cond and not config.disable_aux_loss:
@@ -132,14 +132,13 @@ if __name__ == "__main__":
         config.epoch = epoch + 1
         config.save()
 
-        # logs = {
-        #     'disc_loss': disc_loss_sum / train_batches,
-        #     'loss_real': loss_real_sum / train_batches,
-        #     'loss_fake': loss_fake_sum / train_batches,
-        #     'gen_loss': gen_loss_sum / train_batches
-        # }
-        logs = {}
-
+        logs = {
+            'disc_loss': disc_loss_sum / train_batches,
+            'loss_real': loss_real_sum / train_batches,
+            'loss_fake': loss_fake_sum / train_batches,
+            'gen_loss': gen_loss_sum / train_batches
+        }
+        
         tensorboard.on_epoch_end(epoch, logs)
 
     tensorboard.on_train_end(None)

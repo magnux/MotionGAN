@@ -6,6 +6,7 @@ from config import get_config
 from data_input import DataInput
 from models.motiongan import MotionGANV1, MotionGANV2
 from utils.restore_keras_model import restore_keras_model
+from time import sleep
 
 
 logging = tf.logging
@@ -110,3 +111,4 @@ if __name__ == "__main__":
 
             plt.show(block=False)
             fig.canvas.draw()
+            sleep(0.1)

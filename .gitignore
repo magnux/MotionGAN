@@ -32,5 +32,7 @@ local.properties
 .cproject
 
 # Project specific ignores
+data*
 data/*
+save*
 save/*

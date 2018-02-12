@@ -71,11 +71,11 @@ class _MotionGAN(object):
         self.latent_scale_d = 1e0
         self.latent_scale_g = 1e-1
         self.coherence_loss = config.coherence_loss
-        self.coherence_scale = 1e-1
+        self.coherence_scale = 1e0
         self.displacement_loss = config.displacement_loss
-        self.displacement_scale = 1e-2
+        self.displacement_scale = 1e-1
         self.shape_loss = config.shape_loss
-        self.shape_scale = 1e-1
+        self.shape_scale = 1e0
         self.time_pres_emb = config.time_pres_emb
 
         self.seq_len = config.pick_num if config.pick_num > 0 else (
@@ -238,13 +238,17 @@ class _MotionGAN(object):
         x = seq_head
 
         strides = (2, 1) if self.time_pres_emb else 2
-        for i in range(3):
+        i = 0
+        while (x.shape[1] > 1 and self.time_pres_emb) or (i < 3):
             num_block = n_hidden * (((i + 1) // 2) + 1)
             shortcut = Conv2D(num_block, 1, strides,
                               name='generator/seq_fex/block_%d/shortcut' % i, **conv_args)(x)
             pi = _conv_block(x, num_block, 8, 3, strides, i, 0, 'generator/seq_fex', self.gen_training)
             x = Add(name='generator/seq_fex/block_%d/add' % i)([shortcut, pi])
             x = Activation('relu', name='generator/seq_fex/block_%d/relu_out' % i)(x)
+            i += 1
+
+        self.nblocks = i
 
         if not self.time_pres_emb:
             x = Lambda(lambda x: mean(x, axis=(1, 2)), name='generator/seq_fex/mean_pool')(x)
@@ -288,8 +292,8 @@ class MotionGANV1(_MotionGAN):
         # ResNet generator
         conv_args = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
         n_hidden = 64
-        block_factors = [2, 2, 2]
-        block_strides = [2, 2, 2]
+        block_factors = [2] * self.nblocks
+        block_strides = [2] * self.nblocks
 
         if not self.time_pres_emb:
             x = Dense(4 * 4 * n_hidden * block_factors[0], name='generator/dense_in')(x)
@@ -348,8 +352,8 @@ class MotionGANV2(_MotionGAN):
         # Gated ResNet generator
         conv_args = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
         n_hidden = 64
-        block_factors = [2, 2, 2]
-        block_strides = [2, 2, 2]
+        block_factors = [2] * self.nblocks
+        block_strides = [2] * self.nblocks
 
         # For condition injecting
         # z = x

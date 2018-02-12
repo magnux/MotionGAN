@@ -18,6 +18,7 @@ class DataInput(object):
         self.pick_num = config.pick_num
         self.crop_len = config.crop_len
         self.only_val = config.only_val
+        self.no_val = config.no_val
         self.data_set_version = config.data_set_version
 
         file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '.h5')
@@ -44,7 +45,8 @@ class DataInput(object):
 
         if not self.only_val:
             self.train_batches = self.pre_comp_batches(True)
-        self.val_batches = self.pre_comp_batches(False)
+        if not self.no_val:
+            self.val_batches = self.pre_comp_batches(False)
 
     def pre_comp_batches(self, is_training):
         epoch_size = self.train_epoch_size if is_training else self.val_epoch_size

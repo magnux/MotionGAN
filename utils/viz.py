@@ -177,4 +177,7 @@ def plot_gif(real_seq, gen_seq, labs, save_path=None):
     else:
         plt.show()
 
-    return int(fig.get_figheight()), int(fig.get_figwidth())
+    fig_size = (int(fig.get_figheight()), int(fig.get_figwidth()))
+    plt.close(fig)
+
+    return fig_size

@@ -52,9 +52,6 @@ if __name__ == "__main__":
                               batch_size=config.batch_size, write_graph=True)
     tensorboard.set_model(model_wrap.gan_model)
 
-    if not tf.gfile.Exists('%s_imgs' % config.save_path):
-        tf.gfile.MkDir('%s_imgs' % config.save_path)
-
     def gen_latent_noise():
         return np.random.uniform(size=(config.batch_size, config.latent_cond_dim))
 
@@ -69,8 +66,8 @@ if __name__ == "__main__":
         t = trange(train_batches)
         t.set_description('| ep: %d | lr: %.2e |' % (epoch, learning_rate))
         disc_loss_sum = 0
-        # loss_real_sum = 0
-        # loss_fake_sum = 0
+        loss_real_sum = 0
+        loss_fake_sum = 0
         gen_loss_sum = 0
         for batch_num in t:
             disc_batches = 55 if ((epoch < 1 and batch_num < train_batches // 10)
@@ -96,8 +93,8 @@ if __name__ == "__main__":
                 loss_fake += disc_losses[2]
 
             disc_loss_sum += (disc_loss / disc_batches)
-            # loss_real_sum += (loss_real / disc_batches)
-            # loss_fake_sum += (loss_fake / disc_batches)
+            loss_real_sum += (loss_real / disc_batches)
+            loss_fake_sum += (loss_fake / disc_batches)
 
             labs_batch, poses_batch = train_generator.next()
 
@@ -115,22 +112,11 @@ if __name__ == "__main__":
             t.set_postfix(disc_loss='%.2e' % (disc_loss_sum / (batch_num + 1)),
                           gen_loss='%.2e' % (gen_loss_sum / (batch_num + 1)))
 
-            gen_outputs = model_wrap.gen_model.predict(gen_inputs, config.batch_size)
-            gif_name = '%s_imgs/%d_%d.gif' % (config.save_path, epoch, batch_num)
-            gif_height, gif_width = plot_gif(poses_batch[0, ...], gen_outputs[0, ...],
-                                             labs_batch[0, ...], gif_name)
-
-            with open(gif_name, 'rb') as f:
-                encoded_image_string = f.read()
-
             logs = {
                 'disc_loss': (disc_loss / disc_batches),
                 'loss_real': (loss_real / disc_batches),
                 'loss_fake': (loss_fake / disc_batches),
-                'gen_loss': gen_loss[0],
-                'custom_img': {'height': gif_height,
-                               'width': gif_width,
-                               'enc_string': encoded_image_string}
+                'gen_loss': gen_loss[0]
             }
 
             tensorboard.on_batch_end(batch_num, logs)
@@ -141,13 +127,29 @@ if __name__ == "__main__":
         config.epoch = epoch + 1
         config.save()
 
-        # logs = {
-        #     'disc_loss': disc_loss_sum / train_batches,
-        #     'loss_real': loss_real_sum / train_batches,
-        #     'loss_fake': loss_fake_sum / train_batches,
-        #     'gen_loss': gen_loss_sum / train_batches
-        # }
-        #
-        # tensorboard.on_epoch_end(epoch + 1, logs)
+        # Generating images and logging
+        gen_outputs = model_wrap.gen_model.predict(gen_inputs, config.batch_size)
+
+        logs = {
+            'disc_loss': disc_loss_sum / train_batches,
+            'loss_real': loss_real_sum / train_batches,
+            'loss_fake': loss_fake_sum / train_batches,
+            'gen_loss': gen_loss_sum / train_batches
+        }
+
+        for i in range(config.batch_size):
+            gif_name = '%s_tmp.gif' % (config.save_path, epoch, batch_num)
+            gif_height, gif_width = plot_gif(poses_batch[i, ...],
+                                             gen_outputs[i, ...],
+                                             labs_batch[i, ...], gif_name)
+
+            with open(gif_name, 'rb') as f:
+                encoded_image_string = f.read()
+
+            logs['custom_img_%d' % i] = {'height': gif_height,
+                                         'width': gif_width,
+                                         'enc_string': encoded_image_string}
+
+        tensorboard.on_epoch_end(epoch + 1, logs)
 
     tensorboard.on_train_end(None)

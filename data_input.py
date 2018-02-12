@@ -163,7 +163,7 @@ class DataInput(object):
         slice_idx = -1
         rand_indices = None
 
-        while 1:
+        while True:
             slice_idx += 1
             slice_idx = slice_idx % epoch_size
             if not self.only_val:

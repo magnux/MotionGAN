@@ -7,6 +7,7 @@ from utils.callbacks import TensorBoard
 from models.motiongan import MotionGANV1, MotionGANV2
 from utils.restore_keras_model import restore_keras_model
 from tqdm import trange
+from utils.viz import plot_gif
 
 logging = tf.logging
 flags = tf.flags
@@ -47,8 +48,12 @@ if __name__ == "__main__":
         model_wrap.gen_model = restore_keras_model(
             model_wrap.gen_model, config.save_path + '_gen_weights.hdf5', False)
 
-    tensorboard = TensorBoard(log_dir=config.save_path + '_logs')
+    tensorboard = TensorBoard(log_dir=config.save_path + '_logs',
+                              batch_size=config.batch_size, write_graph=True)
     tensorboard.set_model(model_wrap.gan_model)
+
+    if not tf.gfile.Exists('%s_imgs' % config.save_path):
+        tf.gfile.MkDir('%s_imgs' % config.save_path)
 
     def gen_latent_noise():
         return np.random.uniform(size=(config.batch_size, config.latent_cond_dim))
@@ -110,21 +115,24 @@ if __name__ == "__main__":
             t.set_postfix(disc_loss='%.2e' % (disc_loss_sum / (batch_num + 1)),
                           gen_loss='%.2e' % (gen_loss_sum / (batch_num + 1)))
 
+            gen_outputs = model_wrap.gen_model.predict(gen_inputs, config.batch_size)
+            gif_name = '%s_imgs/%d_%d.gif' % (config.save_path, epoch, batch_num)
+            gif_height, gif_width = plot_gif(gen_inputs[0][0, ...], gen_outputs[0, ...], gif_name)
+
+            with open(gif_name, 'rb') as f:
+                encoded_image_string = f.read()
+
             logs = {
                 'disc_loss': (disc_loss / disc_batches),
                 'loss_real': (loss_real / disc_batches),
                 'loss_fake': (loss_fake / disc_batches),
-                'gen_loss': gen_loss[0]
+                'gen_loss': gen_loss[0],
+                'custom_img': {'height': gif_height,
+                               'width': gif_width,
+                               'enc_string': encoded_image_string}
             }
 
             tensorboard.on_batch_end(batch_num, logs)
-
-            # gen_outputs = model_wrap.gen_model.predict(gen_inputs, config.batch_size)
-            # if config.img_cond and not config.disable_aux_loss:
-            #     imgs = gen_outputs[0]
-            # else:
-            #     imgs = gen_outputs
-            # save_generator_output(imgs, config.save_path, epoch, batch_num, train_batches)
 
         model_wrap.disc_model.save(config.save_path + '_disc_weights.hdf5')
         model_wrap.gen_model.save(config.save_path + '_gen_weights.hdf5')

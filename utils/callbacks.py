@@ -6,6 +6,7 @@ from tensorflow.contrib.keras.api.keras.callbacks import Callback
 from tensorflow.python.ops import array_ops
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.summary import summary as tf_summary
+import tensorflow as tf
 
 class ReduceLROnPercentPlateau(Callback):
 
@@ -208,23 +209,42 @@ class TensorBoard(Callback):
         else:
             self.writer = tf_summary.FileWriter(self.log_dir)
 
-    def on_batch_end(self, batch, logs=None):
-        self.batch = batch
+    def _save_logs(self, logs):
         logs = logs or {}
+
         for name, value in logs.items():
             if name in ['batch', 'size']:
                 continue
-            summary = tf_summary.Summary()
-            summary_value = summary.value.add()
-            summary_value.simple_value = value.item()
-            summary_value.tag = name
-            self.writer.add_summary(summary, (self.epoch * self.batch_size) + self.batch)
+            elif 'custom_img' in name:
+                self._save_custom_img(name, value)
+            else:
+                self._save_scalar(name, value)
         self.writer.flush()
+
+    def _save_scalar(self, name, value):
+        summary = tf_summary.Summary()
+        summary_value = summary.value.add()
+        summary_value.simple_value = value.item()
+        summary_value.tag = name
+        self.writer.add_summary(summary, (self.epoch * self.batch_size) + self.batch)
+
+    def _save_custom_img(self, name, value):
+        summary = tf_summary.Summary()
+        image = tf.Summary.Image()
+        image.height = value['height']
+        image.width = value['width']
+        image.colorspace = 3  # code for 'RGB'
+        image.encoded_image_string = value['enc_string']
+        summary.value.add(tag=name, image=image)
+        self.writer.add_summary(summary, (self.epoch * self.batch_size) + self.batch)
+
+    def on_batch_end(self, batch, logs=None):
+        self.batch = batch
+        self._save_logs(logs)
 
     def on_epoch_end(self, epoch, logs=None):
         self.epoch = epoch
         self.batch = 0
-        logs = logs or {}
 
         if not self.validation_data and self.histogram_freq:
             raise ValueError('If printing histograms, validation_data must be '
@@ -260,15 +280,7 @@ class TensorBoard(Callback):
                     self.writer.add_summary(summary_str, self.epoch * self.batch_size)
                     i += self.batch_size
 
-        for name, value in logs.items():
-            if name in ['batch', 'size']:
-                continue
-            summary = tf_summary.Summary()
-            summary_value = summary.value.add()
-            summary_value.simple_value = value.item()
-            summary_value.tag = name
-            self.writer.add_summary(summary, self.epoch * self.batch_size)
-        self.writer.flush()
+        self._save_logs(logs)
 
     def on_train_end(self, logs=None):
         self.writer.close()

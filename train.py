@@ -138,7 +138,7 @@ if __name__ == "__main__":
         }
 
         for i in range(config.batch_size):
-            gif_name = '%s_tmp.gif' % (config.save_path, epoch, batch_num)
+            gif_name = '%s_tmp.gif' % config.save_path
             gif_height, gif_width = plot_gif(poses_batch[i, ...],
                                              gen_outputs[i, ...],
                                              labs_batch[i, ...], gif_name)

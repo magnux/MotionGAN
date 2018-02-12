@@ -123,7 +123,7 @@ class _MotionGAN(object):
         disc_training_updates = disc_optimizer.get_updates(disc_loss,
                                 self.disc_model.trainable_weights)
         self.disc_train = K_function(self.disc_inputs + self.gen_inputs + self.place_holders,
-                                     [loss_real, loss_fake],
+                                     [disc_loss, loss_real, loss_fake],
                                      disc_training_updates)
         self.disc_model = self._pseudo_build_model(self.disc_model, disc_optimizer)
 

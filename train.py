@@ -62,13 +62,15 @@ if __name__ == "__main__":
 
         t = trange(train_batches)
         t.set_description('| ep: %d | lr: %.2e |' % (epoch, learning_rate))
+        disc_loss_sum = 0
         loss_real_sum = 0
         loss_fake_sum = 0
         gen_loss_sum = 0
         for batch_num in t:
             disc_batches = 55 if ((epoch < 1 and batch_num < train_batches // 10)
                                       or (batch_num % 10 == 0)) else 5
-            disc_batches = 5
+            # disc_batches = 5
+            disc_loss = 0
             loss_real = 0
             loss_fake = 0
             for _ in range(disc_batches):
@@ -83,10 +85,12 @@ if __name__ == "__main__":
                     latent_noise = gen_latent_noise()
                     gen_inputs.append(latent_noise)
 
-                disc_loss = model_wrap.disc_train(disc_inputs + gen_inputs + place_holders)
-                loss_real += disc_loss[0]
-                loss_fake += disc_loss[1]
+                disc_losses = model_wrap.disc_train(disc_inputs + gen_inputs + place_holders)
+                disc_loss += disc_losses[0]
+                loss_real += disc_losses[1]
+                loss_fake += disc_losses[2]
 
+            disc_loss_sum += (disc_loss / disc_batches)
             loss_real_sum += (loss_real / disc_batches)
             loss_fake_sum += (loss_fake / disc_batches)
 
@@ -103,9 +107,17 @@ if __name__ == "__main__":
             gen_loss = model_wrap.gen_train(gen_inputs + place_holders)
 
             gen_loss_sum += gen_loss[0]
-            t.set_postfix(loss_real='%.2e' % (loss_real_sum / (batch_num + 1)),
-                          loss_fake='%.2e' % (loss_fake_sum / (batch_num + 1)),
+            t.set_postfix(disc_loss='%.2e' % (disc_loss_sum / (batch_num + 1)),
                           gen_loss='%.2e' % (gen_loss_sum / (batch_num + 1)))
+
+            logs = {
+                'disc_loss': (disc_loss / disc_batches),
+                'loss_real': (loss_real / disc_batches),
+                'loss_fake': (loss_fake / disc_batches),
+                'gen_loss': gen_loss[0]
+            }
+
+            tensorboard.on_batch_end(batch_num, logs)
 
             # gen_outputs = model_wrap.gen_model.predict(gen_inputs, config.batch_size)
             # if config.img_cond and not config.disable_aux_loss:
@@ -114,17 +126,19 @@ if __name__ == "__main__":
             #     imgs = gen_outputs
             # save_generator_output(imgs, config.save_path, epoch, batch_num, train_batches)
 
-        logs = {
-            'loss_real': loss_real_sum / train_batches,
-            'loss_fake': loss_fake_sum / train_batches,
-            'gen_loss': gen_loss_sum / train_batches
-        }
-
         model_wrap.disc_model.save(config.save_path + '_disc_weights.hdf5')
         model_wrap.gen_model.save(config.save_path + '_gen_weights.hdf5')
 
         config.epoch = epoch + 1
         config.save()
+
+        # logs = {
+        #     'disc_loss': disc_loss_sum / train_batches,
+        #     'loss_real': loss_real_sum / train_batches,
+        #     'loss_fake': loss_fake_sum / train_batches,
+        #     'gen_loss': gen_loss_sum / train_batches
+        # }
+        logs = {}
 
         tensorboard.on_epoch_end(epoch, logs)
 

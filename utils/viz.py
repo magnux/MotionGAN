@@ -115,10 +115,42 @@ class Ax3DPose(object):
         self.ax.set_aspect('equal')
 
 
-def plot_gif(real_seq, gen_seq, save_path=None):
+NTU_ACTIONS = ["drink water", "eat meal/snack", "brushing teeth",
+               "brushing hair", "drop", "pickup", "throw", "sitting down",
+               "standing up (from sitting position)", "clapping", "reading",
+               "writing", "tear up paper", "wear jacket", "take off jacket",
+               "wear a shoe", "take off a shoe", "wear on glasses",
+               "take off glasses", "put on a hat/cap", "take off a hat/cap",
+               "cheer up", "hand waving", "kicking something",
+               "put something inside pocket / take out something from pocket",
+               "hopping (one foot jumping)", "jump up",
+               "make a phone call/answer phone", "playing with phone/tablet",
+               "typing on a keyboard", "pointing to something with finger",
+               "taking a selfie", "check time (from watch)",
+               "rub two hands together", "nod head/bow", "shake head",
+               "wipe face", "salute", "put the palms together",
+               "cross hands in front (say stop)", "sneeze/cough", "staggering",
+               "falling", "touch head (headache)",
+               "touch chest (stomachache/heart pain)", "touch back (backache)",
+               "touch neck (neckache)", "nausea or vomiting condition",
+               "use a fan (with hand or paper)/feeling warm",
+               "punching/slapping other person", "kicking other person",
+               "pushing other person", "pat on back of other person",
+               "point finger at the other person", "hugging other person",
+               "giving something to other person",
+               "touch other person's pocket", "handshaking",
+               "walking towards each other", "walking apart from each other"]
+
+
+def plot_gif(real_seq, gen_seq, labs, save_path=None):
     # === Plot and animate ===
     fig = plt.figure(dpi=80, figsize=plt.figaspect(1 / 2))
-    fig.tight_layout()
+
+    seq_idx, subject, action, plen = labs
+    title = "action: %s  subject: %d  seq_idx: %d  length: %d" % \
+              (NTU_ACTIONS[action], subject, seq_idx, plen)
+
+    fig.suptitle(title)
 
     ax0 = fig.add_subplot(1, 2, 1, projection='3d')
     ax0.view_init(elev=90, azim=-90)
@@ -128,6 +160,8 @@ def plot_gif(real_seq, gen_seq, save_path=None):
     ax1 = fig.add_subplot(1, 2, 2, projection='3d')
     ax1.view_init(elev=90, azim=-90)
     ob1 = Ax3DPose(ax1)
+
+    fig.tight_layout()
 
     def update(frame):
         ob0.update(real_seq[:, frame, :])
@@ -140,7 +174,7 @@ def plot_gif(real_seq, gen_seq, save_path=None):
     anim = FuncAnimation(fig, update, frames=np.arange(0, seq_len), interval=100)
     if save_path is not None:
         anim.save(save_path, dpi=80, writer='imagemagick')
-        return int(fig.get_figheight()), int(fig.get_figwidth())
     else:
         plt.show()
-        return None
+
+    return int(fig.get_figheight()), int(fig.get_figwidth())

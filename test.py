@@ -6,7 +6,7 @@ from config import get_config
 from data_input import DataInput
 from models.motiongan import MotionGANV1, MotionGANV2
 from utils.restore_keras_model import restore_keras_model
-from time import sleep
+from utils.viz import plot_gif
 
 
 logging = tf.logging
@@ -15,32 +15,6 @@ flags.DEFINE_bool("verbose", False, "To talk or not to talk")
 flags.DEFINE_string("save_path", None, "Model output directory")
 flags.DEFINE_string("config_file", None, "Model config file")
 FLAGS = flags.FLAGS
-
-NTU_ACTIONS = ["drink water", "eat meal/snack", "brushing teeth",
-               "brushing hair", "drop", "pickup", "throw", "sitting down",
-               "standing up (from sitting position)", "clapping", "reading",
-               "writing", "tear up paper", "wear jacket", "take off jacket",
-               "wear a shoe", "take off a shoe", "wear on glasses",
-               "take off glasses", "put on a hat/cap", "take off a hat/cap",
-               "cheer up", "hand waving", "kicking something",
-               "put something inside pocket / take out something from pocket",
-               "hopping (one foot jumping)", "jump up",
-               "make a phone call/answer phone", "playing with phone/tablet",
-               "typing on a keyboard", "pointing to something with finger",
-               "taking a selfie", "check time (from watch)",
-               "rub two hands together", "nod head/bow", "shake head",
-               "wipe face", "salute", "put the palms together",
-               "cross hands in front (say stop)", "sneeze/cough", "staggering",
-               "falling", "touch head (headache)",
-               "touch chest (stomachache/heart pain)", "touch back (backache)",
-               "touch neck (neckache)", "nausea or vomiting condition",
-               "use a fan (with hand or paper)/feeling warm",
-               "punching/slapping other person", "kicking other person",
-               "pushing other person", "pat on back of other person",
-               "point finger at the other person", "hugging other person",
-               "giving something to other person",
-               "touch other person's pocket", "handshaking",
-               "walking towards each other", "walking apart from each other"]
 
 if __name__ == "__main__":
     # Config stuff
@@ -82,33 +56,9 @@ if __name__ == "__main__":
         gen_inputs.append(latent_noise)
     gen_outputs = model_wrap.gen_model.predict(gen_inputs, config.batch_size)
 
-    import matplotlib.pyplot as plt
-    import utils.viz as viz
-
-    # === Plot and animate ===
-    fig = plt.figure(dpi=160, figsize=plt.figaspect(1 / 2))
-
-    ax0 = fig.add_subplot(1, 2, 1, projection='3d')
-    ax0.view_init(elev=90, azim=-90)
-    # ax0.view_init(elev=0, azim=90)
-    ob0 = viz.Ax3DPose(ax0)
-
-    ax1 = fig.add_subplot(1, 2, 2, projection='3d')
-    ax1.view_init(elev=90, azim=-90)
-    ob1 = viz.Ax3DPose(ax1)
-
     rand_indices = np.random.permutation(config.batch_size)
 
     for j in range(config.batch_size):
         seq_idx = rand_indices[j]
-        seq_idx, subject, action, plen = labs_batch[seq_idx, ...]
 
-        print("action: %s  subject: %d  seq_idx: %d  length: %d" %
-              (NTU_ACTIONS[action], subject, seq_idx, plen))
-        for i in range(plen):
-            ob0.update(poses_batch[seq_idx, :, i, :])
-            ob1.update(gen_outputs[seq_idx, :, i, :])
-
-            plt.show(block=False)
-            fig.canvas.draw()
-            sleep(0.1)
+        plot_gif(poses_batch[seq_idx, ...], gen_outputs[seq_idx, ...], labs_batch[seq_idx, ...])

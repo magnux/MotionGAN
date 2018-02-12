@@ -238,9 +238,16 @@ class TensorBoard(Callback):
         summary.value.add(tag=name, image=image)
         self.writer.add_summary(summary, (self.epoch * self.batch_size) + self.batch)
 
+    def on_batch_begin(self, batch, logs=None):
+        self.batch = batch
+
     def on_batch_end(self, batch, logs=None):
         self.batch = batch
         self._save_logs(logs)
+
+    def on_epoch_begin(self, epoch, logs=None):
+        self.epoch = epoch
+        self.batch = 0
 
     def on_epoch_end(self, epoch, logs=None):
         self.epoch = epoch

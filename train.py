@@ -59,6 +59,7 @@ if __name__ == "__main__":
         return np.random.uniform(size=(config.batch_size, config.latent_cond_dim))
 
     for epoch in range(config.epoch, config.num_epochs):
+        tensorboard.on_epoch_begin(epoch)
 
         if config.lr_decay:
             # learning_rate = config.learning_rate * (0.1 ** (epoch // (config.num_epochs // 3)))
@@ -68,13 +69,12 @@ if __name__ == "__main__":
         t = trange(train_batches)
         t.set_description('| ep: %d | lr: %.2e |' % (epoch, learning_rate))
         disc_loss_sum = 0
-        loss_real_sum = 0
-        loss_fake_sum = 0
+        # loss_real_sum = 0
+        # loss_fake_sum = 0
         gen_loss_sum = 0
         for batch_num in t:
             disc_batches = 55 if ((epoch < 1 and batch_num < train_batches // 10)
                                       or (batch_num % 10 == 0)) else 5
-            # disc_batches = 5
             disc_loss = 0
             loss_real = 0
             loss_fake = 0
@@ -96,8 +96,8 @@ if __name__ == "__main__":
                 loss_fake += disc_losses[2]
 
             disc_loss_sum += (disc_loss / disc_batches)
-            loss_real_sum += (loss_real / disc_batches)
-            loss_fake_sum += (loss_fake / disc_batches)
+            # loss_real_sum += (loss_real / disc_batches)
+            # loss_fake_sum += (loss_fake / disc_batches)
 
             labs_batch, poses_batch = train_generator.next()
 
@@ -117,7 +117,8 @@ if __name__ == "__main__":
 
             gen_outputs = model_wrap.gen_model.predict(gen_inputs, config.batch_size)
             gif_name = '%s_imgs/%d_%d.gif' % (config.save_path, epoch, batch_num)
-            gif_height, gif_width = plot_gif(gen_inputs[0][0, ...], gen_outputs[0, ...], gif_name)
+            gif_height, gif_width = plot_gif(poses_batch[0, ...], gen_outputs[0, ...],
+                                             labs_batch[0, ...], gif_name)
 
             with open(gif_name, 'rb') as f:
                 encoded_image_string = f.read()
@@ -140,13 +141,13 @@ if __name__ == "__main__":
         config.epoch = epoch + 1
         config.save()
 
-        logs = {
-            'disc_loss': disc_loss_sum / train_batches,
-            'loss_real': loss_real_sum / train_batches,
-            'loss_fake': loss_fake_sum / train_batches,
-            'gen_loss': gen_loss_sum / train_batches
-        }
-
-        tensorboard.on_epoch_end(epoch, logs)
+        # logs = {
+        #     'disc_loss': disc_loss_sum / train_batches,
+        #     'loss_real': loss_real_sum / train_batches,
+        #     'loss_fake': loss_fake_sum / train_batches,
+        #     'gen_loss': gen_loss_sum / train_batches
+        # }
+        #
+        # tensorboard.on_epoch_end(epoch + 1, logs)
 
     tensorboard.on_train_end(None)

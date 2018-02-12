@@ -132,13 +132,13 @@ if __name__ == "__main__":
         config.epoch = epoch + 1
         config.save()
 
-        # logs = {
-        #     'disc_loss': disc_loss_sum / train_batches,
-        #     'loss_real': loss_real_sum / train_batches,
-        #     'loss_fake': loss_fake_sum / train_batches,
-        #     'gen_loss': gen_loss_sum / train_batches
-        # }
-        #
-        # tensorboard.on_epoch_end(epoch, logs)
+        logs = {
+            'disc_loss': disc_loss_sum / train_batches,
+            'loss_real': loss_real_sum / train_batches,
+            'loss_fake': loss_fake_sum / train_batches,
+            'gen_loss': gen_loss_sum / train_batches
+        }
+
+        tensorboard.on_epoch_end(epoch, logs)
 
     tensorboard.on_train_end(None)

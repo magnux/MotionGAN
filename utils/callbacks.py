@@ -138,7 +138,9 @@ class TensorBoard(Callback):
     def __init__(self,
                  log_dir='./logs',
                  histogram_freq=0,
-                 batch_size=32,
+                 epoch=0,
+                 n_batches=0,
+                 batch_size=0,
                  write_graph=True,
                  write_grads=False,
                  write_images=False):
@@ -149,8 +151,9 @@ class TensorBoard(Callback):
         self.write_graph = write_graph
         self.write_grads = write_grads
         self.write_images = write_images
+        self.epoch = epoch
+        self.n_batches = n_batches
         self.batch_size = batch_size
-        self.epoch = 0
 
     def set_model(self, model):
         self.model = model
@@ -209,6 +212,9 @@ class TensorBoard(Callback):
         else:
             self.writer = tf_summary.FileWriter(self.log_dir)
 
+    def _current_step(self):
+        return (self.epoch * self.n_batches) + self.batch
+
     def _save_logs(self, logs):
         logs = logs or {}
 
@@ -226,7 +232,7 @@ class TensorBoard(Callback):
         summary_value = summary.value.add()
         summary_value.simple_value = value.item()
         summary_value.tag = name
-        self.writer.add_summary(summary, (self.epoch * self.batch_size) + self.batch)
+        self.writer.add_summary(summary, self._current_step())
 
     def _save_custom_img(self, name, value):
         summary = tf_summary.Summary()
@@ -236,7 +242,7 @@ class TensorBoard(Callback):
         image.colorspace = 3  # code for 'RGB'
         image.encoded_image_string = value['enc_string']
         summary.value.add(tag=name, image=image)
-        self.writer.add_summary(summary, (self.epoch * self.batch_size) + self.batch)
+        self.writer.add_summary(summary, self._current_step())
 
     def on_batch_begin(self, batch, logs=None):
         self.batch = batch

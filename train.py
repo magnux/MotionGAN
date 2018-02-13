@@ -49,14 +49,16 @@ if __name__ == "__main__":
             model_wrap.gen_model, config.save_path + '_gen_weights.hdf5', False)
 
     tensorboard = TensorBoard(log_dir=config.save_path + '_logs',
-                              batch_size=config.batch_size, write_graph=True)
+                              epoch=config.epoch,
+                              n_batches=train_batches,
+                              batch_size=config.batch_size,
+                              write_graph=True)
     tensorboard.set_model(model_wrap.gan_model)
 
     def gen_latent_noise():
         return np.random.uniform(size=(config.batch_size, config.latent_cond_dim))
 
     for epoch in range(config.epoch, config.num_epochs):
-        tensorboard.on_epoch_begin(epoch)
 
         if config.lr_decay:
             # learning_rate = config.learning_rate * (0.1 ** (epoch // (config.num_epochs // 3)))
@@ -137,7 +139,7 @@ if __name__ == "__main__":
             'gen_loss': gen_loss_sum / train_batches
         }
 
-        for i in range(config.batch_size):
+        for i in range(16):  # config.batch_size
             gif_name = '%s_tmp.gif' % config.save_path
             gif_height, gif_width = plot_gif(poses_batch[i, ...],
                                              gen_outputs[i, ...],

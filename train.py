@@ -72,8 +72,9 @@ if __name__ == "__main__":
         loss_fake_sum = 0
         gen_loss_sum = 0
         for batch_num in t:
-            disc_batches = 55 if ((epoch < 1 and batch_num < train_batches // 10)
-                                      or (batch_num % 10 == 0)) else 5
+            disc_batches = 5
+            # disc_batches = 55 if ((epoch < 1 and batch_num < train_batches // 10)
+            #                           or (batch_num % 10 == 0)) else 5
             disc_loss = 0
             loss_real = 0
             loss_fake = 0

@@ -45,7 +45,7 @@ class DataInput(object):
 
         if not self.only_val:
             self.train_batches = self.pre_comp_batches(True)
-        if not self.no_val:
+        if (not self.no_val) or self.only_val:
             self.val_batches = self.pre_comp_batches(False)
 
     def pre_comp_batches(self, is_training):

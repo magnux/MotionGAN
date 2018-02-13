@@ -1,16 +1,14 @@
 from __future__ import absolute_import, division, print_function
 import numpy as np
-from tensorflow.contrib.keras.api.keras.backend import sum, mean, \
-    square, sqrt, random_uniform, gradients, placeholder, set_value, \
-    sparse_categorical_crossentropy, cast_to_floatx, expand_dims, max
-from tensorflow.contrib.keras.api.keras.backend import function as K_function
+import tensorflow.contrib.keras.api.keras.backend as K
+from scipy.fftpack import idct
+from scipy.linalg import pinv
 from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, \
-    Conv2D, Dense, Dropout, Flatten, LeakyReLU, Reshape, Activation,\
-    BatchNormalization, Lambda, Add, Concatenate, Cropping2D, Permute
+    Conv2D, Dense, Reshape, Activation, BatchNormalization, Lambda, Add, \
+    Concatenate, Cropping2D, Permute
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
-from tensorflow.contrib.keras.api.keras.initializers import RandomNormal
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 
 
@@ -48,10 +46,10 @@ def _shape_seq_out(x, njoints, seq_len):
 
 
 def _edm(x):
-    x1 = expand_dims(x, axis=1)
-    x2 = expand_dims(x, axis=2)
+    x1 = K.expand_dims(x, axis=1)
+    x2 = K.expand_dims(x, axis=2)
     # epsilon needed in sqrt to avoid numerical issues
-    return sqrt(sum(square(x1 - x2), axis=-1) + 1e-8)
+    return K.sqrt(K.sum(K.square(x1 - x2), axis=-1) + 1e-8)
 
 
 class _MotionGAN(object):
@@ -63,19 +61,22 @@ class _MotionGAN(object):
         self.num_actions = config.num_actions
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
-        self.gamma_grads = 1e0
+        self.gamma_grads = 1.0
         self.action_cond = config.action_cond
-        self.action_scale_d = 1e0
-        self.action_scale_g = 1e-1
+        self.action_scale_d = 1.0
+        self.action_scale_g = 0.1
         self.latent_cond_dim = config.latent_cond_dim
-        self.latent_scale_d = 1e0
-        self.latent_scale_g = 1e-1
+        self.latent_scale_d = 1.0
+        self.latent_scale_g = 0.1
         self.coherence_loss = config.coherence_loss
-        self.coherence_scale = 1e0
+        self.coherence_scale = 10.0
         self.displacement_loss = config.displacement_loss
-        self.displacement_scale = 1e-1
+        self.displacement_scale = 1.0
         self.shape_loss = config.shape_loss
-        self.shape_scale = 1e0
+        self.shape_scale = 1.0
+        self.smoothing_loss = config.smoothing_loss
+        self.smoothing_scale = 10.0
+        self.smoothing_basis = 3
         self.time_pres_emb = config.time_pres_emb
 
         self.seq_len = config.pick_num if config.pick_num > 0 else (
@@ -83,16 +84,16 @@ class _MotionGAN(object):
         self.njoints = config.njoints
 
         # Placeholders for training phase
-        self.disc_training = placeholder(shape=(), dtype='bool', name='disc_training')
+        self.disc_training = K.placeholder(shape=(), dtype='bool', name='disc_training')
         self.place_holders = [self.disc_training]
         if self.action_cond:
-            true_label = placeholder(shape=(self.batch_size,), dtype='int32', name='true_label')
+            true_label = K.placeholder(shape=(self.batch_size,), dtype='int32', name='true_label')
             self.place_holders.append(true_label)
 
         self.gen_training = (self.disc_training == False)
 
         # Discriminator
-        real_seq = Input(batch_shape=(self.batch_size, config.njoints, self.seq_len, 3),
+        real_seq = Input(batch_shape=(self.batch_size, self.njoints, self.seq_len, 3),
                          name='real_seq', dtype='float32')
         self.disc_inputs = [real_seq]
         self.real_outputs = self._proc_disc_outputs(self.discriminator(real_seq))
@@ -122,7 +123,7 @@ class _MotionGAN(object):
         disc_optimizer = Adam(lr=config.learning_rate, beta_1=0., beta_2=0.9)
         disc_training_updates = disc_optimizer.get_updates(disc_loss,
                                 self.disc_model.trainable_weights)
-        self.disc_train = K_function(self.disc_inputs + self.gen_inputs + self.place_holders,
+        self.disc_train = K.function(self.disc_inputs + self.gen_inputs + self.place_holders,
                                      [disc_loss, loss_real, loss_fake],
                                      disc_training_updates)
         self.disc_model = self._pseudo_build_model(self.disc_model, disc_optimizer)
@@ -130,7 +131,7 @@ class _MotionGAN(object):
         gen_optimizer = Adam(lr=config.learning_rate, beta_1=0., beta_2=0.9)
         gen_training_updates = gen_optimizer.get_updates(gen_loss,
                                self.gen_model.trainable_weights)
-        self.gen_train = K_function(self.gen_inputs + self.place_holders,
+        self.gen_train = K.function(self.gen_inputs + self.place_holders,
                                     [gen_loss],
                                     gen_training_updates)
         self.gen_model = self._pseudo_build_model(self.gen_model, gen_optimizer)
@@ -141,23 +142,23 @@ class _MotionGAN(object):
                                name=self.name + '_gan')
 
     def update_lr(self, lr):
-        set_value(self.disc_model.optimizer.lr, lr)
-        set_value(self.gen_model.optimizer.lr, lr)
+        K.set_value(self.disc_model.optimizer.lr, lr)
+        K.set_value(self.gen_model.optimizer.lr, lr)
 
     def _build_wgan_gp_loss(self):
         # Basic losses
-        loss_real = mean(_get_tensor(self.real_outputs, 'score_out'))
-        loss_fake = mean(_get_tensor(self.fake_outputs, 'score_out'))
+        loss_real = K.mean(_get_tensor(self.real_outputs, 'score_out'))
+        loss_fake = K.mean(_get_tensor(self.fake_outputs, 'score_out'))
 
         # Interpolates
-        alpha = random_uniform((self.batch_size, 1, 1, 1))
+        alpha = K.random_uniform((self.batch_size, 1, 1, 1))
         interpolates = (alpha * (self.disc_inputs[0])) + ((1 - alpha) * self.gen_outputs[0])
 
         # Gradient penalty
         inter_out = _get_tensor(self.disc_model(interpolates), 'discriminator/score_out')
-        grad_mixed = gradients(inter_out, [interpolates])[0]
-        norm_grad_mixed = sqrt(sum(square(grad_mixed), axis=(1, 2, 3)))
-        grad_penalty = mean(square(norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2))
+        grad_mixed = K.gradients(inter_out, [interpolates])[0]
+        norm_grad_mixed = K.sqrt(K.sum(K.square(grad_mixed), axis=(1, 2, 3)))
+        grad_penalty = K.mean(K.square(norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2))
 
         # WGAN-GP losses
         disc_loss = loss_fake - loss_real + (self.lambda_grads * grad_penalty)
@@ -171,17 +172,17 @@ class _MotionGAN(object):
 
         # Conditional losses
         if self.action_cond:
-            loss_class_real = mean(sparse_categorical_crossentropy(
+            loss_class_real = K.mean(K.sparse_categorical_crossentropy(
                 _get_tensor(self.place_holders, 'true_label'),
                 _get_tensor(self.real_outputs, 'label_out'), True))
-            loss_class_fake = mean(sparse_categorical_crossentropy(
+            loss_class_fake = K.mean(K.sparse_categorical_crossentropy(
                 _get_tensor(self.place_holders, 'true_label'),
                 _get_tensor(self.fake_outputs, 'label_out'), True))
             disc_loss += (self.action_scale_d * (loss_class_real + loss_class_fake))
             gen_loss += (self.action_scale_g * loss_class_fake)
         if self.latent_cond_dim > 0:
-            loss_latent = mean(square(_get_tensor(self.fake_outputs, 'latent_cond_out')
-                                      - _get_tensor(self.gen_inputs, 'latent_cond_input')))
+            loss_latent = K.mean(K.square(_get_tensor(self.fake_outputs, 'latent_cond_out')
+                                          - _get_tensor(self.gen_inputs, 'latent_cond_input')))
             disc_loss += (self.latent_scale_d * loss_latent)
             gen_loss += (self.latent_scale_g * loss_latent)
         if self.coherence_loss:
@@ -189,22 +190,32 @@ class _MotionGAN(object):
             gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
             exp_decay = 1.0 / np.exp(np.linspace(0.0, 2.0, self.seq_len // 2, dtype='float32'))
             exp_decay = np.reshape(exp_decay, (1, 1, 1, self.seq_len // 2))
-            loss_coh = mean(square(_edm(seq_tail) - _edm(gen_tail)) * exp_decay)
+            loss_coh = K.mean(K.square(_edm(seq_tail) - _edm(gen_tail)) * exp_decay)
             gen_loss += (self.coherence_scale * loss_coh)
         if self.displacement_loss:
             gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
             gen_tail_s = self.gen_outputs[0][:, :, (self.seq_len // 2)-1:-1, :]
-            loss_disp = mean(square(gen_tail - gen_tail_s))
+            loss_disp = K.mean(K.square(gen_tail - gen_tail_s))
             gen_loss += (self.displacement_scale * loss_disp)
         if self.shape_loss:
             mask = np.ones((self.njoints, self.njoints), dtype='float32')
             mask = np.triu(mask, 1) - np.triu(mask, 2)
             mask = np.reshape(mask, (1, self.njoints, self.njoints, 1))
-            real_shape = mean(_edm(self.gen_inputs[0]), axis=-1, keepdims=True) * mask
+            real_shape = K.mean(_edm(self.gen_inputs[0]), axis=-1, keepdims=True) * mask
             gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
             gen_shape = _edm(gen_tail) * mask
-            loss_shape = mean(square(real_shape - gen_shape))
+            loss_shape = K.mean(K.square(real_shape - gen_shape))
             gen_loss += (self.shape_scale * loss_shape)
+        if self.smoothing_loss:
+            Q = idct(np.eye(self.seq_len // 2))[:self.smoothing_basis, :]
+            Q_inv = pinv(Q)
+            Qs = K.constant(np.matmul(Q_inv, Q))
+            gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
+            gen_tail = K.permute_dimensions(gen_tail, (0, 1, 3, 2))
+            gen_tail = K.reshape(gen_tail, (self.batch_size, self.njoints, 3, self.seq_len // 2))
+            gen_tail_s = K.dot(gen_tail, Qs)
+            loss_smooth = K.mean(K.square(gen_tail - gen_tail_s))
+            gen_loss += (self.smoothing_scale * loss_smooth)
 
         return loss_real, loss_fake, disc_loss, gen_loss
 
@@ -251,7 +262,7 @@ class _MotionGAN(object):
         self.nblocks = i
 
         if not self.time_pres_emb:
-            x = Lambda(lambda x: mean(x, axis=(1, 2)), name='generator/seq_fex/mean_pool')(x)
+            x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name='generator/seq_fex/mean_pool')(x)
         x = [x]
         if self.latent_cond_dim > 0:
             x_lat = _get_tensor(input_tensors, 'latent_cond_input')
@@ -284,7 +295,7 @@ class MotionGANV1(_MotionGAN):
             x = Add(name='discriminator/block_%d/add' % i)([shortcut, pi])
 
         x = Activation('relu', name='discriminator/relu_out')(x)
-        x = Lambda(lambda x: mean(x, axis=(1, 2)), name='discriminator/mean_pool')(x)
+        x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name='discriminator/mean_pool')(x)
 
         return x
 
@@ -344,7 +355,7 @@ class MotionGANV2(_MotionGAN):
                        name='discriminator/block_%d/out_x' % i)([pi, tau, shortcut, gamma])
 
         x = Activation('relu', name='discriminator/relu_out')(x)
-        x = Lambda(lambda x: mean(x, axis=(1, 2)), name='discriminator/mean_pool')(x)
+        x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name='discriminator/mean_pool')(x)
 
         return x
 

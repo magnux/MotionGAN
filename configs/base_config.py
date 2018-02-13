@@ -23,9 +23,11 @@
     # Motion coherence loss
     'coherence_loss': True,
     # Total displacement loss
-    'displacement_loss': True,
+    'displacement_loss': False,
     # Body shape conservation loss
     'shape_loss': True,
+    # Sequence smoothing loss
+    'smoothing_loss': True,
     # Time preserving embedding (NOT COMPATIBLE with latent factor model)
     'time_pres_emb': False,
     # Type of unfolding

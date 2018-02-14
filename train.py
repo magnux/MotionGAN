@@ -4,7 +4,7 @@ import tensorflow as tf
 from config import get_config
 from data_input import DataInput
 from utils.callbacks import TensorBoard
-from models.motiongan import MotionGANV1, MotionGANV2
+from models.motiongan import MotionGANV1, MotionGANV2, MotionGANV3
 from utils.restore_keras_model import restore_keras_model
 from tqdm import trange
 from utils.viz import plot_gif
@@ -33,6 +33,8 @@ if __name__ == "__main__":
             model_wrap = MotionGANV1(config)
         if config.model_version == 'v2':
             model_wrap = MotionGANV2(config)
+        if config.model_version == 'v3':
+            model_wrap = MotionGANV3(config)
 
     if FLAGS.verbose:
         print('Discriminator model:')

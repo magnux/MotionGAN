@@ -7,7 +7,7 @@ from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, \
     Conv2D, Dense, Reshape, Activation, BatchNormalization, Lambda, Add, \
-    Concatenate, Cropping2D, Permute
+    Concatenate, Cropping2D, Permute, Flatten
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 
@@ -17,6 +17,13 @@ def _get_tensor(tensors, name):
         return next(obj for obj in tensors if name in obj.name)
     else:
         return tensors
+
+
+def _preact_dense(x, n_units, i, j, training):
+    x = BatchNormalization(name='generator/block_%d/bn_%d' % (i, j))(x, training=training)
+    x = Activation('relu', name='generator/block_%d/relu_%d' % (i, j))(x)
+    x = Dense(n_units, name='generator/block_%d/dense_%d' % (i, j), activation='relu')(x)
+    return x
 
 
 def _conv_block(x, out_filters, bneck_factor, kernel_size, strides, i, j, net_name, training=None, conv_func=Conv2D):
@@ -277,9 +284,9 @@ class _MotionGAN(object):
 
 
 class MotionGANV1(_MotionGAN):
+    # ResNet
 
     def discriminator(self, x):
-        # ResNet discriminator
         conv_args = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
         n_hidden = 64
         block_factors = [2, 2, 2, 2]
@@ -300,7 +307,6 @@ class MotionGANV1(_MotionGAN):
         return x
 
     def generator(self, x):
-        # ResNet generator
         conv_args = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
         n_hidden = 64
         block_factors = [2] * self.nblocks
@@ -329,9 +335,9 @@ class MotionGANV1(_MotionGAN):
 
 
 class MotionGANV2(_MotionGAN):
+    # Gated ResNet
 
     def discriminator(self, x):
-        # Gated ResNet discriminator
         conv_args = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
         n_hidden = 64
         block_factors = [2, 2, 2, 2]
@@ -360,7 +366,6 @@ class MotionGANV2(_MotionGAN):
         return x
 
     def generator(self, x):
-        # Gated ResNet generator
         conv_args = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
         n_hidden = 64
         block_factors = [2] * self.nblocks
@@ -389,6 +394,7 @@ class MotionGANV2(_MotionGAN):
 
             pi = _conv_block(x, n_filters, 2, 3, strides, i, 0,
                              'generator', self.gen_training, Conv2DTranspose)
+
             # For condition injecting
             # squeeze_kernel = (x.shape[1], x.shape[2])
             # gamma = _conv_block(x, n_filters, 8, squeeze_kernel, squeeze_kernel, i, 1,
@@ -398,10 +404,11 @@ class MotionGANV2(_MotionGAN):
             # gamma = BatchNormalization(name='generator/block_%d/cond_bn' % i)(gamma, training=self.gen_training)
             # gamma = Activation('relu', name='generator/block_%d/cond_relu' % i)(gamma)
             # gamma = Dense(n_filters, name='generator/block_%d/cond_dense' % i)(gamma)
+            # gamma = Reshape((1, 1, n_filters), name='generator/block_%d/gamma_reshape' % i)(gamma)
+
             gamma = _conv_block(x, n_filters, 4, 3, strides, i, 1,
                                 'generator', self.gen_training, Conv2DTranspose)
             gamma = Activation('sigmoid', name='generator/block_%d/gamma_sigmoid' % i)(gamma)
-            gamma = Reshape((1, 1, n_filters), name='generator/block_%d/gamma_reshape' % i)(gamma)
 
             # tau = 1 - gamma
             tau = Lambda(lambda arg: 1 - arg, name='generator/block_%d/tau' % i)(gamma)
@@ -418,3 +425,34 @@ class MotionGANV2(_MotionGAN):
         return x
 
 
+class MotionGANV3(_MotionGAN):
+    # Simple dense ResNet
+
+    def discriminator(self, x):
+
+        x = Reshape((self.njoints * self.seq_len * 3, ), name='discriminator/reshape_in')(x)
+        x = Dense(1024, name='discriminator/block_0/dense_0', activation='relu')(x)
+        for i in range(1, 5):
+            pi = Dense(1024, name='discriminator/block_%d/dense_0' % i, activation='relu')(x)
+            pi = Dense(1024, name='discriminator/block_%d/dense_1' % i, activation='relu')(pi)
+
+            x = Add(name='discriminator/block_%d/add' % i)([x, pi])
+
+        return x
+
+    def generator(self, x):
+
+        x = Flatten(name='generator/flatten_in')(x)
+        x = _preact_dense(x, 1024, 0, 0, self.gen_training)
+        for i in range(1, 5):
+            pi = _preact_dense(x, 1024, i, 0, self.gen_training)
+            pi = _preact_dense(pi, 1024, i, 1, self.gen_training)
+
+            x = Add(name='generator/block_%d/add' % i)([x, pi])
+
+        x = Dense((self.njoints * (self.seq_len // 2) * 3), name='generator/dense_out', activation='relu')(x)
+        x = Reshape((self.njoints, self.seq_len // 2, 3), name='generator/reshape_out')(x)
+
+        x = _shape_seq_out(x, self.njoints, self.seq_len)
+
+        return x

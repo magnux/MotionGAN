@@ -60,9 +60,9 @@ if __name__ == "__main__":
 
     rand_indices = np.random.permutation(config.batch_size)
 
-    Q = idct(np.eye(10))[:3, :]
-    Q_inv = pinv(Q)
-    Qs = np.matmul(Q_inv, Q)
+    # Q = idct(np.eye(10))[:3, :]
+    # Q_inv = pinv(Q)
+    # Qs = np.matmul(Q_inv, Q)
 
     for j in range(config.batch_size):
         seq_idx = rand_indices[j]
@@ -70,9 +70,9 @@ if __name__ == "__main__":
         plot_gif(poses_batch[seq_idx, ...], gen_outputs[seq_idx, ...], labs_batch[seq_idx, ...])
 
         # Smoothing code
-        smoothed = np.transpose(gen_outputs[seq_idx, ...], (0, 2, 1))
-        smoothed = np.reshape(smoothed, (25 * 3, 20))
-        smoothed[:, 10:] = np.matmul(smoothed[:, 10:], Qs)
-        smoothed = np.reshape(smoothed, (25, 3, 20))
-        smoothed = np.transpose(smoothed, (0, 2, 1))
-        plot_gif(gen_outputs[seq_idx, ...], smoothed, labs_batch[seq_idx, ...])
+        # smoothed = np.transpose(gen_outputs[seq_idx, ...], (0, 2, 1))
+        # smoothed = np.reshape(smoothed, (25 * 3, 20))
+        # smoothed[:, 10:] = np.matmul(smoothed[:, 10:], Qs)
+        # smoothed = np.reshape(smoothed, (25, 3, 20))
+        # smoothed = np.transpose(smoothed, (0, 2, 1))
+        # plot_gif(gen_outputs[seq_idx, ...], smoothed, labs_batch[seq_idx, ...])

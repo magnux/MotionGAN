@@ -253,11 +253,9 @@ class TensorBoard(Callback):
 
     def on_epoch_begin(self, epoch, logs=None):
         self.epoch = epoch
-        self.batch = 0
 
     def on_epoch_end(self, epoch, logs=None):
         self.epoch = epoch
-        self.batch = 0
 
         if not self.validation_data and self.histogram_freq:
             raise ValueError('If printing histograms, validation_data must be '

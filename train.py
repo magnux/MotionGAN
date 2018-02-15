@@ -171,5 +171,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         save_models()
 
-
     tensorboard.on_train_end(None)

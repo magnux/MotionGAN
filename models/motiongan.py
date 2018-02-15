@@ -10,6 +10,7 @@ from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, \
     Concatenate, Cropping2D, Permute, Flatten
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
+from layers.joints import UnfoldJoints, FoldJoints
 
 
 def _get_tensor(tensors, name):
@@ -62,7 +63,7 @@ def _edm(x):
 class _MotionGAN(object):
     def __init__(self, config):
         self.name = config.model_type + '_' + config.model_version
-
+        self.data_set = config.data_set
         self.batch_size = config.batch_size
         # self.z_dim = config.z_dim
         self.num_actions = config.num_actions
@@ -85,10 +86,12 @@ class _MotionGAN(object):
         self.smoothing_scale = 10.0
         self.smoothing_basis = 3
         self.time_pres_emb = config.time_pres_emb
+        self.unfold = config.unfold
 
         self.seq_len = config.pick_num if config.pick_num > 0 else (
                        config.crop_len if config.crop_len > 0 else None)
         self.njoints = config.njoints
+        self.unfolded_joints = self.njoints
 
         # Placeholders for training phase
         self.disc_training = K.placeholder(shape=(), dtype='bool', name='disc_training')
@@ -114,8 +117,9 @@ class _MotionGAN(object):
             latent_cond_input = Input(batch_shape=(self.batch_size, self.latent_cond_dim),
                                       name='latent_cond_input', dtype='float32')
             self.gen_inputs.append(latent_cond_input)
-        x, seq_head = self._prep_gen_inputs(self.gen_inputs)
-        gen_seq = Concatenate(axis=2, name='gen_seq')([seq_head, self.generator(x)])
+        x, seq_head = self._proc_gen_inputs(self.gen_inputs)
+        gen_tail = self._proc_gen_outputs(self.generator(x))
+        gen_seq = Concatenate(axis=2, name='gen_seq')([seq_head, gen_tail])
         self.gen_outputs = [gen_seq]
         self.gen_model = Model(self.gen_inputs,
                                self.gen_outputs,
@@ -248,12 +252,16 @@ class _MotionGAN(object):
 
         return output_tensors
 
-    def _prep_gen_inputs(self, input_tensors):
+    def _proc_gen_inputs(self, input_tensors):
         conv_args = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
         n_hidden = 32 if self.time_pres_emb else 128
         seq_head = _get_tensor(input_tensors, 'real_seq')
         seq_head = Cropping2D(((0, 0), (0, self.seq_len // 2)), name='seq_head')(seq_head)
         x = seq_head
+
+        if self.unfold:
+            x = UnfoldJoints(self.data_set)(x)
+            self.unfolded_joints = int(x.shape[1])
 
         strides = (2, 1) if self.time_pres_emb else 2
         i = 0
@@ -281,6 +289,15 @@ class _MotionGAN(object):
             x = x[0]
 
         return x, seq_head
+
+    def _proc_gen_outputs(self, x):
+
+        x = _shape_seq_out(x, self.unfolded_joints, self.seq_len)
+
+        if self.unfold:
+            x = FoldJoints(self.data_set)(x)
+
+        return x
 
 
 class MotionGANV1(_MotionGAN):
@@ -328,8 +345,6 @@ class MotionGANV1(_MotionGAN):
 
         x = BatchNormalization(name='generator/bn_out')(x, training=self.gen_training)
         x = Activation('relu', name='generator/relu_out')(x)
-
-        x = _shape_seq_out(x, self.njoints, self.seq_len)
 
         return x
 
@@ -420,8 +435,6 @@ class MotionGANV2(_MotionGAN):
         x = BatchNormalization(name='generator/bn_out')(x, training=self.gen_training)
         x = Activation('relu', name='generator/relu_out')(x)
 
-        x = _shape_seq_out(x, self.njoints, self.seq_len)
-
         return x
 
 
@@ -450,9 +463,7 @@ class MotionGANV3(_MotionGAN):
 
             x = Add(name='generator/block_%d/add' % i)([x, pi])
 
-        x = Dense((self.njoints * (self.seq_len // 2) * 3), name='generator/dense_out', activation='relu')(x)
-        x = Reshape((self.njoints, self.seq_len // 2, 3), name='generator/reshape_out')(x)
-
-        x = _shape_seq_out(x, self.njoints, self.seq_len)
+        x = Dense((self.unfolded_joints * (self.seq_len // 2) * 3), name='generator/dense_out', activation='relu')(x)
+        x = Reshape((self.unfolded_joints, self.seq_len // 2, 3), name='generator/reshape_out')(x)
 
         return x

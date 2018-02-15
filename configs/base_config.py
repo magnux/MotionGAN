@@ -30,8 +30,8 @@
     'smoothing_loss': True,
     # Time preserving embedding (NOT COMPATIBLE with latent factor model)
     'time_pres_emb': False,
-    # Type of unfolding
-    # 'unfold': None,
+    # Joint unfolding
+    'unfold': False,
     # Size of the noise vector
     # 'z_dim': 64,
 

@@ -75,19 +75,19 @@ if __name__ == "__main__":
 
             t = trange(config.batch, train_batches)
             t.set_description('| ep: %d | lr: %.2e |' % (epoch, learning_rate))
-            disc_loss_sum = 0
-            loss_real_sum = 0
-            loss_fake_sum = 0
-            gen_loss_sum = 0
+            disc_loss_sum = 0.0
+            loss_real_sum = 0.0
+            loss_fake_sum = 0.0
+            gen_loss_sum = 0.0
             for batch in t:
                 tensorboard.on_batch_begin(batch)
 
                 disc_batches = 5
                 # disc_batches = 55 if ((epoch < 1 and batch < train_batches // 10)
                 #                           or (batch % 10 == 0)) else 5
-                disc_loss = 0
-                loss_real = 0
-                loss_fake = 0
+                disc_loss = 0.0
+                loss_real = 0.0
+                loss_fake = 0.0
                 for _ in range(disc_batches):
                     labs_batch, poses_batch = train_generator.next()
 
@@ -126,9 +126,9 @@ if __name__ == "__main__":
                               gen_loss='%.2e' % (gen_loss_sum / (batch + 1)))
 
                 logs = {
-                    'disc_loss': (disc_loss / disc_batches),
-                    'loss_real': (loss_real / disc_batches),
-                    'loss_fake': (loss_fake / disc_batches),
+                    'disc_loss': disc_loss / disc_batches,
+                    'loss_real': loss_real / disc_batches,
+                    'loss_fake': loss_fake / disc_batches,
                     'gen_loss': gen_loss[0]
                 }
 
@@ -140,7 +140,8 @@ if __name__ == "__main__":
             save_models()
 
             # Generating images and logging
-            gen_outputs = model_wrap.gen_model.predict(gen_inputs, config.batch_size)
+            labs_batch, poses_batch = train_generator.next()
+            gen_outputs = model_wrap.gen_model.predict(poses_batch, config.batch_size)
 
             logs = {
                 'disc_loss': disc_loss_sum / train_batches,

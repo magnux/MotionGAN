@@ -230,7 +230,7 @@ class TensorBoard(Callback):
     def _save_scalar(self, name, value):
         summary = tf_summary.Summary()
         summary_value = summary.value.add()
-        summary_value.simple_value = value.item()
+        summary_value.simple_value = value if isinstance(value, float) else value.item()
         summary_value.tag = name
         self.writer.add_summary(summary, self._current_step())
 
@@ -253,9 +253,11 @@ class TensorBoard(Callback):
 
     def on_epoch_begin(self, epoch, logs=None):
         self.epoch = epoch
+        self.batch = 0
 
     def on_epoch_end(self, epoch, logs=None):
         self.epoch = epoch
+        self.batch = self.batch_size - 1
 
         if not self.validation_data and self.histogram_freq:
             raise ValueError('If printing histograms, validation_data must be '

@@ -139,10 +139,6 @@ if __name__ == "__main__":
 
             save_models()
 
-            # Generating images and logging
-            labs_batch, poses_batch = train_generator.next()
-            gen_outputs = model_wrap.gen_model.predict(poses_batch, config.batch_size)
-
             logs = {
                 'disc_loss': disc_loss_sum / train_batches,
                 'loss_real': loss_real_sum / train_batches,
@@ -150,18 +146,22 @@ if __name__ == "__main__":
                 'gen_loss': gen_loss_sum / train_batches
             }
 
-            for i in range(16):  # config.batch_size
-                gif_name = '%s_tmp.gif' % config.save_path
-                gif_height, gif_width = plot_gif(poses_batch[i, ...],
-                                                 gen_outputs[i, ...],
-                                                 labs_batch[i, ...], gif_name)
+            # Generating images and logging
+            if (epoch % (config.num_epochs // 10)) == 0 or epoch == (config.num_epochs - 1):
+                labs_batch, poses_batch = train_generator.next()
+                gen_outputs = model_wrap.gen_model.predict(poses_batch, config.batch_size)
+                for i in range(16):  # config.batch_size
+                    gif_name = '%s_tmp.gif' % config.save_path
+                    gif_height, gif_width = plot_gif(poses_batch[i, ...],
+                                                     gen_outputs[i, ...],
+                                                     labs_batch[i, ...], gif_name)
 
-                with open(gif_name, 'rb') as f:
-                    encoded_image_string = f.read()
+                    with open(gif_name, 'rb') as f:
+                        encoded_image_string = f.read()
 
-                logs['custom_img_%d' % i] = {'height': gif_height,
-                                             'width': gif_width,
-                                             'enc_string': encoded_image_string}
+                    logs['custom_img_%d' % i] = {'height': gif_height,
+                                                 'width': gif_width,
+                                                 'enc_string': encoded_image_string}
 
             tensorboard.on_epoch_end(epoch, logs)
 

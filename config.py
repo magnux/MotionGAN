@@ -54,5 +54,10 @@ def get_config(flags):
         config.num_subjects = 40
         config.njoints = 25  # *2, Note: only taking first skeleton
         config.max_plen = 300
+    elif config.data_set == 'MSRC12':
+        config.num_actions = 12
+        config.num_subjects = 30
+        config.njoints = 20
+        config.max_plen = 1320
 
     return config

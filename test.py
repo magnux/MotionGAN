@@ -67,7 +67,7 @@ if __name__ == "__main__":
     for j in range(config.batch_size):
         seq_idx = rand_indices[j]
 
-        plot_gif(poses_batch[seq_idx, ...], gen_outputs[seq_idx, ...], labs_batch[seq_idx, ...])
+        plot_gif(poses_batch[seq_idx, ...], gen_outputs[seq_idx, ...], labs_batch[seq_idx, ...], config.data_set)
 
         # Smoothing code
         # smoothed = np.transpose(gen_outputs[seq_idx, ...], (0, 2, 1))

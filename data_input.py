@@ -68,7 +68,7 @@ class DataInput(object):
     def load_to_ram(self, is_training):
         len_keys = self.len_train_keys if is_training else self.len_val_keys
         labs = np.empty([len_keys, 4], dtype=np.int32)
-        poses = np.empty([len_keys, self.pshape[0], self.max_plen, self.pshape[2]], dtype=np.float32)
+        poses = np.zeros([len_keys, self.pshape[0], self.max_plen, self.pshape[2]], dtype=np.float32)
         splitname = 'train' if is_training else 'val'
         print('Loading "%s" data to ram...' % splitname)
         t = trange(len_keys, dynamic_ncols=True)
@@ -117,14 +117,9 @@ class DataInput(object):
 
     def sub_sample_pose(self, pose, plen):
 
-        def pad_pose():
-            padpose = np.zeros(self.pshape, dtype=np.float32)
-            padpose[:, :plen, :] = pose
-            return padpose
-
         if self.pick_num > 0:
-            if self.pick_num > plen:
-                pose = pad_pose()
+            if self.pick_num >= plen:
+                pose = pose[:, :self.pick_num, :]
             elif self.pick_num < plen:
                 subplen = plen / self.pick_num
                 picks = np.random.randint(0, subplen, size=(self.pick_num)) + \
@@ -132,8 +127,8 @@ class DataInput(object):
                 pose = pose[:, picks, :]
             # plen = np.int32(self.pick_num)
         elif self.crop_len > 0:
-            if self.crop_len > plen:
-                pose = pad_pose()
+            if self.crop_len >= plen:
+                pose = pose[:, :self.crop_len, :]
             elif self.crop_len < plen:
                 indx = np.random.randint(0, plen - self.crop_len)
                 pose = pose[:, indx:indx + self.crop_len, :]

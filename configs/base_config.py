@@ -1,7 +1,7 @@
 {
     ## Data Options
     'data_path': '../DMNN/data/',
-    # Datasets: SBU_inter, MSRC12, NTURGBD
+    # Datasets: MSRC12, NTURGBD
     'data_set': 'NTURGBD',
     'data_set_version': 'v1',
     # Format input as distance matrix

@@ -154,7 +154,8 @@ if __name__ == "__main__":
                     gif_name = '%s_tmp.gif' % config.save_path
                     gif_height, gif_width = plot_gif(poses_batch[i, ...],
                                                      gen_outputs[i, ...],
-                                                     labs_batch[i, ...], gif_name)
+                                                     labs_batch[i, ...],
+                                                     config.data_set, gif_name)
 
                     with open(gif_name, 'rb') as f:
                         encoded_image_string = f.read()

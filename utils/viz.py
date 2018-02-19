@@ -11,7 +11,7 @@ from matplotlib.animation import FuncAnimation
 
 
 class Ax3DPose(object):
-    def __init__(self, ax, lcolor="#3498db", rcolor="#e74c3c"):
+    def __init__(self, ax, data_set, lcolor="#3498db", rcolor="#e74c3c"):
         """
         Create a 3d pose visualizer that can be updated with new poses.
 
@@ -21,18 +21,28 @@ class Ax3DPose(object):
           rcolor: String. Colour for the right part of the body
         """
 
-        # NTU
-        self.body_members = {
-            'left_arm': {'joints': [20, 8, 9, 10, 11], 'side': 'left'},
-        # [21, 9, 10, 11, 12, 24, 25]
-            'right_arm': {'joints': [20, 4, 5, 6, 7], 'side': 'right'},
-        # [21, 5, 6, 7, 8, 22, 23]
-            'head': {'joints': [20, 2, 3], 'side': 'right'},
-            'torso': {'joints': [20, 1, 0], 'side': 'right'},
-            'left_leg': {'joints': [0, 16, 17, 18, 19], 'side': 'left'},
-            'right_leg': {'joints': [0, 12, 13, 14, 15], 'side': 'right'},
-        }
-        self.njoints = 25
+        if data_set == "NTURGBD":
+            self.body_members = {
+                'left_arm': {'joints': [20, 8, 9, 10, 11], 'side': 'left'},
+                # [21, 9, 10, 11, 12, 24, 25]
+                'right_arm': {'joints': [20, 4, 5, 6, 7], 'side': 'right'},
+                # [21, 5, 6, 7, 8, 22, 23]
+                'head': {'joints': [20, 2, 3], 'side': 'right'},
+                'torso': {'joints': [20, 1, 0], 'side': 'right'},
+                'left_leg': {'joints': [0, 16, 17, 18, 19], 'side': 'left'},
+                'right_leg': {'joints': [0, 12, 13, 14, 15], 'side': 'right'},
+            }
+            self.njoints = 25
+        elif data_set == "MSRC12":
+            self.body_members = {
+                'left_arm': {'joints': [2, 4, 5, 6, 7], 'side': 'left'},
+                'right_arm': {'joints': [2, 8, 9, 10, 11], 'side': 'right'},
+                'head': {'joints': [1, 2, 3], 'side': 'right'},
+                'torso': {'joints': [1, 0], 'side': 'right'},
+                'left_leg': {'joints': [0, 12, 13, 14, 15], 'side': 'left'},
+                'right_leg': {'joints': [0, 16, 17, 18, 19], 'side': 'right'},
+            }
+            self.njoints = 20
 
         # Human3.6
         # self.body_members = {
@@ -142,24 +152,34 @@ NTU_ACTIONS = ["drink water", "eat meal/snack", "brushing teeth",
                "walking towards each other", "walking apart from each other"]
 
 
-def plot_gif(real_seq, gen_seq, labs, save_path=None):
+MSRC_ACTIONS = ["Start system", "Duck", "Push right",
+                "Googles", "Wind it up", "Shoot",
+                "Bow", "Throw", "Had enough",
+                "Change weapon", "Beat both", "Kick"]
+
+def plot_gif(real_seq, gen_seq, labs, data_set, save_path=None):
     # === Plot and animate ===
     fig = plt.figure(dpi=80, figsize=plt.figaspect(1 / 2))
 
+    if data_set == "NTURGBD":
+        actions_l = NTU_ACTIONS
+    elif data_set == "MSRC12":
+        actions_l = MSRC_ACTIONS
+
     seq_idx, subject, action, plen = labs
     title = "action: %s  subject: %d  seq_idx: %d  length: %d" % \
-              (NTU_ACTIONS[action], subject, seq_idx, plen)
+              (actions_l[action], subject, seq_idx, plen)
 
     fig.suptitle(title)
 
     ax0 = fig.add_subplot(1, 2, 1, projection='3d')
     ax0.view_init(elev=90, azim=-90)
     # ax0.view_init(elev=0, azim=90)
-    ob0 = Ax3DPose(ax0)
+    ob0 = Ax3DPose(ax0, data_set)
 
     ax1 = fig.add_subplot(1, 2, 2, projection='3d')
     ax1.view_init(elev=90, azim=-90)
-    ob1 = Ax3DPose(ax1)
+    ob1 = Ax3DPose(ax1, data_set)
 
     fig.tight_layout()
 

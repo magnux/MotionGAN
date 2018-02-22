@@ -26,6 +26,8 @@ if __name__ == "__main__":
     data_input = DataInput(config)
     train_batches = data_input.train_epoch_size
     train_generator = data_input.batch_generator(True)
+    val_batches = data_input.val_epoch_size
+    val_generator = data_input.batch_generator(False)
 
     # Model building
     if config.model_type == 'motiongan':
@@ -76,8 +78,6 @@ if __name__ == "__main__":
             t = trange(config.batch, train_batches)
             t.set_description('| ep: %d | lr: %.2e |' % (epoch, learning_rate))
             disc_loss_sum = 0.0
-            loss_real_sum = 0.0
-            loss_fake_sum = 0.0
             gen_loss_sum = 0.0
             for batch in t:
                 tensorboard.on_batch_begin(batch)
@@ -88,49 +88,47 @@ if __name__ == "__main__":
                 disc_loss = 0.0
                 loss_real = 0.0
                 loss_fake = 0.0
-                for _ in range(disc_batches):
+                for disc_batch in range(disc_batches):
                     labs_batch, poses_batch = train_generator.next()
-
                     disc_inputs = [poses_batch]
                     gen_inputs = [poses_batch]
-                    place_holders = [True]  # disc_training is true
+                    place_holders = [True, False]  # disc_training is True, gen_training False
                     if config.action_cond:
                         place_holders.append(labs_batch[:, 2])
                     if config.latent_cond_dim > 0:
                         latent_noise = gen_latent_noise()
                         gen_inputs.append(latent_noise)
 
-                    disc_losses = model_wrap.disc_train(disc_inputs + gen_inputs + place_holders)
-                    disc_loss += disc_losses[0]
-                    loss_real += disc_losses[1]
-                    loss_fake += disc_losses[2]
+                    losses = model_wrap.disc_train(disc_inputs + gen_inputs + place_holders)
 
-                disc_loss_sum += (disc_loss / disc_batches)
-                loss_real_sum += (loss_real / disc_batches)
-                loss_fake_sum += (loss_fake / disc_batches)
+                    if disc_batch == 0:
+                        disc_losses = losses
+                    else:
+                        for key in disc_losses.keys():
+                            disc_losses[key] += losses[key]
+
+                for key in disc_losses.keys():
+                    disc_losses[key] /= train_batches
 
                 labs_batch, poses_batch = train_generator.next()
-
                 gen_inputs = [poses_batch]
-                place_holders = [False]  # disc_training is false, so gen_training is True
+                place_holders = [False, True]  # disc_training is False, so gen_training is True
                 if config.action_cond:
                     place_holders.append(labs_batch[:, 2])
                 if config.latent_cond_dim > 0:
                     latent_noise = gen_latent_noise()
                     gen_inputs.append(latent_noise)
 
-                gen_loss = model_wrap.gen_train(gen_inputs + place_holders)
+                gen_losses = model_wrap.gen_train(gen_inputs + place_holders)
 
-                gen_loss_sum += gen_loss[0]
+                # Output to terminal, note output is averaged over the epoch
+                disc_loss_sum += disc_losses['train/disc_loss_wgan']
+                gen_loss_sum += gen_losses['train/gen_loss_wgan']
                 t.set_postfix(disc_loss='%.2e' % (disc_loss_sum / (batch + 1)),
                               gen_loss='%.2e' % (gen_loss_sum / (batch + 1)))
 
-                logs = {
-                    'disc_loss': disc_loss / disc_batches,
-                    'loss_real': loss_real / disc_batches,
-                    'loss_fake': loss_fake / disc_batches,
-                    'gen_loss': gen_loss[0]
-                }
+                logs = disc_losses.copy()
+                logs.update(gen_losses)
 
                 tensorboard.on_batch_end(batch, logs)
 
@@ -139,17 +137,25 @@ if __name__ == "__main__":
 
             save_models()
 
-            logs = {
-                'disc_loss': disc_loss_sum / train_batches,
-                'loss_real': loss_real_sum / train_batches,
-                'loss_fake': loss_fake_sum / train_batches,
-                'gen_loss': gen_loss_sum / train_batches
-            }
+            labs_batch, poses_batch = val_generator.next()
+            disc_inputs = [poses_batch]
+            gen_inputs = [poses_batch]
+            place_holders = [False, False]
+            if config.action_cond:
+                place_holders.append(labs_batch[:, 2])
+            if config.latent_cond_dim > 0:
+                latent_noise = gen_latent_noise()
+                gen_inputs.append(latent_noise)
 
-            # Generating images and logging
+            disc_losses = model_wrap.disc_eval(disc_inputs + gen_inputs + place_holders)
+            gen_losses = model_wrap.gen_eval(gen_inputs + place_holders)
+            gen_outputs = gen_losses.pop('gen_outputs', None)
+
+            logs = disc_losses.copy()
+            logs.update(gen_losses)
+
+            # Generating images
             if (epoch % (config.num_epochs // 10)) == 0 or epoch == (config.num_epochs - 1):
-                labs_batch, poses_batch = train_generator.next()
-                gen_outputs = model_wrap.gen_model.predict(poses_batch, config.batch_size)
                 for i in range(16):  # config.batch_size
                     gif_name = '%s_tmp.gif' % config.save_path
                     gif_height, gif_width = plot_gif(poses_batch[i, ...],

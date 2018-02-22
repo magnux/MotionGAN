@@ -47,7 +47,6 @@ def get_config(flags):
     config.epoch = config.epoch if hasattr(config, 'epoch') else 0
     config.batch = config.batch if hasattr(config, 'batch') else 0
     config.only_val = config.only_val if hasattr(config, 'only_val') else False
-    config.no_val = config.no_val if hasattr(config, 'no_val') else True
 
     if config.data_set == 'NTURGBD':
         config.num_actions = 60

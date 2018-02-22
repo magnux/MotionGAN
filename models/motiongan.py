@@ -11,6 +11,7 @@ from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, \
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 from layers.joints import UnfoldJoints, FoldJoints
+from collections import OrderedDict
 
 
 def _get_tensor(tensors, name):
@@ -95,12 +96,11 @@ class _MotionGAN(object):
 
         # Placeholders for training phase
         self.disc_training = K.placeholder(shape=(), dtype='bool', name='disc_training')
-        self.place_holders = [self.disc_training]
+        self.gen_training = K.placeholder(shape=(), dtype='bool', name='gen_training')
+        self.place_holders = [self.disc_training, self.gen_training]
         if self.action_cond:
             true_label = K.placeholder(shape=(self.batch_size,), dtype='int32', name='true_label')
             self.place_holders.append(true_label)
-
-        self.gen_training = (self.disc_training == False)
 
         # Discriminator
         real_seq = Input(batch_shape=(self.batch_size, self.njoints, self.seq_len, 3),
@@ -127,59 +127,114 @@ class _MotionGAN(object):
         self.fake_outputs = self.disc_model(self.gen_outputs[0])
 
         # Losses
-        loss_real, loss_fake, disc_loss, gen_loss = self._build_wgan_gp_loss()
+        self.wgan_losses, self.disc_losses, self.gen_losses = self._build_loss()
+
+        disc_loss = 0.0
+        for loss in self.disc_losses.values():
+            disc_loss += loss
+
+        gen_loss = 0.0
+        for loss in self.gen_losses.values():
+            gen_loss += loss
 
 
         # Custom train functions
         disc_optimizer = Adam(lr=config.learning_rate, beta_1=0., beta_2=0.9)
-        disc_training_updates = disc_optimizer.get_updates(disc_loss,
-                                self.disc_model.trainable_weights)
-        self.disc_train = K.function(self.disc_inputs + self.gen_inputs + self.place_holders,
-                                     [disc_loss, loss_real, loss_fake],
-                                     disc_training_updates)
+        disc_training_updates = disc_optimizer.get_updates(disc_loss, self.disc_model.trainable_weights)
+        self.disc_train_f = K.function(self.disc_inputs + self.gen_inputs + self.place_holders,
+                                       self.wgan_losses.values() + self.disc_losses.values(),
+                                       disc_training_updates)
+        self.disc_eval_f = K.function(self.disc_inputs + self.gen_inputs + self.place_holders,
+                                      self.wgan_losses.values() + self.disc_losses.values())
         self.disc_model = self._pseudo_build_model(self.disc_model, disc_optimizer)
 
         gen_optimizer = Adam(lr=config.learning_rate, beta_1=0., beta_2=0.9)
         gen_training_updates = gen_optimizer.get_updates(gen_loss,
                                self.gen_model.trainable_weights)
-        self.gen_train = K.function(self.gen_inputs + self.place_holders,
-                                    [gen_loss],
-                                    gen_training_updates)
+        self.gen_train_f = K.function(self.gen_inputs + self.place_holders,
+                                      self.gen_losses.values(),
+                                      gen_training_updates)
+        self.gen_eval_f = K.function(self.gen_inputs + self.place_holders,
+                                     self.gen_losses.values() + self.gen_outputs)
         self.gen_model = self._pseudo_build_model(self.gen_model, gen_optimizer)
 
         # GAN, complete model
         self.gan_model = Model(self.gen_inputs,
                                self.disc_model(self.gen_model(self.gen_inputs)),
                                name=self.name + '_gan')
+        self.gan_model.save()
+
+    def disc_train(self, inputs):
+        train_outs = self.disc_train_f(inputs)
+        keys = self.wgan_losses.keys() + self.disc_losses.keys()
+        keys = ['train/%s' % key for key in keys]
+        losses_dict = OrderedDict(zip(keys, train_outs))
+        return losses_dict
+
+    def disc_eval(self, inputs):
+        eval_outs = self.disc_eval_f(inputs)
+        keys = self.wgan_losses.keys() + self.disc_losses.keys()
+        keys = ['val/%s' % key for key in keys]
+        losses_dict = OrderedDict(zip(keys, eval_outs))
+        return losses_dict
+
+    def gen_train(self, inputs):
+        train_outs = self.gen_train_f(inputs)
+        keys = self.gen_losses.keys()
+        keys = ['train/%s' % key for key in keys]
+        losses_dict = OrderedDict(zip(keys, train_outs))
+        return losses_dict
+
+    def gen_eval(self, inputs):
+        eval_outs = self.gen_eval_f(inputs)
+        keys = self.gen_losses.keys()
+        keys = ['val/%s' % key for key in keys]
+        losses_dict = OrderedDict(zip(keys + ['gen_outputs'], eval_outs))
+        return losses_dict
 
     def update_lr(self, lr):
         K.set_value(self.disc_model.optimizer.lr, lr)
         K.set_value(self.gen_model.optimizer.lr, lr)
 
-    def _build_wgan_gp_loss(self):
-        # Basic losses
+    def _build_loss(self):
+        # Dicts to store the losses
+        wgan_losses = OrderedDict()
+        disc_losses = OrderedDict()
+        gen_losses = OrderedDict()
+
+        # WGAN Basic losses
         loss_real = K.mean(_get_tensor(self.real_outputs, 'score_out'))
         loss_fake = K.mean(_get_tensor(self.fake_outputs, 'score_out'))
+        wgan_losses['loss_real'] = loss_real
+        wgan_losses['loss_fake'] = loss_fake
 
-        # Interpolates
+        # Interpolates for GP
         alpha = K.random_uniform((self.batch_size, 1, 1, 1))
         interpolates = (alpha * (self.disc_inputs[0])) + ((1 - alpha) * self.gen_outputs[0])
 
-        # Gradient penalty
+        # Gradient Penalty
         inter_out = _get_tensor(self.disc_model(interpolates), 'discriminator/score_out')
         grad_mixed = K.gradients(inter_out, [interpolates])[0]
         norm_grad_mixed = K.sqrt(K.sum(K.square(grad_mixed), axis=(1, 2, 3)))
         grad_penalty = K.mean(K.square(norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2))
 
         # WGAN-GP losses
-        disc_loss = loss_fake - loss_real + (self.lambda_grads * grad_penalty)
-        gen_loss = -loss_fake
+        disc_loss_wgan = loss_fake - loss_real + (self.lambda_grads * grad_penalty)
+        disc_losses['disc_loss_wgan'] = disc_loss_wgan
+
+        gen_loss_wgan = -loss_fake
+        gen_losses['gen_loss_wgan'] = gen_loss_wgan
 
         # Regularization losses
+        disc_loss_reg = 0.0
         for reg_loss in set(self.disc_model.losses):
-            disc_loss += reg_loss
+            disc_loss_reg += reg_loss
+        disc_losses['disc_loss_reg'] = disc_loss_reg
+
+        gen_loss_reg = 0.0
         for reg_loss in set(self.gen_model.losses):
-            gen_loss += reg_loss
+            gen_loss_reg += reg_loss
+        gen_losses['gen_loss_reg'] = gen_loss_reg
 
         # Conditional losses
         if self.action_cond:
@@ -189,25 +244,25 @@ class _MotionGAN(object):
             loss_class_fake = K.mean(K.sparse_categorical_crossentropy(
                 _get_tensor(self.place_holders, 'true_label'),
                 _get_tensor(self.fake_outputs, 'label_out'), True))
-            disc_loss += (self.action_scale_d * (loss_class_real + loss_class_fake))
-            gen_loss += (self.action_scale_g * loss_class_fake)
+            disc_losses['disc_loss_action'] = (self.action_scale_d * (loss_class_real + loss_class_fake))
+            gen_losses['gen_loss_action'] = (self.action_scale_g * loss_class_fake)
         if self.latent_cond_dim > 0:
             loss_latent = K.mean(K.square(_get_tensor(self.fake_outputs, 'latent_cond_out')
                                           - _get_tensor(self.gen_inputs, 'latent_cond_input')))
-            disc_loss += (self.latent_scale_d * loss_latent)
-            gen_loss += (self.latent_scale_g * loss_latent)
+            disc_losses['disc_loss_latent'] = (self.latent_scale_d * loss_latent)
+            gen_losses['gen_loss_latent'] = (self.latent_scale_g * loss_latent)
         if self.coherence_loss:
             seq_tail = self.gen_inputs[0][:, :, self.seq_len // 2:, :]
             gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
             exp_decay = 1.0 / np.exp(np.linspace(0.0, 2.0, self.seq_len // 2, dtype='float32'))
             exp_decay = np.reshape(exp_decay, (1, 1, 1, self.seq_len // 2))
             loss_coh = K.mean(K.square(_edm(seq_tail) - _edm(gen_tail)) * exp_decay)
-            gen_loss += (self.coherence_scale * loss_coh)
+            gen_losses['gen_loss_coh'] = (self.coherence_scale * loss_coh)
         if self.displacement_loss:
             gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
             gen_tail_s = self.gen_outputs[0][:, :, (self.seq_len // 2)-1:-1, :]
             loss_disp = K.mean(K.square(gen_tail - gen_tail_s))
-            gen_loss += (self.displacement_scale * loss_disp)
+            gen_losses['gen_loss_disp'] = (self.displacement_scale * loss_disp)
         if self.shape_loss:
             mask = np.ones((self.njoints, self.njoints), dtype='float32')
             mask = np.triu(mask, 1) - np.triu(mask, 2)
@@ -216,7 +271,7 @@ class _MotionGAN(object):
             gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
             gen_shape = _edm(gen_tail) * mask
             loss_shape = K.mean(K.square(real_shape - gen_shape))
-            gen_loss += (self.shape_scale * loss_shape)
+            gen_losses['gen_loss_shape'] = (self.shape_scale * loss_shape)
         if self.smoothing_loss:
             Q = idct(np.eye(self.seq_len // 2))[:self.smoothing_basis, :]
             Q_inv = pinv(Q)
@@ -226,9 +281,9 @@ class _MotionGAN(object):
             gen_tail = K.reshape(gen_tail, (self.batch_size, self.njoints, 3, self.seq_len // 2))
             gen_tail_s = K.dot(gen_tail, Qs)
             loss_smooth = K.mean(K.square(gen_tail - gen_tail_s))
-            gen_loss += (self.smoothing_scale * loss_smooth)
+            gen_losses['gen_loss_smooth'] = (self.smoothing_scale * loss_smooth)
 
-        return loss_real, loss_fake, disc_loss, gen_loss
+        return wgan_losses, disc_losses, gen_losses
 
     def _pseudo_build_model(self, model, optimizer):
         # This function mimics compilation to enable saving the model

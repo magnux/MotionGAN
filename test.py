@@ -24,7 +24,7 @@ if __name__ == "__main__":
     config.only_val = True
     # config.pick_num = 0
     data_input = DataInput(config)
-    val_batches = data_input.train_epoch_size
+    val_batches = data_input.val_epoch_size
     val_generator = data_input.batch_generator(False)
 
     # Model building

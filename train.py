@@ -8,6 +8,7 @@ from models.motiongan import MotionGANV1, MotionGANV2, MotionGANV3
 from utils.restore_keras_model import restore_keras_model
 from tqdm import trange
 from utils.viz import plot_gif
+from tensorflow.python.platform import tf_logging as logging
 
 logging = tf.logging
 flags = tf.flags
@@ -63,8 +64,10 @@ if __name__ == "__main__":
         return np.random.uniform(size=(config.batch_size, config.latent_cond_dim))
 
     def save_models():
+        logging.set_verbosity(50)  # Avoid warinings when saving
         model_wrap.disc_model.save(config.save_path + '_disc_weights.hdf5')
         model_wrap.gen_model.save(config.save_path + '_gen_weights.hdf5')
+        logging.set_verbosity(30)
 
     try:
         for epoch in range(config.epoch, config.num_epochs):
@@ -72,7 +75,7 @@ if __name__ == "__main__":
 
             if config.lr_decay:
                 # learning_rate = config.learning_rate * (0.1 ** (epoch // (config.num_epochs // 3)))
-                learning_rate = config.learning_rate * (1.0 - (epoch / config.num_epochs))
+                learning_rate = config.learning_rate * ((1.0 - (epoch / config.num_epochs)) ** 2)
                 model_wrap.update_lr(learning_rate)
 
             t = trange(config.batch, train_batches)

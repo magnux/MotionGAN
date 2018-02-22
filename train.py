@@ -74,8 +74,8 @@ if __name__ == "__main__":
             tensorboard.on_epoch_begin(epoch)
 
             if config.lr_decay:
-                # learning_rate = config.learning_rate * (0.1 ** (epoch // (config.num_epochs // 3)))
-                learning_rate = config.learning_rate * ((1.0 - (epoch / config.num_epochs)) ** 2)
+                learning_rate = config.learning_rate * (0.1 ** (epoch // (config.num_epochs // 3)))
+                # learning_rate = config.learning_rate * (1.0 - (epoch / config.num_epochs))
                 model_wrap.update_lr(learning_rate)
 
             t = trange(config.batch, train_batches)

@@ -162,7 +162,6 @@ class _MotionGAN(object):
         self.gan_model = Model(self.gen_inputs,
                                self.disc_model(self.gen_model(self.gen_inputs)),
                                name=self.name + '_gan')
-        self.gan_model.save()
 
     def disc_train(self, inputs):
         train_outs = self.disc_train_f(inputs)

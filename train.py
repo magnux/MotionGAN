@@ -95,7 +95,7 @@ if __name__ == "__main__":
                     labs_batch, poses_batch = train_generator.next()
                     disc_inputs = [poses_batch]
                     gen_inputs = [poses_batch]
-                    place_holders = [True, False]  # disc_training is True, gen_training False
+                    place_holders = []
                     if config.action_cond:
                         place_holders.append(labs_batch[:, 2])
                     if config.latent_cond_dim > 0:
@@ -115,7 +115,7 @@ if __name__ == "__main__":
 
                 labs_batch, poses_batch = train_generator.next()
                 gen_inputs = [poses_batch]
-                place_holders = [False, True]  # disc_training is False, so gen_training is True
+                place_holders = []
                 if config.action_cond:
                     place_holders.append(labs_batch[:, 2])
                 if config.latent_cond_dim > 0:
@@ -143,7 +143,7 @@ if __name__ == "__main__":
             labs_batch, poses_batch = val_generator.next()
             disc_inputs = [poses_batch]
             gen_inputs = [poses_batch]
-            place_holders = [False, False]
+            place_holders = []
             if config.action_cond:
                 place_holders.append(labs_batch[:, 2])
             if config.latent_cond_dim > 0:

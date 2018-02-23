@@ -5,12 +5,12 @@ from scipy.fftpack import idct
 from scipy.linalg import pinv
 from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
-from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, \
-    Conv2D, Dense, Reshape, Activation, BatchNormalization, Lambda, Add, \
-    Concatenate, Cropping2D, Permute, Flatten
+from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, Conv2D, \
+    Dense, Reshape, Activation, Lambda, Add, Concatenate, Cropping2D, Permute, Flatten
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 from layers.joints import UnfoldJoints, FoldJoints
+from layers.normalization import InstanceNormalization
 from collections import OrderedDict
 
 
@@ -21,22 +21,22 @@ def _get_tensor(tensors, name):
         return tensors
 
 
-def _preact_dense(x, n_units, i, j, training):
-    x = BatchNormalization(name='generator/block_%d/bn_%d' % (i, j))(x, training=training)
+def _preact_dense(x, n_units, i, j):
+    x = InstanceNormalization(name='generator/block_%d/inorm_%d' % (i, j))(x)
     x = Activation('relu', name='generator/block_%d/relu_%d' % (i, j))(x)
     x = Dense(n_units, name='generator/block_%d/dense_%d' % (i, j), activation='relu')(x)
     return x
 
 
-def _conv_block(x, out_filters, bneck_factor, kernel_size, strides, i, j, net_name, training=None, conv_func=Conv2D):
+def _conv_block(x, out_filters, bneck_factor, kernel_size, strides, i, j, net_name, conv_func=Conv2D):
     conv_args = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
     if 'generator' in net_name:
-        x = BatchNormalization(name='%s/block_%d/branch_%d/bn_in' % (net_name, i, j))(x, training=training)
+        x = InstanceNormalization(name='%s/block_%d/branch_%d/inorm_in' % (net_name, i, j))(x)
     x = Activation('relu', name='%s/block_%d/branch_%d/relu_in' % (net_name, i, j))(x)
     x = conv_func(filters=out_filters // bneck_factor, kernel_size=kernel_size, strides=1,
                   name='%s/block_%d/branch_%d/conv_in' % (net_name, i, j), **conv_args)(x)
     if 'generator' in net_name:
-        x = BatchNormalization(name='%s/block_%d/branch_%d/bn_out' % (net_name, i, j))(x, training=training)
+        x = InstanceNormalization(name='%s/block_%d/branch_%d/inorm_out' % (net_name, i, j))(x)
     x = Activation('relu', name='%s/block_%d/branch_%d/relu_out' % (net_name, i, j))(x)
     x = conv_func(filters=out_filters, kernel_size=kernel_size, strides=strides,
                   name='%s/block_%d/branch_%d/conv_out' % (net_name, i, j), **conv_args)(x)
@@ -95,9 +95,7 @@ class _MotionGAN(object):
         self.unfolded_joints = self.njoints
 
         # Placeholders for training phase
-        self.disc_training = K.placeholder(shape=(), dtype='bool', name='disc_training')
-        self.gen_training = K.placeholder(shape=(), dtype='bool', name='gen_training')
-        self.place_holders = [self.disc_training, self.gen_training]
+        self.place_holders = []
         if self.action_cond:
             true_label = K.placeholder(shape=(self.batch_size,), dtype='int32', name='true_label')
             self.place_holders.append(true_label)
@@ -323,7 +321,7 @@ class _MotionGAN(object):
             num_block = n_hidden * (((i + 1) // 2) + 1)
             shortcut = Conv2D(num_block, 1, strides,
                               name='generator/seq_fex/block_%d/shortcut' % i, **conv_args)(x)
-            pi = _conv_block(x, num_block, 8, 3, strides, i, 0, 'generator/seq_fex', self.gen_training)
+            pi = _conv_block(x, num_block, 8, 3, strides, i, 0, 'generator/seq_fex')
             x = Add(name='generator/seq_fex/block_%d/add' % i)([shortcut, pi])
             x = Activation('relu', name='generator/seq_fex/block_%d/relu_out' % i)(x)
             i += 1
@@ -393,11 +391,11 @@ class MotionGANV1(_MotionGAN):
             shortcut = Conv2DTranspose(n_filters, strides, strides,
                                        name='generator/block_%d/shortcut' % i, **conv_args)(x)
             pi = _conv_block(x, n_filters, 1, 3, strides, i, 0,
-                             'generator', self.gen_training, Conv2DTranspose)
+                             'generator', Conv2DTranspose)
 
             x = Add(name='generator/block_%d/add' % i)([shortcut, pi])
 
-        x = BatchNormalization(name='generator/bn_out')(x, training=self.gen_training)
+        x = InstanceNormalization(name='generator/inorm_out')(x)
         x = Activation('relu', name='generator/relu_out')(x)
 
         return x
@@ -446,11 +444,11 @@ class MotionGANV2(_MotionGAN):
         if not self.time_pres_emb:
             for i in range(2):
                 if i > 0:
-                    x = BatchNormalization(name='generator/dense_block%d/bn' % i)(x, training=self.gen_training)
+                    x = InstanceNormalization(name='generator/dense_block%d/bn' % i)(x)
                     x = Activation('relu', name='generator/dense_block%d/relu' % i)(x)
                 x = Dense(n_hidden * 4, name='generator/dense_block%d/dense' % i)(x)
 
-            x = BatchNormalization(name='generator/bn_conv_in')(x, training=self.gen_training)
+            x = InstanceNormalization(name='generator/inorm_conv_in')(x)
             x = Activation('relu', name='generator/relu_conv_in')(x)
             x = Dense(4 * 4 * n_hidden * block_factors[0], name='generator/dense_conv_in')(x)
             x = Reshape((4, 4, n_hidden * block_factors[0]), name='generator/reshape_conv_in')(x)
@@ -461,22 +459,19 @@ class MotionGANV2(_MotionGAN):
             shortcut = Conv2DTranspose(n_filters, strides, strides,
                                        name='generator/block_%d/shortcut' % i, **conv_args)(x)
 
-            pi = _conv_block(x, n_filters, 2, 3, strides, i, 0,
-                             'generator', self.gen_training, Conv2DTranspose)
+            pi = _conv_block(x, n_filters, 2, 3, strides, i, 0, 'generator', Conv2DTranspose)
 
             # For condition injecting
             # squeeze_kernel = (x.shape[1], x.shape[2])
-            # gamma = _conv_block(x, n_filters, 8, squeeze_kernel, squeeze_kernel, i, 1,
-            #                     'generator', self.gen_training)
+            # gamma = _conv_block(x, n_filters, 8, squeeze_kernel, squeeze_kernel, i, 1, 'generator')
             # gamma = Flatten(name='generator/block_%d/gamma_flatten' % i)(gamma)
             # gamma = Concatenate(name='generator/block_%d/cond_concat' % i)([gamma, z])
-            # gamma = BatchNormalization(name='generator/block_%d/cond_bn' % i)(gamma, training=self.gen_training)
+            # gamma = InstanceNormalization(name='generator/block_%d/cond_bn' % i)(gamma)
             # gamma = Activation('relu', name='generator/block_%d/cond_relu' % i)(gamma)
             # gamma = Dense(n_filters, name='generator/block_%d/cond_dense' % i)(gamma)
             # gamma = Reshape((1, 1, n_filters), name='generator/block_%d/gamma_reshape' % i)(gamma)
 
-            gamma = _conv_block(x, n_filters, 4, 3, strides, i, 1,
-                                'generator', self.gen_training, Conv2DTranspose)
+            gamma = _conv_block(x, n_filters, 4, 3, strides, i, 1, 'generator', Conv2DTranspose)
             gamma = Activation('sigmoid', name='generator/block_%d/gamma_sigmoid' % i)(gamma)
 
             # tau = 1 - gamma
@@ -486,7 +481,7 @@ class MotionGANV2(_MotionGAN):
             x = Lambda(lambda args: (args[0] * args[1]) + (args[2] * args[3]),
                        name='generator/block_%d/out_x' % i)([pi, tau, shortcut, gamma])
 
-        x = BatchNormalization(name='generator/bn_out')(x, training=self.gen_training)
+        x = InstanceNormalization(name='generator/inorm_out')(x)
         x = Activation('relu', name='generator/relu_out')(x)
 
         return x
@@ -510,10 +505,10 @@ class MotionGANV3(_MotionGAN):
     def generator(self, x):
 
         x = Flatten(name='generator/flatten_in')(x)
-        x = _preact_dense(x, 1024, 0, 0, self.gen_training)
+        x = _preact_dense(x, 1024, 0, 0)
         for i in range(1, 5):
-            pi = _preact_dense(x, 1024, i, 0, self.gen_training)
-            pi = _preact_dense(pi, 1024, i, 1, self.gen_training)
+            pi = _preact_dense(x, 1024, i, 0)
+            pi = _preact_dense(pi, 1024, i, 1)
 
             x = Add(name='generator/block_%d/add' % i)([x, pi])
 

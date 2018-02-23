@@ -6,7 +6,8 @@ from scipy.linalg import pinv
 from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, Conv2D, \
-    Dense, Reshape, Activation, Lambda, Add, Concatenate, Cropping2D, Permute, Flatten
+    Dense, Reshape, Activation, Lambda, Add, Concatenate, Cropping2D, Permute,\
+    Flatten, ZeroPadding2D
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 from layers.joints import UnfoldJoints, FoldJoints
@@ -48,7 +49,7 @@ def _shape_seq_out(x, njoints, seq_len):
     x = Permute((3, 2, 1))(x)  # filters, time, joints
     x = Conv2D(njoints, 3, 1, name='generator/joint_reshape', **conv_args)(x)
     x = Permute((1, 3, 2))(x)  # filters, joints, time
-    x = Conv2D(seq_len // 2, 3, 1, name='generator/time_reshape', **conv_args)(x)
+    x = Conv2D(seq_len, 3, 1, name='generator/time_reshape', **conv_args)(x)
     x = Permute((2, 3, 1))(x)  # joints, time, filters
     x = Conv2D(3, 3, 1, name='generator/conv_out', **conv_args)(x)
     return x
@@ -71,6 +72,7 @@ class _MotionGAN(object):
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
+        self.rec_scale = 1.0
         self.action_cond = config.action_cond
         self.action_scale_d = 1.0
         self.action_scale_g = 0.1
@@ -115,10 +117,8 @@ class _MotionGAN(object):
             latent_cond_input = Input(batch_shape=(self.batch_size, self.latent_cond_dim),
                                       name='latent_cond_input', dtype='float32')
             self.gen_inputs.append(latent_cond_input)
-        x, seq_head = self._proc_gen_inputs(self.gen_inputs)
-        gen_tail = self._proc_gen_outputs(self.generator(x))
-        gen_seq = Concatenate(axis=2, name='gen_seq')([seq_head, gen_tail])
-        self.gen_outputs = [gen_seq]
+        x = self._proc_gen_inputs(self.gen_inputs)
+        self.gen_outputs = self._proc_gen_outputs(self.generator(x))
         self.gen_model = Model(self.gen_inputs,
                                self.gen_outputs,
                                name=self.name + '_generator')
@@ -233,6 +233,12 @@ class _MotionGAN(object):
             gen_loss_reg += reg_loss
         gen_losses['gen_loss_reg'] = gen_loss_reg
 
+        # Reconstruction loss
+        seq_head = self.gen_inputs[0][:, :, :self.seq_len // 2, :]
+        gen_head = self.gen_outputs[0][:, :, :self.seq_len // 2, :]
+        loss_rec = K.mean(K.square(seq_head - gen_head))
+        gen_losses['gen_loss_rec'] = self.rec_scale * loss_rec
+
         # Conditional losses
         if self.action_cond:
             loss_class_real = K.mean(K.sparse_categorical_crossentropy(
@@ -241,25 +247,25 @@ class _MotionGAN(object):
             loss_class_fake = K.mean(K.sparse_categorical_crossentropy(
                 _get_tensor(self.place_holders, 'true_label'),
                 _get_tensor(self.fake_outputs, 'label_out'), True))
-            disc_losses['disc_loss_action'] = (self.action_scale_d * (loss_class_real + loss_class_fake))
-            gen_losses['gen_loss_action'] = (self.action_scale_g * loss_class_fake)
+            disc_losses['disc_loss_action'] = self.action_scale_d * (loss_class_real + loss_class_fake)
+            gen_losses['gen_loss_action'] = self.action_scale_g * loss_class_fake
         if self.latent_cond_dim > 0:
             loss_latent = K.mean(K.square(_get_tensor(self.fake_outputs, 'latent_cond_out')
                                           - _get_tensor(self.gen_inputs, 'latent_cond_input')))
-            disc_losses['disc_loss_latent'] = (self.latent_scale_d * loss_latent)
-            gen_losses['gen_loss_latent'] = (self.latent_scale_g * loss_latent)
+            disc_losses['disc_loss_latent'] = self.latent_scale_d * loss_latent
+            gen_losses['gen_loss_latent'] = self.latent_scale_g * loss_latent
         if self.coherence_loss:
             seq_tail = self.gen_inputs[0][:, :, self.seq_len // 2:, :]
             gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
             exp_decay = 1.0 / np.exp(np.linspace(0.0, 2.0, self.seq_len // 2, dtype='float32'))
             exp_decay = np.reshape(exp_decay, (1, 1, 1, self.seq_len // 2))
             loss_coh = K.mean(K.square(_edm(seq_tail) - _edm(gen_tail)) * exp_decay)
-            gen_losses['gen_loss_coh'] = (self.coherence_scale * loss_coh)
+            gen_losses['gen_loss_coh'] = self.coherence_scale * loss_coh
         if self.displacement_loss:
             gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
             gen_tail_s = self.gen_outputs[0][:, :, (self.seq_len // 2)-1:-1, :]
             loss_disp = K.mean(K.square(gen_tail - gen_tail_s))
-            gen_losses['gen_loss_disp'] = (self.displacement_scale * loss_disp)
+            gen_losses['gen_loss_disp'] = self.displacement_scale * loss_disp
         if self.shape_loss:
             mask = np.ones((self.njoints, self.njoints), dtype='float32')
             mask = np.triu(mask, 1) - np.triu(mask, 2)
@@ -268,7 +274,7 @@ class _MotionGAN(object):
             gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
             gen_shape = _edm(gen_tail) * mask
             loss_shape = K.mean(K.square(real_shape - gen_shape))
-            gen_losses['gen_loss_shape'] = (self.shape_scale * loss_shape)
+            gen_losses['gen_loss_shape'] = self.shape_scale * loss_shape
         if self.smoothing_loss:
             Q = idct(np.eye(self.seq_len // 2))[:self.smoothing_basis, :]
             Q_inv = pinv(Q)
@@ -278,7 +284,7 @@ class _MotionGAN(object):
             gen_tail = K.reshape(gen_tail, (self.batch_size, self.njoints, 3, self.seq_len // 2))
             gen_tail_s = K.dot(gen_tail, Qs)
             loss_smooth = K.mean(K.square(gen_tail - gen_tail_s))
-            gen_losses['gen_loss_smooth'] = (self.smoothing_scale * loss_smooth)
+            gen_losses['gen_loss_smooth'] = self.smoothing_scale * loss_smooth
 
         return wgan_losses, disc_losses, gen_losses
 
@@ -307,9 +313,10 @@ class _MotionGAN(object):
     def _proc_gen_inputs(self, input_tensors):
         conv_args = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
         n_hidden = 32 if self.time_pres_emb else 128
-        seq_head = _get_tensor(input_tensors, 'real_seq')
-        seq_head = Cropping2D(((0, 0), (0, self.seq_len // 2)), name='seq_head')(seq_head)
-        x = seq_head
+
+        x = _get_tensor(input_tensors, 'real_seq')
+        x = Cropping2D(((0, 0), (0, self.seq_len // 2)), name='seq_head')(x)
+        x = ZeroPadding2D(((0, 0), (0, self.seq_len // 2)), name='generator/mask_seq')(x)
 
         if self.unfold:
             x = UnfoldJoints(self.data_set)(x)
@@ -340,7 +347,7 @@ class _MotionGAN(object):
         else:
             x = x[0]
 
-        return x, seq_head
+        return x
 
     def _proc_gen_outputs(self, x):
 
@@ -349,7 +356,9 @@ class _MotionGAN(object):
         if self.unfold:
             x = FoldJoints(self.data_set)(x)
 
-        return x
+        output_tensors = [x]
+
+        return output_tensors
 
 
 class MotionGANV1(_MotionGAN):

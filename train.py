@@ -64,10 +64,10 @@ if __name__ == "__main__":
         return np.random.uniform(size=(config.batch_size, config.latent_cond_dim))
 
     def save_models():
-        logging.set_verbosity(50)  # Avoid warinings when saving
+        # logging.set_verbosity(50)  # Avoid warinings when saving
         model_wrap.disc_model.save(config.save_path + '_disc_weights.hdf5')
         model_wrap.gen_model.save(config.save_path + '_gen_weights.hdf5')
-        logging.set_verbosity(30)
+        # logging.set_verbosity(30)
 
     try:
         for epoch in range(config.epoch, config.num_epochs):

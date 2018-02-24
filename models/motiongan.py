@@ -72,7 +72,7 @@ class _MotionGAN(object):
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
-        self.rec_scale = 1.0
+        self.rec_scale = 1000.0
         self.action_cond = config.action_cond
         self.action_scale_d = 1.0
         self.action_scale_g = 0.1

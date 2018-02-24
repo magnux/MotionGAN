@@ -112,13 +112,15 @@ class _MotionGAN(object):
                                 name=self.name + '_discriminator')
 
         # Generator
+        seq_head = Cropping2D(((0, 0), (0, self.seq_len // 2)), name='seq_head')(real_seq)
         self.gen_inputs = [real_seq]
         if self.latent_cond_dim > 0:
             latent_cond_input = Input(batch_shape=(self.batch_size, self.latent_cond_dim),
                                       name='latent_cond_input', dtype='float32')
             self.gen_inputs.append(latent_cond_input)
-        x = self._proc_gen_inputs(self.gen_inputs)
-        self.gen_outputs = self._proc_gen_outputs(self.generator(x))
+        x = self._proc_gen_inputs(real_seq)
+        gen_tail = self._proc_gen_outputs(self.generator(x))
+        self.gen_outputs = [Concatenate(axis=2, name='gen_seq')([seq_head, gen_tail])]
         self.gen_model = Model(self.gen_inputs,
                                self.gen_outputs,
                                name=self.name + '_generator')
@@ -236,10 +238,10 @@ class _MotionGAN(object):
             gen_losses['gen_loss_reg'] = gen_loss_reg
 
         # Reconstruction loss
-        seq_head = self.gen_inputs[0][:, :, :self.seq_len // 2, :]
-        gen_head = self.gen_outputs[0][:, :, :self.seq_len // 2, :]
-        loss_rec = K.mean(K.square(seq_head - gen_head))
-        gen_losses['gen_loss_rec'] = self.rec_scale * loss_rec
+        # seq_head = self.gen_inputs[0][:, :, :self.seq_len // 2, :]
+        # gen_head = self.gen_outputs[0][:, :, :self.seq_len // 2, :]
+        # loss_rec = K.mean(K.square(seq_head - gen_head))
+        # gen_losses['gen_loss_rec'] = self.rec_scale * loss_rec
 
         # Conditional losses
         if self.action_cond:
@@ -316,9 +318,10 @@ class _MotionGAN(object):
         conv_args = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
         n_hidden = 32 if self.time_pres_emb else 128
 
-        x = _get_tensor(input_tensors, 'real_seq')
-        x = Cropping2D(((0, 0), (0, self.seq_len // 2)), name='seq_head')(x)
-        x = ZeroPadding2D(((0, 0), (0, self.seq_len // 2)), name='generator/mask_seq')(x)
+        # x = _get_tensor(input_tensors, 'real_seq')
+        # x = Cropping2D(((0, 0), (0, self.seq_len // 2)), name='seq_head')(x)
+        # x = ZeroPadding2D(((0, 0), (0, self.seq_len // 2)), name='generator/mask_seq')(x)
+        x = input_tensors
 
         if self.unfold:
             x = UnfoldJoints(self.data_set)(x)
@@ -353,14 +356,14 @@ class _MotionGAN(object):
 
     def _proc_gen_outputs(self, x):
 
-        x = _shape_seq_out(x, self.unfolded_joints, self.seq_len)
+        x = _shape_seq_out(x, self.unfolded_joints, self.seq_len // 2)
 
         if self.unfold:
             x = FoldJoints(self.data_set)(x)
 
-        output_tensors = [x]
+        #output_tensors = [x]
 
-        return output_tensors
+        return x  # output_tensors
 
 
 class MotionGANV1(_MotionGAN):
@@ -523,7 +526,7 @@ class MotionGANV3(_MotionGAN):
 
             x = Add(name='generator/block_%d/add' % i)([x, pi])
 
-        x = Dense((self.unfolded_joints * self.seq_len * 3), name='generator/dense_out', activation='relu')(x)
-        x = Reshape((self.unfolded_joints, self.seq_len, 3), name='generator/reshape_out')(x)
+        x = Dense((self.unfolded_joints * (self.seq_len // 2) * 3), name='generator/dense_out', activation='relu')(x)
+        x = Reshape((self.unfolded_joints, self.seq_len // 2, 3), name='generator/reshape_out')(x)
 
         return x

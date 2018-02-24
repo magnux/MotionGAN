@@ -223,15 +223,17 @@ class _MotionGAN(object):
         gen_losses['gen_loss_wgan'] = gen_loss_wgan
 
         # Regularization losses
-        disc_loss_reg = 0.0
-        for reg_loss in set(self.disc_model.losses):
-            disc_loss_reg += reg_loss
-        disc_losses['disc_loss_reg'] = disc_loss_reg
+        if len(self.disc_model.losses) > 0:
+            disc_loss_reg = 0.0
+            for reg_loss in set(self.disc_model.losses):
+                disc_loss_reg += reg_loss
+            disc_losses['disc_loss_reg'] = disc_loss_reg
 
-        gen_loss_reg = 0.0
-        for reg_loss in set(self.gen_model.losses):
-            gen_loss_reg += reg_loss
-        gen_losses['gen_loss_reg'] = gen_loss_reg
+        if len(self.gen_model.losses) > 0:
+            gen_loss_reg = 0.0
+            for reg_loss in set(self.gen_model.losses):
+                gen_loss_reg += reg_loss
+            gen_losses['gen_loss_reg'] = gen_loss_reg
 
         # Reconstruction loss
         seq_head = self.gen_inputs[0][:, :, :self.seq_len // 2, :]
@@ -521,7 +523,7 @@ class MotionGANV3(_MotionGAN):
 
             x = Add(name='generator/block_%d/add' % i)([x, pi])
 
-        x = Dense((self.unfolded_joints * (self.seq_len // 2) * 3), name='generator/dense_out', activation='relu')(x)
-        x = Reshape((self.unfolded_joints, self.seq_len // 2, 3), name='generator/reshape_out')(x)
+        x = Dense((self.unfolded_joints * self.seq_len * 3), name='generator/dense_out', activation='relu')(x)
+        x = Reshape((self.unfolded_joints, self.seq_len, 3), name='generator/reshape_out')(x)
 
         return x

@@ -14,7 +14,7 @@ from layers.joints import UnfoldJoints, FoldJoints
 from layers.normalization import InstanceNormalization
 from collections import OrderedDict
 
-CONV_ARGS = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
+CONV_ARGS = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-5)}
 
 def _get_tensor(tensors, name):
     if isinstance(tensors, list):
@@ -64,7 +64,7 @@ class _MotionGAN(object):
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
-        self.rec_scale = 1.0
+        self.rec_scale = 10.0
         self.action_cond = config.action_cond
         self.action_scale_d = 1.0
         self.action_scale_g = 0.1
@@ -87,7 +87,7 @@ class _MotionGAN(object):
         self.vae_intermediate_dim = 32
         self.vae_latent_dim = 16
         self.vae_epsilon_std = 1.0
-        self.vae_scale = 1000.0
+        self.vae_scale = 10.0
         # self.z_dim = config.z_dim
 
         # Placeholders for training phase
@@ -335,7 +335,7 @@ class _MotionGAN(object):
             x = Permute((2, 1, 3))(x)  # time, joints, coords
             x = Reshape((self.seq_len, self.njoints * 3))(x)
 
-            h = Dense(self.vae_intermediate_dim, activation='relu', name='vae_h')(x)
+            h = Dense(self.vae_intermediate_dim, activation='tanh', name='vae_h')(x)
             self.vae_z_mean = Dense(self.vae_latent_dim, name='vae_z_mean')(h)
             self.vae_z_log_var = Dense(self.vae_latent_dim, name='vae_z_log_var')(h)
 
@@ -359,8 +359,8 @@ class _MotionGAN(object):
             x = Reshape((self.vae_latent_dim, self.seq_len, 1))(x)
 
             # we instantiate these layers separately so as to reuse them later
-            self.vae_decoder_h = Dense(self.vae_intermediate_dim, activation='relu', name='vae_decoder_h')
-            self.vae_decoder_mean = Dense(self.vae_original_dim, activation='relu', name='vae_decoder_mean')
+            self.vae_decoder_h = Dense(self.vae_intermediate_dim, activation='tanh', name='vae_decoder_h')
+            self.vae_decoder_mean = Dense(self.vae_original_dim, name='vae_decoder_mean')
 
             self.nblocks = 3
 
@@ -396,7 +396,7 @@ class _MotionGAN(object):
     def _proc_gen_outputs(self, x):
 
         if self.vae_pose_enc:
-            x = Conv2D(1, 3, 1, name='generator/vae_merge', activation='sigmoid', **CONV_ARGS)(x)
+            x = Conv2D(1, 3, 1, name='generator/vae_merge', activation='tanh', **CONV_ARGS)(x)
             x = Reshape((self.vae_latent_dim, self.seq_len))(x)
             x = Permute((2, 1))(x)
 

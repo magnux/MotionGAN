@@ -33,7 +33,7 @@
     # Joint unfolding
     'unfold': False,
     # VAE pose encodig
-    'vae_pose_enc': True,
+    'vae_pose_enc': False,
     # Size of the noise vector
     # 'z_dim': 64,
 

@@ -14,6 +14,7 @@ from layers.joints import UnfoldJoints, FoldJoints
 from layers.normalization import InstanceNormalization
 from collections import OrderedDict
 
+CONV_ARGS = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
 
 def _get_tensor(tensors, name):
     if isinstance(tensors, list):
@@ -30,30 +31,17 @@ def _preact_dense(x, n_units, i, j):
 
 
 def _conv_block(x, out_filters, bneck_factor, kernel_size, strides, i, j, net_name, conv_func=Conv2D):
-    conv_args = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
     if 'generator' in net_name:
         x = InstanceNormalization(name='%s/block_%d/branch_%d/inorm_in' % (net_name, i, j))(x)
     x = Activation('relu', name='%s/block_%d/branch_%d/relu_in' % (net_name, i, j))(x)
     x = conv_func(filters=out_filters // bneck_factor, kernel_size=kernel_size, strides=1,
-                  name='%s/block_%d/branch_%d/conv_in' % (net_name, i, j), **conv_args)(x)
+                  name='%s/block_%d/branch_%d/conv_in' % (net_name, i, j), **CONV_ARGS)(x)
     if 'generator' in net_name:
         x = InstanceNormalization(name='%s/block_%d/branch_%d/inorm_out' % (net_name, i, j))(x)
     x = Activation('relu', name='%s/block_%d/branch_%d/relu_out' % (net_name, i, j))(x)
     x = conv_func(filters=out_filters, kernel_size=kernel_size, strides=strides,
-                  name='%s/block_%d/branch_%d/conv_out' % (net_name, i, j), **conv_args)(x)
+                  name='%s/block_%d/branch_%d/conv_out' % (net_name, i, j), **CONV_ARGS)(x)
     return x
-
-
-def _shape_seq_out(x, njoints, seq_len):
-    conv_args = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
-    x = Permute((3, 2, 1))(x)  # filters, time, joints
-    x = Conv2D(njoints, 3, 1, name='generator/joint_reshape', **conv_args)(x)
-    x = Permute((1, 3, 2))(x)  # filters, joints, time
-    x = Conv2D(seq_len, 3, 1, name='generator/time_reshape', **conv_args)(x)
-    x = Permute((2, 3, 1))(x)  # joints, time, filters
-    x = Conv2D(3, 3, 1, name='generator/conv_out', **conv_args)(x)
-    return x
-
 
 def _edm(x):
     x1 = K.expand_dims(x, axis=1)
@@ -67,12 +55,16 @@ class _MotionGAN(object):
         self.name = config.model_type + '_' + config.model_version
         self.data_set = config.data_set
         self.batch_size = config.batch_size
-        # self.z_dim = config.z_dim
         self.num_actions = config.num_actions
+        self.seq_len = config.pick_num if config.pick_num > 0 else (
+                       config.crop_len if config.crop_len > 0 else None)
+        self.njoints = config.njoints
+        self.unfolded_joints = self.njoints
+
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
-        self.rec_scale = 1000.0
+        self.rec_scale = 1.0
         self.action_cond = config.action_cond
         self.action_scale_d = 1.0
         self.action_scale_g = 0.1
@@ -90,11 +82,12 @@ class _MotionGAN(object):
         self.smoothing_basis = 3
         self.time_pres_emb = config.time_pres_emb
         self.unfold = config.unfold
-
-        self.seq_len = config.pick_num if config.pick_num > 0 else (
-                       config.crop_len if config.crop_len > 0 else None)
-        self.njoints = config.njoints
-        self.unfolded_joints = self.njoints
+        self.vae_pose_enc = config.vae_pose_enc
+        self.vae_original_dim = self.njoints * 3
+        self.vae_intermediate_dim = 32
+        self.vae_latent_dim = 16
+        self.vae_epsilon_std = 1.0
+        # self.z_dim = config.z_dim
 
         # Placeholders for training phase
         self.place_holders = []
@@ -112,15 +105,20 @@ class _MotionGAN(object):
                                 name=self.name + '_discriminator')
 
         # Generator
-        seq_head = Cropping2D(((0, 0), (0, self.seq_len // 2)), name='seq_head')(real_seq)
+        # seq_head = Cropping2D(((0, 0), (0, self.seq_len // 2)), name='seq_head')(real_seq)
         self.gen_inputs = [real_seq]
         if self.latent_cond_dim > 0:
             latent_cond_input = Input(batch_shape=(self.batch_size, self.latent_cond_dim),
                                       name='latent_cond_input', dtype='float32')
             self.gen_inputs.append(latent_cond_input)
-        x = self._proc_gen_inputs(real_seq)
+        if self.vae_pose_enc:
+            vae_epsilon = Input(batch_shape=(self.batch_size, self.seq_len, self.vae_latent_dim),
+                                name='vae_epsilon_input', dtype='float32')
+            self.gen_inputs.append(vae_epsilon)
+        x = self._proc_gen_inputs(self.gen_inputs)
         gen_tail = self._proc_gen_outputs(self.generator(x))
-        self.gen_outputs = [Concatenate(axis=2, name='gen_seq')([seq_head, gen_tail])]
+        # self.gen_outputs = [Concatenate(axis=2)([seq_head, gen_tail[0])]
+        self.gen_outputs = gen_tail
         self.gen_model = Model(self.gen_inputs,
                                self.gen_outputs,
                                name=self.name + '_generator')
@@ -238,10 +236,17 @@ class _MotionGAN(object):
             gen_losses['gen_loss_reg'] = gen_loss_reg
 
         # Reconstruction loss
-        # seq_head = self.gen_inputs[0][:, :, :self.seq_len // 2, :]
-        # gen_head = self.gen_outputs[0][:, :, :self.seq_len // 2, :]
-        # loss_rec = K.mean(K.square(seq_head - gen_head))
-        # gen_losses['gen_loss_rec'] = self.rec_scale * loss_rec
+        seq_head = self.gen_inputs[0][:, :, :self.seq_len // 2, :]
+        gen_head = self.gen_outputs[0][:, :, :self.seq_len // 2, :]
+        loss_rec = K.mean(K.square(seq_head - gen_head))
+        gen_losses['gen_loss_rec'] = self.rec_scale * loss_rec
+
+        if self.vae_pose_enc:
+            gen_losses['vae_rec_loss'] = K.mean(self.vae_original_dim *
+                                                K.binary_crossentropy(self.vae_enc_head, self.vae_gen_head))
+            gen_losses['vae_kl_loss'] = K.mean(- 0.5 * K.sum(1 + self.vae_z_log_var -
+                                               K.square(self.vae_z_mean) -
+                                               K.exp(self.vae_z_log_var), axis=-1))
 
         # Conditional losses
         if self.action_cond:
@@ -315,33 +320,67 @@ class _MotionGAN(object):
         return output_tensors
 
     def _proc_gen_inputs(self, input_tensors):
-        conv_args = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
         n_hidden = 32 if self.time_pres_emb else 128
 
-        # x = _get_tensor(input_tensors, 'real_seq')
-        # x = Cropping2D(((0, 0), (0, self.seq_len // 2)), name='seq_head')(x)
-        # x = ZeroPadding2D(((0, 0), (0, self.seq_len // 2)), name='generator/mask_seq')(x)
-        x = input_tensors
+        x = _get_tensor(input_tensors, 'real_seq')
+        x = Cropping2D(((0, 0), (0, self.seq_len // 2)), name='seq_head')(x)
+        x = ZeroPadding2D(((0, 0), (0, self.seq_len // 2)), name='generator/mask_seq')(x)
+        # x = input_tensors
 
         if self.unfold:
             x = UnfoldJoints(self.data_set)(x)
             self.unfolded_joints = int(x.shape[1])
 
-        strides = (2, 1) if self.time_pres_emb else 2
-        i = 0
-        while (x.shape[1] > 1 and self.time_pres_emb) or (i < 3):
-            num_block = n_hidden * (((i + 1) // 2) + 1)
-            shortcut = Conv2D(num_block, 1, strides,
-                              name='generator/seq_fex/block_%d/shortcut' % i, **conv_args)(x)
-            pi = _conv_block(x, num_block, 8, 3, strides, i, 0, 'generator/seq_fex')
-            x = Add(name='generator/seq_fex/block_%d/add' % i)([shortcut, pi])
-            x = Activation('relu', name='generator/seq_fex/block_%d/relu_out' % i)(x)
-            i += 1
+        if self.vae_pose_enc:
+            x = Permute((2, 1, 3))(x)  # time, joints, coords
+            x = Reshape((self.seq_len, self.njoints * 3))(x)
 
-        self.nblocks = i
+            h = Dense(self.vae_intermediate_dim, activation='relu', name='vae_h')(x)
+            self.vae_z_mean = Dense(self.vae_latent_dim, name='vae_z_mean')(h)
+            self.vae_z_log_var = Dense(self.vae_latent_dim, name='vae_z_log_var')(h)
 
-        if not self.time_pres_emb:
-            x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name='generator/seq_fex/mean_pool')(x)
+            # def sampling(args):
+            #     z_mean, z_log_var = args
+            #     epsilon = K.random_normal(
+            #         shape=(self.batch_size, self.seq_len, self.vae_latent_dim), mean=0.,
+            #         stddev=self.vae_epsilon_std)
+            #     return z_mean + K.exp(z_log_var / 2) * epsilon
+
+            vae_epsilon = _get_tensor(input_tensors, 'vae_epsilon_input')
+            z = Lambda(lambda args: args[0] + \
+                                    K.exp(args[1] / 2) * \
+                                    K.exp(args[2]),
+                       output_shape=(self.vae_latent_dim,),
+                       name='vae_sampling')([self.vae_z_mean, self.vae_z_log_var, vae_epsilon])
+
+            self.vae_enc_head = z[:, self.seq_len // 2:, :]
+
+            x = Permute((2, 1))(z)  # embedding, time
+            x = Reshape((self.vae_latent_dim, self.seq_len, 1))(x)
+
+            # we instantiate these layers separately so as to reuse them later
+            self.vae_decoder_h = Dense(self.vae_intermediate_dim, activation='relu', name='vae_decoder_h')
+            self.vae_decoder_mean = Dense(self.vae_original_dim, activation='relu', name='vae_decoder_mean')
+
+            self.nblocks = 3
+
+        else:
+            strides = (2, 1) if self.time_pres_emb else 2
+            i = 0
+            while (x.shape[1] > 1 and self.time_pres_emb) or (i < 3):
+                num_block = n_hidden * (((i + 1) // 2) + 1)
+                shortcut = Conv2D(num_block, 1, strides,
+                                  name='generator/seq_fex/block_%d/shortcut' % i, **CONV_ARGS)(x)
+                pi = _conv_block(x, num_block, 8, 3, strides, i, 0, 'generator/seq_fex')
+                x = Add(name='generator/seq_fex/block_%d/add' % i)([shortcut, pi])
+                x = Activation('relu', name='generator/seq_fex/block_%d/relu_out' % i)(x)
+                i += 1
+
+            self.nblocks = i
+
+            if not self.time_pres_emb:
+                x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name='generator/seq_fex/mean_pool')(x)
+
         x = [x]
         if self.latent_cond_dim > 0:
             x_lat = _get_tensor(input_tensors, 'latent_cond_input')
@@ -356,30 +395,47 @@ class _MotionGAN(object):
 
     def _proc_gen_outputs(self, x):
 
-        x = _shape_seq_out(x, self.unfolded_joints, self.seq_len // 2)
+        if self.vae_pose_enc:
+            x = Conv2D(1, 3, 1, name='generator/vae_merge', activation='sigmoid', **CONV_ARGS)(x)
+            x = Reshape((self.vae_latent_dim, self.seq_len))(x)
+            x = Permute((2, 1))(x)
+
+            self.vae_gen_head = x[:, :self.seq_len // 2, :]
+
+            h_decoded = self.vae_decoder_h(x)
+            x_decoded_mean = self.vae_decoder_mean(h_decoded)
+
+            x = Reshape((self.seq_len, self.njoints, 3), name='generator/gen_out')(x_decoded_mean)
+            x = Permute((2, 1, 3))(x)  # joints, time, coords
+        else:
+            x = Permute((3, 2, 1))(x)  # filters, time, joints
+            x = Conv2D(self.unfolded_joints, 3, 1, name='generator/joint_reshape', **CONV_ARGS)(x)
+            x = Permute((1, 3, 2))(x)  # filters, joints, time
+            x = Conv2D(self.seq_len, 3, 1, name='generator/time_reshape', **CONV_ARGS)(x)
+            x = Permute((2, 3, 1))(x)  # joints, time, filters
+            x = Conv2D(3, 3, 1, name='generator/gen_out', **CONV_ARGS)(x)
 
         if self.unfold:
             x = FoldJoints(self.data_set)(x)
 
-        #output_tensors = [x]
+        output_tensors = [x]
 
-        return x  # output_tensors
+        return output_tensors
 
 
 class MotionGANV1(_MotionGAN):
     # ResNet
 
     def discriminator(self, x):
-        conv_args = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
         n_hidden = 64
         block_factors = [2, 2, 2, 2]
         block_strides = [2, 2, 1, 1]
 
-        x = Conv2D(n_hidden * block_factors[0], 3, 1, name='discriminator/conv_in', **conv_args)(x)
+        x = Conv2D(n_hidden * block_factors[0], 3, 1, name='discriminator/conv_in', **CONV_ARGS)(x)
         for i, factor in enumerate(block_factors):
             n_filters = n_hidden * factor
             shortcut = Conv2D(n_filters, block_strides[i], block_strides[i],
-                              name='discriminator/block_%d/shortcut' % i, **conv_args)(x)
+                              name='discriminator/block_%d/shortcut' % i, **CONV_ARGS)(x)
             pi = _conv_block(x, n_filters, 1, 3, block_strides[i], i, 0, 'discriminator')
 
             x = Add(name='discriminator/block_%d/add' % i)([shortcut, pi])
@@ -390,20 +446,23 @@ class MotionGANV1(_MotionGAN):
         return x
 
     def generator(self, x):
-        conv_args = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
         n_hidden = 64
         block_factors = [2] * self.nblocks
         block_strides = [2] * self.nblocks
 
-        if not self.time_pres_emb:
+        if not (self.time_pres_emb or self.vae_pose_enc):
             x = Dense(4 * 4 * n_hidden * block_factors[0], name='generator/dense_in')(x)
             x = Reshape((4, 4, n_hidden * block_factors[0]), name='generator/reshape_in')(x)
 
         for i, factor in enumerate(block_factors):
             n_filters = n_hidden * factor
-            strides = (block_strides[i], 1) if self.time_pres_emb else block_strides[i]
+            strides = block_strides[i]
+            if self.time_pres_emb:
+                strides = (block_strides[i], 1)
+            elif self.vae_pose_enc:
+                strides = 1
             shortcut = Conv2DTranspose(n_filters, strides, strides,
-                                       name='generator/block_%d/shortcut' % i, **conv_args)(x)
+                                       name='generator/block_%d/shortcut' % i, **CONV_ARGS)(x)
             pi = _conv_block(x, n_filters, 1, 3, strides, i, 0,
                              'generator', Conv2DTranspose)
 
@@ -419,16 +478,15 @@ class MotionGANV2(_MotionGAN):
     # Gated ResNet
 
     def discriminator(self, x):
-        conv_args = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
         n_hidden = 64
         block_factors = [2, 2, 2, 2]
         block_strides = [2, 2, 1, 1]
 
-        x = Conv2D(n_hidden * block_factors[0], 3, 1, name='discriminator/conv_in', **conv_args)(x)
+        x = Conv2D(n_hidden * block_factors[0], 3, 1, name='discriminator/conv_in', **CONV_ARGS)(x)
         for i, factor in enumerate(block_factors):
             n_filters = n_hidden * factor
             shortcut = Conv2D(n_filters, block_strides[i], block_strides[i],
-                              name='discriminator/block_%d/shortcut' % i, **conv_args)(x)
+                              name='discriminator/block_%d/shortcut' % i, **CONV_ARGS)(x)
 
             pi = _conv_block(x, n_filters, 1, 3, block_strides[i], i, 0, 'discriminator')
             gamma = _conv_block(x, n_filters, 4, 3, block_strides[i], i, 1, 'discriminator')
@@ -447,7 +505,6 @@ class MotionGANV2(_MotionGAN):
         return x
 
     def generator(self, x):
-        conv_args = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
         n_hidden = 64
         block_factors = [2] * self.nblocks
         block_strides = [2] * self.nblocks
@@ -455,7 +512,7 @@ class MotionGANV2(_MotionGAN):
         # For condition injecting
         # z = x
 
-        if not self.time_pres_emb:
+        if not (self.time_pres_emb or self.vae_pose_enc):
             for i in range(2):
                 if i > 0:
                     x = InstanceNormalization(name='generator/dense_block%d/bn' % i)(x)
@@ -469,9 +526,13 @@ class MotionGANV2(_MotionGAN):
 
         for i, factor in enumerate(block_factors):
             n_filters = n_hidden * factor
-            strides = (block_strides[i], 1) if self.time_pres_emb else block_strides[i]
+            strides = block_strides[i]
+            if self.time_pres_emb:
+                strides = (block_strides[i], 1)
+            elif self.vae_pose_enc:
+                strides = 1
             shortcut = Conv2DTranspose(n_filters, strides, strides,
-                                       name='generator/block_%d/shortcut' % i, **conv_args)(x)
+                                       name='generator/block_%d/shortcut' % i, **CONV_ARGS)(x)
 
             pi = _conv_block(x, n_filters, 2, 3, strides, i, 0, 'generator', Conv2DTranspose)
 

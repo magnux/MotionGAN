@@ -32,6 +32,8 @@
     'time_pres_emb': False,
     # Joint unfolding
     'unfold': False,
+    # VAE pose encodig
+    'vae_pose_enc': True,
     # Size of the noise vector
     # 'z_dim': 64,
 

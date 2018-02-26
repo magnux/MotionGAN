@@ -63,6 +63,12 @@ if __name__ == "__main__":
     def gen_latent_noise():
         return np.random.uniform(size=(config.batch_size, config.latent_cond_dim))
 
+    def gen_vae_epsilon(training=False):
+        if training:
+            return np.random.normal(size=(config.batch_size, 20, 16), loc=0., scale=1.0)
+        else:
+            return np.zeros(shape=(config.batch_size, 20, 16))
+
     def save_models():
         # logging.set_verbosity(50)  # Avoid warinings when saving
         model_wrap.disc_model.save(config.save_path + '_disc_weights.hdf5')
@@ -99,8 +105,9 @@ if __name__ == "__main__":
                     if config.action_cond:
                         place_holders.append(labs_batch[:, 2])
                     if config.latent_cond_dim > 0:
-                        latent_noise = gen_latent_noise()
-                        gen_inputs.append(latent_noise)
+                        gen_inputs.append(gen_latent_noise())
+                    if config.vae_pose_enc:
+                        gen_inputs.append(gen_vae_epsilon(False))
 
                     losses = model_wrap.disc_train(disc_inputs + gen_inputs + place_holders)
 
@@ -119,8 +126,9 @@ if __name__ == "__main__":
                 if config.action_cond:
                     place_holders.append(labs_batch[:, 2])
                 if config.latent_cond_dim > 0:
-                    latent_noise = gen_latent_noise()
-                    gen_inputs.append(latent_noise)
+                    gen_inputs.append(gen_latent_noise())
+                if config.vae_pose_enc:
+                    gen_inputs.append(gen_vae_epsilon(True))
 
                 gen_losses = model_wrap.gen_train(gen_inputs + place_holders)
 
@@ -147,8 +155,9 @@ if __name__ == "__main__":
             if config.action_cond:
                 place_holders.append(labs_batch[:, 2])
             if config.latent_cond_dim > 0:
-                latent_noise = gen_latent_noise()
-                gen_inputs.append(latent_noise)
+                gen_inputs.append(gen_latent_noise())
+            if config.vae_pose_enc:
+                gen_inputs.append(gen_vae_epsilon(False))
 
             disc_losses = model_wrap.disc_eval(disc_inputs + gen_inputs + place_holders)
             gen_losses = model_wrap.gen_eval(gen_inputs + place_holders)

@@ -87,7 +87,7 @@ class _MotionGAN(object):
         self.vae_intermediate_dim = 32
         self.vae_latent_dim = 16
         self.vae_epsilon_std = 1.0
-        self.vae_scale = 10.0
+        self.vae_scale = 1000.0
         # self.z_dim = config.z_dim
 
         # Placeholders for training phase

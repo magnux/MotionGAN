@@ -243,7 +243,7 @@ class _MotionGAN(object):
         gen_losses['gen_loss_rec'] = self.rec_scale * loss_rec
 
         if self.vae_pose_enc:
-            gen_losses['vae_loss_rec'] = self.vae_scale * K.mean(self.vae_enc_head - self.vae_gen_head)
+            # gen_losses['vae_loss_rec'] = self.vae_scale * K.mean(self.vae_enc_head - self.vae_gen_head)
             gen_losses['vae_loss_kl'] = self.vae_scale * K.mean(- 0.5 * K.sum(1 + self.vae_z_log_var -
                                                                 K.square(self.vae_z_mean) -
                                                                 K.exp(self.vae_z_log_var), axis=-1))

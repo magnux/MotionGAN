@@ -196,8 +196,8 @@ class _MotionGAN(object):
         # WGAN Basic losses
         loss_real = K.mean(_get_tensor(self.real_outputs, 'score_out'), axis=-1)
         loss_fake = K.mean(_get_tensor(self.fake_outputs, 'score_out'), axis=-1)
-        wgan_losses['loss_real'] = K.sum(loss_real)
-        wgan_losses['loss_fake'] = K.sum(loss_fake)
+        wgan_losses['loss_real'] = K.mean(loss_real)
+        wgan_losses['loss_fake'] = K.mean(loss_fake)
 
         # Interpolates for GP
         alpha = K.random_uniform((self.batch_size, 1, 1, 1))
@@ -211,10 +211,10 @@ class _MotionGAN(object):
 
         # WGAN-GP losses
         disc_loss_wgan = loss_fake - loss_real + (self.lambda_grads * grad_penalty)
-        disc_losses['disc_loss_wgan'] = K.sum(disc_loss_wgan)
+        disc_losses['disc_loss_wgan'] = K.mean(disc_loss_wgan)
 
         gen_loss_wgan = -loss_fake
-        gen_losses['gen_loss_wgan'] = K.sum(gen_loss_wgan)
+        gen_losses['gen_loss_wgan'] = K.mean(gen_loss_wgan)
 
         # Regularization losses
         if len(self.disc_model.losses) > 0:
@@ -232,29 +232,29 @@ class _MotionGAN(object):
         # Reconstruction loss
         seq_head = self.gen_inputs[0][:, :, :self.seq_len // 2, :]
         gen_head = self.gen_outputs[0][:, :, :self.seq_len // 2, :]
-        loss_rec = K.mean(K.square(seq_head - gen_head), axis=-1)
-        gen_losses['gen_loss_rec'] = self.rec_scale * K.sum(loss_rec)
+        loss_rec = K.sum(K.mean(K.square(seq_head - gen_head), axis=-1), axis=(1, 2))
+        gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
         if self.vae_pose_enc:
-            vae_loss_rec = K.mean(K.abs(self.vae_enc_head - self.vae_gen_head), axis=-1)
-            gen_losses['vae_loss_rec'] = self.vae_scale * K.sum(vae_loss_rec)
+            vae_loss_rec = K.sum(K.mean(K.abs(self.vae_enc_head - self.vae_gen_head), axis=-1), axis=1)
+            gen_losses['vae_loss_rec'] = self.vae_scale * K.mean(vae_loss_rec)
             vae_loss_kl = K.mean(- 0.5 * K.sum(1 + self.vae_z_log_var -
                                                K.square(self.vae_z_mean) -
                                                K.exp(self.vae_z_log_var), axis=-1))
-            gen_losses['vae_loss_kl'] = self.vae_scale * K.sum(vae_loss_kl)
+            gen_losses['vae_loss_kl'] = self.vae_scale * K.mean(vae_loss_kl)
 
         # Conditional losses
         if self.action_cond:
-            loss_class_real = K.sum(K.sparse_categorical_crossentropy(
+            loss_class_real = K.mean(K.sparse_categorical_crossentropy(
                 _get_tensor(self.place_holders, 'true_label'),
                 _get_tensor(self.real_outputs, 'label_out'), True))
-            loss_class_fake = K.sum(K.sparse_categorical_crossentropy(
+            loss_class_fake = K.mean(K.sparse_categorical_crossentropy(
                 _get_tensor(self.place_holders, 'true_label'),
                 _get_tensor(self.fake_outputs, 'label_out'), True))
             disc_losses['disc_loss_action'] = self.action_scale_d * (loss_class_real + loss_class_fake)
             gen_losses['gen_loss_action'] = self.action_scale_g * loss_class_fake
         if self.latent_cond_dim > 0:
-            loss_latent = K.sum(K.square(_get_tensor(self.fake_outputs, 'latent_cond_out')
+            loss_latent = K.mean(K.square(_get_tensor(self.fake_outputs, 'latent_cond_out')
                                           - _get_tensor(self.gen_inputs, 'latent_cond_input')))
             disc_losses['disc_loss_latent'] = self.latent_scale_d * loss_latent
             gen_losses['gen_loss_latent'] = self.latent_scale_g * loss_latent
@@ -263,13 +263,13 @@ class _MotionGAN(object):
             gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
             exp_decay = 1.0 / np.exp(np.linspace(0.0, 2.0, self.seq_len // 2, dtype='float32'))
             exp_decay = np.reshape(exp_decay, (1, 1, 1, self.seq_len // 2))
-            loss_coh = K.mean(K.square(_edm(seq_tail) - _edm(gen_tail)) * exp_decay, axis=-1)
-            gen_losses['gen_loss_coh'] = self.coherence_scale * K.sum(loss_coh)
+            loss_coh = K.sum(K.mean(K.square(_edm(seq_tail) - _edm(gen_tail)) * exp_decay, axis=-1), axis=(1, 2))
+            gen_losses['gen_loss_coh'] = self.coherence_scale * K.mean(loss_coh)
         if self.displacement_loss:
             gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
             gen_tail_s = self.gen_outputs[0][:, :, (self.seq_len // 2)-1:-1, :]
-            loss_disp = K.mean(K.square(gen_tail_s - gen_tail), axis=-1)
-            gen_losses['gen_loss_disp'] = self.displacement_scale * K.sum(loss_disp)
+            loss_disp = K.sum(K.mean(K.square(gen_tail_s - gen_tail), axis=-1), axis=(1, 2))
+            gen_losses['gen_loss_disp'] = self.displacement_scale * K.mean(loss_disp)
         if self.shape_loss:
             mask = np.ones((self.njoints, self.njoints), dtype='float32')
             mask = np.triu(mask, 1) - np.triu(mask, 2)
@@ -277,8 +277,8 @@ class _MotionGAN(object):
             real_shape = K.mean(_edm(self.gen_inputs[0]), axis=-1, keepdims=True) * mask
             gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
             gen_shape = _edm(gen_tail) * mask
-            loss_shape = K.mean(K.square(real_shape - gen_shape), axis=-1)
-            gen_losses['gen_loss_shape'] = self.shape_scale * K.sum(loss_shape)
+            loss_shape = K.sum(K.mean(K.square(real_shape - gen_shape), axis=-1), axis=(1, 2))
+            gen_losses['gen_loss_shape'] = self.shape_scale * K.mean(loss_shape)
         if self.smoothing_loss:
             Q = idct(np.eye(self.seq_len // 2))[:self.smoothing_basis, :]
             Q_inv = pinv(Q)
@@ -287,8 +287,8 @@ class _MotionGAN(object):
             gen_tail = K.permute_dimensions(gen_tail, (0, 1, 3, 2))
             gen_tail = K.reshape(gen_tail, (self.batch_size, self.njoints, 3, self.seq_len // 2))
             gen_tail_s = K.dot(gen_tail, Qs)
-            loss_smooth = K.mean(K.square(gen_tail_s - gen_tail), axis=-1)
-            gen_losses['gen_loss_smooth'] = self.smoothing_scale * K.sum(loss_smooth)
+            loss_smooth = K.sum(K.mean(K.square(gen_tail_s - gen_tail), axis=-1), axis=(1, 2))
+            gen_losses['gen_loss_smooth'] = self.smoothing_scale * K.mean(loss_smooth)
 
         return wgan_losses, disc_losses, gen_losses
 

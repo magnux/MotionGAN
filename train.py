@@ -60,14 +60,27 @@ if __name__ == "__main__":
                               write_graph=True)
     tensorboard.set_model(model_wrap.gan_model)
 
+    def gen_mask(mask_type=0, keep_prob=1.0):
+        # Default mask, no mask
+        mask = np.ones(shape=(config.batch_size, config.njoints, model_wrap.seq_len, 1))
+        if mask_type == 1:  # Future Prediction
+            mask[:, :, np.int(model_wrap.seq_len * keep_prob):, :] = 0.0
+        elif mask_type == 2:  # Occlusion Simulation
+            rand_joints = np.random.randint(config.njoints, size=np.int(config.njoints * (1.0 - keep_prob)))
+            mask[:, rand_joints, :, :] = 0.0
+        elif mask_type == 3:  # Noisy transmission
+            mask = np.random.binomial(1, keep_prob, size=mask.shape)
+
+        return mask
+
     def gen_latent_noise():
         return np.random.uniform(size=(config.batch_size, config.latent_cond_dim))
 
     def gen_vae_epsilon(training=False):
         if training:
-            return np.random.normal(size=(config.batch_size, 20, 16), loc=0., scale=1.0)
+            return np.random.normal(size=(config.batch_size, model_wrap.seq_len, model_wrap.vae_latent_dim), loc=0., scale=1.0)
         else:
-            return np.zeros(shape=(config.batch_size, 20, 16))
+            return np.zeros(shape=(config.batch_size, model_wrap.seq_len, model_wrap.vae_latent_dim))
 
     def save_models():
         # logging.set_verbosity(50)  # Avoid warinings when saving
@@ -88,6 +101,7 @@ if __name__ == "__main__":
             t.set_description('| ep: %d | lr: %.2e |' % (epoch, learning_rate))
             disc_loss_sum = 0.0
             gen_loss_sum = 0.0
+            keep_prob = 0.9 - (0.4 * epoch / config.num_epochs)
             for batch in t:
                 tensorboard.on_batch_begin(batch)
 
@@ -100,7 +114,7 @@ if __name__ == "__main__":
                 for disc_batch in range(disc_batches):
                     labs_batch, poses_batch = train_generator.next()
                     disc_inputs = [poses_batch]
-                    gen_inputs = [poses_batch]
+                    gen_inputs = [poses_batch, gen_mask(np.random.randint(4), keep_prob)]
                     place_holders = []
                     if config.action_cond:
                         place_holders.append(labs_batch[:, 2])
@@ -121,7 +135,7 @@ if __name__ == "__main__":
                     disc_losses[key] /= train_batches
 
                 labs_batch, poses_batch = train_generator.next()
-                gen_inputs = [poses_batch]
+                gen_inputs = [poses_batch, gen_mask(np.random.randint(4), keep_prob)]
                 place_holders = []
                 if config.action_cond:
                     place_holders.append(labs_batch[:, 2])
@@ -150,7 +164,7 @@ if __name__ == "__main__":
 
             labs_batch, poses_batch = val_generator.next()
             disc_inputs = [poses_batch]
-            gen_inputs = [poses_batch]
+            gen_inputs = [poses_batch, gen_mask(1, keep_prob)]
             place_holders = []
             if config.action_cond:
                 place_holders.append(labs_batch[:, 2])

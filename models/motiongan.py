@@ -6,8 +6,7 @@ from scipy.linalg import pinv
 from tensorflow.contrib.keras.api.keras.models import Model, Sequential
 from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, Conv2D, \
-    Dense, Reshape, Activation, Lambda, Add, Concatenate, Cropping2D, Permute,\
-    Flatten, ZeroPadding2D
+    Dense, Activation, Lambda, Add, Concatenate, Permute, Reshape, Flatten
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 from layers.joints import UnfoldJoints, FoldJoints
@@ -59,11 +58,11 @@ class _MotionGAN(object):
         self.gamma_grads = 1.0
         self.rec_scale = 1.0
         self.action_cond = config.action_cond
-        self.action_scale_d = 1.0
-        self.action_scale_g = 0.1
+        self.action_scale_d = 10.0
+        self.action_scale_g = 10.0
         self.latent_cond_dim = config.latent_cond_dim
         self.latent_scale_d = 1.0
-        self.latent_scale_g = 0.1
+        self.latent_scale_g = 1.0
         self.coherence_loss = config.coherence_loss
         self.coherence_scale = 10.0
         self.displacement_loss = config.displacement_loss
@@ -80,7 +79,7 @@ class _MotionGAN(object):
         self.vae_intermediate_dim = 32
         self.vae_latent_dim = 16
         self.vae_epsilon_std = 1.0
-        self.vae_scale = 1.0
+        self.vae_scale = 10.0
         # self.z_dim = config.z_dim
 
         # Placeholders for training phase
@@ -99,20 +98,19 @@ class _MotionGAN(object):
                                 name=self.name + '_discriminator')
 
         # Generator
-        # seq_head = Cropping2D(((0, 0), (0, self.seq_len // 2)), name='seq_head')(real_seq)
-        self.gen_inputs = [real_seq]
+        seq_mask = Input(batch_shape=(self.batch_size, self.njoints, self.seq_len, 1),
+                         name='seq_mask', dtype='float32')
+        self.gen_inputs = [real_seq, seq_mask]
         if self.latent_cond_dim > 0:
             latent_cond_input = Input(batch_shape=(self.batch_size, self.latent_cond_dim),
                                       name='latent_cond_input', dtype='float32')
             self.gen_inputs.append(latent_cond_input)
         if self.vae_pose_enc:
             vae_epsilon = Input(batch_shape=(self.batch_size, self.seq_len, self.vae_latent_dim),
-                                name='vae_epsilon_input', dtype='float32')
+                                name='vae_epsilon', dtype='float32')
             self.gen_inputs.append(vae_epsilon)
         x = self._proc_gen_inputs(self.gen_inputs)
-        gen_tail = self._proc_gen_outputs(self.generator(x))
-        # self.gen_outputs = [Concatenate(axis=2)([seq_head, gen_tail[0])]
-        self.gen_outputs = gen_tail
+        self.gen_outputs = self._proc_gen_outputs(self.generator(x))
         self.gen_model = Model(self.gen_inputs,
                                self.gen_outputs,
                                name=self.name + '_generator')
@@ -229,14 +227,17 @@ class _MotionGAN(object):
                 gen_loss_reg += reg_loss
             gen_losses['gen_loss_reg'] = gen_loss_reg
 
+        # Grabbing tensors
+        real_seq = _get_tensor(self.gen_inputs, 'real_seq')
+        seq_mask = _get_tensor(self.gen_inputs, 'seq_mask')
+        gen_seq = self.gen_outputs[0]
+
         # Reconstruction loss
-        seq_head = self.gen_inputs[0][:, :, :self.seq_len // 2, :]
-        gen_head = self.gen_outputs[0][:, :, :self.seq_len // 2, :]
-        loss_rec = K.sum(K.mean(K.square(seq_head - gen_head), axis=-1), axis=(1, 2))
+        loss_rec = K.sum(K.mean(K.square(real_seq - gen_seq) * seq_mask, axis=-1), axis=(1, 2))
         gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
         if self.vae_pose_enc:
-            vae_loss_rec = K.sum(K.mean(K.abs(self.vae_enc_head - self.vae_gen_head), axis=-1), axis=1)
+            vae_loss_rec = K.sum(K.mean(K.abs(self.vae_z - self.vae_gen_z), axis=-1), axis=1)
             gen_losses['vae_loss_rec'] = self.vae_scale * K.mean(vae_loss_rec)
             vae_loss_kl = K.mean(- 0.5 * K.sum(1 + self.vae_z_log_var -
                                                K.square(self.vae_z_mean) -
@@ -259,35 +260,31 @@ class _MotionGAN(object):
             disc_losses['disc_loss_latent'] = self.latent_scale_d * loss_latent
             gen_losses['gen_loss_latent'] = self.latent_scale_g * loss_latent
         if self.coherence_loss:
-            seq_tail = self.gen_inputs[0][:, :, self.seq_len // 2:, :]
-            gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
-            exp_decay = 1.0 / np.exp(np.linspace(0.0, 2.0, self.seq_len // 2, dtype='float32'))
-            exp_decay = np.reshape(exp_decay, (1, 1, 1, self.seq_len // 2))
-            loss_coh = K.sum(K.mean(K.square(_edm(seq_tail) - _edm(gen_tail)) * exp_decay, axis=-1), axis=(1, 2))
+            exp_decay = 1.0 / np.exp(np.linspace(0.0, 2.0, self.seq_len, dtype='float32'))
+            exp_decay = np.reshape(exp_decay, (1, 1, 1, self.seq_len))
+            loss_coh = K.sum(K.mean(K.square(_edm(real_seq) - _edm(gen_seq)) * exp_decay, axis=-1), axis=(1, 2))
             gen_losses['gen_loss_coh'] = self.coherence_scale * K.mean(loss_coh)
         if self.displacement_loss:
-            gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
-            gen_tail_s = self.gen_outputs[0][:, :, (self.seq_len // 2)-1:-1, :]
-            loss_disp = K.sum(K.mean(K.square(gen_tail_s - gen_tail), axis=-1), axis=(1, 2))
+            gen_seq_l = gen_seq[:, :, :-1, :]
+            gen_seq_r = gen_seq[:, :, 1:, :]
+            loss_disp = K.sum(K.mean(K.square(gen_seq_l - gen_seq_r), axis=-1), axis=(1, 2))
             gen_losses['gen_loss_disp'] = self.displacement_scale * K.mean(loss_disp)
         if self.shape_loss:
             mask = np.ones((self.njoints, self.njoints), dtype='float32')
             mask = np.triu(mask, 1) - np.triu(mask, 2)
             mask = np.reshape(mask, (1, self.njoints, self.njoints, 1))
-            real_shape = K.mean(_edm(self.gen_inputs[0]), axis=-1, keepdims=True) * mask
-            gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
-            gen_shape = _edm(gen_tail) * mask
+            real_shape = K.mean(_edm(real_seq), axis=-1, keepdims=True) * mask
+            gen_shape = _edm(gen_seq) * mask
             loss_shape = K.sum(K.mean(K.square(real_shape - gen_shape), axis=-1), axis=(1, 2))
             gen_losses['gen_loss_shape'] = self.shape_scale * K.mean(loss_shape)
         if self.smoothing_loss:
-            Q = idct(np.eye(self.seq_len // 2))[:self.smoothing_basis, :]
+            Q = idct(np.eye(self.seq_len))[:self.smoothing_basis, :]
             Q_inv = pinv(Q)
             Qs = K.constant(np.matmul(Q_inv, Q))
-            gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
-            gen_tail = K.permute_dimensions(gen_tail, (0, 1, 3, 2))
-            gen_tail = K.reshape(gen_tail, (self.batch_size, self.njoints, 3, self.seq_len // 2))
-            gen_tail_s = K.dot(gen_tail, Qs)
-            loss_smooth = K.sum(K.mean(K.square(gen_tail_s - gen_tail), axis=-1), axis=(1, 2))
+            gen_seq_s = K.permute_dimensions(gen_seq, (0, 1, 3, 2))
+            gen_seq_s = K.dot(gen_seq_s, Qs)
+            gen_seq_s = K.permute_dimensions(gen_seq_s, (0, 1, 3, 2))
+            loss_smooth = K.sum(K.mean(K.square(gen_seq_s - gen_seq), axis=-1), axis=(1, 2))
             gen_losses['gen_loss_smooth'] = self.smoothing_scale * K.mean(loss_smooth)
 
         return wgan_losses, disc_losses, gen_losses
@@ -318,9 +315,8 @@ class _MotionGAN(object):
         n_hidden = 32 if self.time_pres_emb else 128
 
         x = _get_tensor(input_tensors, 'real_seq')
-        x = Cropping2D(((0, 0), (0, self.seq_len // 2)), name='generator/head_crop')(x)
-        x = ZeroPadding2D(((0, 0), (0, self.seq_len // 2)), name='generator/head_pad')(x)
-        # x = input_tensors
+        x_mask = _get_tensor(input_tensors, 'seq_mask')
+        x = Lambda(lambda args: args[0] * args[1], name='generator/mask_mult')([x, x_mask])
 
         if self.unfold:
             x = UnfoldJoints(self.data_set)(x)
@@ -339,6 +335,7 @@ class _MotionGAN(object):
             self.vae_z_mean = Dense(self.vae_latent_dim, name='generator/pose_enc/vae_z_mean')(h)
             self.vae_z_log_var = Dense(self.vae_latent_dim, name='generator/pose_enc/vae_z_log_var')(h)
 
+            # Had to discard this function because it breaks keras model.save()
             # def sampling(args):
             #     z_mean, z_log_var = args
             #     epsilon = K.random_normal(
@@ -346,17 +343,15 @@ class _MotionGAN(object):
             #         stddev=self.vae_epsilon_std)
             #     return z_mean + K.exp(z_log_var / 2) * epsilon
 
-            vae_epsilon = _get_tensor(input_tensors, 'vae_epsilon_input')
-            z = Lambda(lambda args: args[0] + \
-                                    K.exp(args[1] / 2) * \
-                                    K.exp(args[2]),
-                       output_shape=(self.vae_latent_dim,),
-                       name='generator/pose_enc/vae_sampling')(
-                [self.vae_z_mean, self.vae_z_log_var, vae_epsilon])
+            vae_epsilon = _get_tensor(input_tensors, 'vae_epsilon')
+            self.vae_z = Lambda(lambda args: args[0] + \
+                                             K.exp(args[1] / 2) * \
+                                             K.exp(args[2]),
+                                output_shape=(self.vae_latent_dim,),
+                                name='generator/pose_enc/vae_sampling')(
+                             [self.vae_z_mean, self.vae_z_log_var, vae_epsilon])
 
-            self.vae_enc_head = z[:, self.seq_len // 2:, :]
-
-            x = Permute((2, 1))(z)  # embedding, time
+            x = Permute((2, 1))(self.vae_z)  # embedding, time
             x = Reshape((self.vae_latent_dim, self.seq_len, 1))(x)
 
             self.nblocks = 3
@@ -395,11 +390,9 @@ class _MotionGAN(object):
         if self.vae_pose_enc:
             x = Conv2D(1, 3, 1, name='generator/vae_merge', **CONV_ARGS)(x)
             x = Reshape((self.vae_latent_dim, self.seq_len))(x)
-            x = Permute((2, 1))(x)
+            self.vae_gen_z = Permute((2, 1))(x)
 
-            self.vae_gen_head = x[:, :self.seq_len // 2, :]
-
-            dec_h = x
+            dec_h = self.vae_gen_z
             for i in range(3):
                 dec_h = Dense(self.vae_intermediate_dim, name='generator/pose_enc/vae_dec_h_%d' % i)(dec_h)
                 dec_h = InstanceNormalization(axis=-1, name='generator/pose_enc/vae_dec_h_inorm_%d' % i)(dec_h)

@@ -3,7 +3,7 @@ import numpy as np
 import tensorflow.contrib.keras.api.keras.backend as K
 from scipy.fftpack import idct
 from scipy.linalg import pinv
-from tensorflow.contrib.keras.api.keras.models import Model
+from tensorflow.contrib.keras.api.keras.models import Model, Sequential
 from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, Conv2D, \
     Dense, Reshape, Activation, Lambda, Add, Concatenate, Cropping2D, Permute,\
@@ -23,21 +23,14 @@ def _get_tensor(tensors, name):
         return tensors
 
 
-def _preact_dense(x, n_units, i, j):
-    x = InstanceNormalization(name='generator/block_%d/inorm_%d' % (i, j))(x)
-    x = Activation('relu', name='generator/block_%d/relu_%d' % (i, j))(x)
-    x = Dense(n_units, name='generator/block_%d/dense_%d' % (i, j), activation='relu')(x)
-    return x
-
-
 def _conv_block(x, out_filters, bneck_factor, kernel_size, strides, i, j, net_name, conv_func=Conv2D):
     if 'generator' in net_name:
-        x = InstanceNormalization(name='%s/block_%d/branch_%d/inorm_in' % (net_name, i, j))(x)
+        x = InstanceNormalization(axis=-1, name='%s/block_%d/branch_%d/inorm_in' % (net_name, i, j))(x)
     x = Activation('relu', name='%s/block_%d/branch_%d/relu_in' % (net_name, i, j))(x)
     x = conv_func(filters=out_filters // bneck_factor, kernel_size=kernel_size, strides=1,
                   name='%s/block_%d/branch_%d/conv_in' % (net_name, i, j), **CONV_ARGS)(x)
     if 'generator' in net_name:
-        x = InstanceNormalization(name='%s/block_%d/branch_%d/inorm_out' % (net_name, i, j))(x)
+        x = InstanceNormalization(axis=-1, name='%s/block_%d/branch_%d/inorm_out' % (net_name, i, j))(x)
     x = Activation('relu', name='%s/block_%d/branch_%d/relu_out' % (net_name, i, j))(x)
     x = conv_func(filters=out_filters, kernel_size=kernel_size, strides=strides,
                   name='%s/block_%d/branch_%d/conv_out' % (net_name, i, j), **CONV_ARGS)(x)
@@ -64,7 +57,7 @@ class _MotionGAN(object):
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
-        self.rec_scale = 10.0
+        self.rec_scale = 1.0
         self.action_cond = config.action_cond
         self.action_scale_d = 1.0
         self.action_scale_g = 0.1
@@ -78,7 +71,7 @@ class _MotionGAN(object):
         self.shape_loss = config.shape_loss
         self.shape_scale = 1.0
         self.smoothing_loss = config.smoothing_loss
-        self.smoothing_scale = 10.0
+        self.smoothing_scale = 1.0
         self.smoothing_basis = 3
         self.time_pres_emb = config.time_pres_emb
         self.unfold = config.unfold
@@ -87,7 +80,7 @@ class _MotionGAN(object):
         self.vae_intermediate_dim = 32
         self.vae_latent_dim = 16
         self.vae_epsilon_std = 1.0
-        self.vae_scale = 10.0
+        self.vae_scale = 1.0
         # self.z_dim = config.z_dim
 
         # Placeholders for training phase
@@ -201,10 +194,10 @@ class _MotionGAN(object):
         gen_losses = OrderedDict()
 
         # WGAN Basic losses
-        loss_real = K.mean(_get_tensor(self.real_outputs, 'score_out'))
-        loss_fake = K.mean(_get_tensor(self.fake_outputs, 'score_out'))
-        wgan_losses['loss_real'] = loss_real
-        wgan_losses['loss_fake'] = loss_fake
+        loss_real = K.mean(_get_tensor(self.real_outputs, 'score_out'), axis=-1)
+        loss_fake = K.mean(_get_tensor(self.fake_outputs, 'score_out'), axis=-1)
+        wgan_losses['loss_real'] = K.sum(loss_real)
+        wgan_losses['loss_fake'] = K.sum(loss_fake)
 
         # Interpolates for GP
         alpha = K.random_uniform((self.batch_size, 1, 1, 1))
@@ -214,14 +207,14 @@ class _MotionGAN(object):
         inter_out = _get_tensor(self.disc_model(interpolates), 'discriminator/score_out')
         grad_mixed = K.gradients(inter_out, [interpolates])[0]
         norm_grad_mixed = K.sqrt(K.sum(K.square(grad_mixed), axis=(1, 2, 3)))
-        grad_penalty = K.mean(K.square(norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2))
+        grad_penalty = K.mean(K.square(norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
 
         # WGAN-GP losses
         disc_loss_wgan = loss_fake - loss_real + (self.lambda_grads * grad_penalty)
-        disc_losses['disc_loss_wgan'] = disc_loss_wgan
+        disc_losses['disc_loss_wgan'] = K.sum(disc_loss_wgan)
 
         gen_loss_wgan = -loss_fake
-        gen_losses['gen_loss_wgan'] = gen_loss_wgan
+        gen_losses['gen_loss_wgan'] = K.sum(gen_loss_wgan)
 
         # Regularization losses
         if len(self.disc_model.losses) > 0:
@@ -239,27 +232,29 @@ class _MotionGAN(object):
         # Reconstruction loss
         seq_head = self.gen_inputs[0][:, :, :self.seq_len // 2, :]
         gen_head = self.gen_outputs[0][:, :, :self.seq_len // 2, :]
-        loss_rec = K.mean(K.square(seq_head - gen_head))
-        gen_losses['gen_loss_rec'] = self.rec_scale * loss_rec
+        loss_rec = K.mean(K.square(seq_head - gen_head), axis=-1)
+        gen_losses['gen_loss_rec'] = self.rec_scale * K.sum(loss_rec)
 
         if self.vae_pose_enc:
-            # gen_losses['vae_loss_rec'] = self.vae_scale * K.mean(self.vae_enc_head - self.vae_gen_head)
-            gen_losses['vae_loss_kl'] = self.vae_scale * K.mean(- 0.5 * K.sum(1 + self.vae_z_log_var -
-                                                                K.square(self.vae_z_mean) -
-                                                                K.exp(self.vae_z_log_var), axis=-1))
+            vae_loss_rec = K.mean(K.abs(self.vae_enc_head - self.vae_gen_head), axis=-1)
+            gen_losses['vae_loss_rec'] = self.vae_scale * K.sum(vae_loss_rec)
+            vae_loss_kl = K.mean(- 0.5 * K.sum(1 + self.vae_z_log_var -
+                                               K.square(self.vae_z_mean) -
+                                               K.exp(self.vae_z_log_var), axis=-1))
+            gen_losses['vae_loss_kl'] = self.vae_scale * K.sum(vae_loss_kl)
 
         # Conditional losses
         if self.action_cond:
-            loss_class_real = K.mean(K.sparse_categorical_crossentropy(
+            loss_class_real = K.sum(K.sparse_categorical_crossentropy(
                 _get_tensor(self.place_holders, 'true_label'),
                 _get_tensor(self.real_outputs, 'label_out'), True))
-            loss_class_fake = K.mean(K.sparse_categorical_crossentropy(
+            loss_class_fake = K.sum(K.sparse_categorical_crossentropy(
                 _get_tensor(self.place_holders, 'true_label'),
                 _get_tensor(self.fake_outputs, 'label_out'), True))
             disc_losses['disc_loss_action'] = self.action_scale_d * (loss_class_real + loss_class_fake)
             gen_losses['gen_loss_action'] = self.action_scale_g * loss_class_fake
         if self.latent_cond_dim > 0:
-            loss_latent = K.mean(K.square(_get_tensor(self.fake_outputs, 'latent_cond_out')
+            loss_latent = K.sum(K.square(_get_tensor(self.fake_outputs, 'latent_cond_out')
                                           - _get_tensor(self.gen_inputs, 'latent_cond_input')))
             disc_losses['disc_loss_latent'] = self.latent_scale_d * loss_latent
             gen_losses['gen_loss_latent'] = self.latent_scale_g * loss_latent
@@ -268,13 +263,13 @@ class _MotionGAN(object):
             gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
             exp_decay = 1.0 / np.exp(np.linspace(0.0, 2.0, self.seq_len // 2, dtype='float32'))
             exp_decay = np.reshape(exp_decay, (1, 1, 1, self.seq_len // 2))
-            loss_coh = K.mean(K.square(_edm(seq_tail) - _edm(gen_tail)) * exp_decay)
-            gen_losses['gen_loss_coh'] = self.coherence_scale * loss_coh
+            loss_coh = K.mean(K.square(_edm(seq_tail) - _edm(gen_tail)) * exp_decay, axis=-1)
+            gen_losses['gen_loss_coh'] = self.coherence_scale * K.sum(loss_coh)
         if self.displacement_loss:
             gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
             gen_tail_s = self.gen_outputs[0][:, :, (self.seq_len // 2)-1:-1, :]
-            loss_disp = K.mean(K.square(gen_tail - gen_tail_s))
-            gen_losses['gen_loss_disp'] = self.displacement_scale * loss_disp
+            loss_disp = K.mean(K.square(gen_tail_s - gen_tail), axis=-1)
+            gen_losses['gen_loss_disp'] = self.displacement_scale * K.sum(loss_disp)
         if self.shape_loss:
             mask = np.ones((self.njoints, self.njoints), dtype='float32')
             mask = np.triu(mask, 1) - np.triu(mask, 2)
@@ -282,8 +277,8 @@ class _MotionGAN(object):
             real_shape = K.mean(_edm(self.gen_inputs[0]), axis=-1, keepdims=True) * mask
             gen_tail = self.gen_outputs[0][:, :, self.seq_len // 2:, :]
             gen_shape = _edm(gen_tail) * mask
-            loss_shape = K.mean(K.square(real_shape - gen_shape))
-            gen_losses['gen_loss_shape'] = self.shape_scale * loss_shape
+            loss_shape = K.mean(K.square(real_shape - gen_shape), axis=-1)
+            gen_losses['gen_loss_shape'] = self.shape_scale * K.sum(loss_shape)
         if self.smoothing_loss:
             Q = idct(np.eye(self.seq_len // 2))[:self.smoothing_basis, :]
             Q_inv = pinv(Q)
@@ -292,8 +287,8 @@ class _MotionGAN(object):
             gen_tail = K.permute_dimensions(gen_tail, (0, 1, 3, 2))
             gen_tail = K.reshape(gen_tail, (self.batch_size, self.njoints, 3, self.seq_len // 2))
             gen_tail_s = K.dot(gen_tail, Qs)
-            loss_smooth = K.mean(K.square(gen_tail - gen_tail_s))
-            gen_losses['gen_loss_smooth'] = self.smoothing_scale * loss_smooth
+            loss_smooth = K.mean(K.square(gen_tail_s - gen_tail), axis=-1)
+            gen_losses['gen_loss_smooth'] = self.smoothing_scale * K.sum(loss_smooth)
 
         return wgan_losses, disc_losses, gen_losses
 
@@ -323,8 +318,8 @@ class _MotionGAN(object):
         n_hidden = 32 if self.time_pres_emb else 128
 
         x = _get_tensor(input_tensors, 'real_seq')
-        x = Cropping2D(((0, 0), (0, self.seq_len // 2)), name='seq_head')(x)
-        x = ZeroPadding2D(((0, 0), (0, self.seq_len // 2)), name='generator/mask_seq')(x)
+        x = Cropping2D(((0, 0), (0, self.seq_len // 2)), name='generator/head_crop')(x)
+        x = ZeroPadding2D(((0, 0), (0, self.seq_len // 2)), name='generator/head_pad')(x)
         # x = input_tensors
 
         if self.unfold:
@@ -335,9 +330,14 @@ class _MotionGAN(object):
             x = Permute((2, 1, 3))(x)  # time, joints, coords
             x = Reshape((self.seq_len, self.njoints * 3))(x)
 
-            h = Dense(self.vae_intermediate_dim, activation='tanh', name='vae_h')(x)
-            self.vae_z_mean = Dense(self.vae_latent_dim, name='vae_z_mean')(h)
-            self.vae_z_log_var = Dense(self.vae_latent_dim, name='vae_z_log_var')(h)
+            h = x
+            for i in range(3):
+                h = Dense(self.vae_intermediate_dim, name='generator/pose_enc/vae_h_%d' % i)(h)
+                h = InstanceNormalization(axis=-1, name='generator/pose_enc/vae_h_inorm_%d' % i)(h)
+                h = Activation('relu', name='generator/pose_enc/vae_h_relu_%d' % i)(h)
+
+            self.vae_z_mean = Dense(self.vae_latent_dim, name='generator/pose_enc/vae_z_mean')(h)
+            self.vae_z_log_var = Dense(self.vae_latent_dim, name='generator/pose_enc/vae_z_log_var')(h)
 
             # def sampling(args):
             #     z_mean, z_log_var = args
@@ -351,16 +351,13 @@ class _MotionGAN(object):
                                     K.exp(args[1] / 2) * \
                                     K.exp(args[2]),
                        output_shape=(self.vae_latent_dim,),
-                       name='vae_sampling')([self.vae_z_mean, self.vae_z_log_var, vae_epsilon])
+                       name='generator/pose_enc/vae_sampling')(
+                [self.vae_z_mean, self.vae_z_log_var, vae_epsilon])
 
             self.vae_enc_head = z[:, self.seq_len // 2:, :]
 
             x = Permute((2, 1))(z)  # embedding, time
             x = Reshape((self.vae_latent_dim, self.seq_len, 1))(x)
-
-            # we instantiate these layers separately so as to reuse them later
-            self.vae_decoder_h = Dense(self.vae_intermediate_dim, activation='tanh', name='vae_decoder_h')
-            self.vae_decoder_mean = Dense(self.vae_original_dim, name='vae_decoder_mean')
 
             self.nblocks = 3
 
@@ -396,16 +393,21 @@ class _MotionGAN(object):
     def _proc_gen_outputs(self, x):
 
         if self.vae_pose_enc:
-            x = Conv2D(1, 3, 1, name='generator/vae_merge', activation='tanh', **CONV_ARGS)(x)
+            x = Conv2D(1, 3, 1, name='generator/vae_merge', **CONV_ARGS)(x)
             x = Reshape((self.vae_latent_dim, self.seq_len))(x)
             x = Permute((2, 1))(x)
 
             self.vae_gen_head = x[:, :self.seq_len // 2, :]
 
-            h_decoded = self.vae_decoder_h(x)
-            x_decoded_mean = self.vae_decoder_mean(h_decoded)
+            dec_h = x
+            for i in range(3):
+                dec_h = Dense(self.vae_intermediate_dim, name='generator/pose_enc/vae_dec_h_%d' % i)(dec_h)
+                dec_h = InstanceNormalization(axis=-1, name='generator/pose_enc/vae_dec_h_inorm_%d' % i)(dec_h)
+                dec_h = Activation('relu', name='generator/pose_enc/vae_dec_h_relu_%d' % i)(dec_h)
 
-            x = Reshape((self.seq_len, self.njoints, 3), name='generator/gen_out')(x_decoded_mean)
+            vae_dec_x = Dense(self.vae_original_dim, name='generator/pose_enc/vae_dec_x')(dec_h)
+
+            x = Reshape((self.seq_len, self.njoints, 3), name='generator/gen_out')(vae_dec_x)
             x = Permute((2, 1, 3))(x)  # joints, time, coords
         else:
             x = Permute((3, 2, 1))(x)  # filters, time, joints
@@ -468,7 +470,7 @@ class MotionGANV1(_MotionGAN):
 
             x = Add(name='generator/block_%d/add' % i)([shortcut, pi])
 
-        x = InstanceNormalization(name='generator/inorm_out')(x)
+        x = InstanceNormalization(axis=-1, name='generator/inorm_out')(x)
         x = Activation('relu', name='generator/relu_out')(x)
 
         return x
@@ -515,11 +517,11 @@ class MotionGANV2(_MotionGAN):
         if not (self.time_pres_emb or self.vae_pose_enc):
             for i in range(2):
                 if i > 0:
-                    x = InstanceNormalization(name='generator/dense_block%d/bn' % i)(x)
+                    x = InstanceNormalization(axis=-1, name='generator/dense_block%d/bn' % i)(x)
                     x = Activation('relu', name='generator/dense_block%d/relu' % i)(x)
                 x = Dense(n_hidden * 4, name='generator/dense_block%d/dense' % i)(x)
 
-            x = InstanceNormalization(name='generator/inorm_conv_in')(x)
+            x = InstanceNormalization(axis=-1, name='generator/inorm_conv_in')(x)
             x = Activation('relu', name='generator/relu_conv_in')(x)
             x = Dense(4 * 4 * n_hidden * block_factors[0], name='generator/dense_conv_in')(x)
             x = Reshape((4, 4, n_hidden * block_factors[0]), name='generator/reshape_conv_in')(x)
@@ -541,7 +543,7 @@ class MotionGANV2(_MotionGAN):
             # gamma = _conv_block(x, n_filters, 8, squeeze_kernel, squeeze_kernel, i, 1, 'generator')
             # gamma = Flatten(name='generator/block_%d/gamma_flatten' % i)(gamma)
             # gamma = Concatenate(name='generator/block_%d/cond_concat' % i)([gamma, z])
-            # gamma = InstanceNormalization(name='generator/block_%d/cond_bn' % i)(gamma)
+            # gamma = InstanceNormalization(axis=-1, name='generator/block_%d/cond_bn' % i)(gamma)
             # gamma = Activation('relu', name='generator/block_%d/cond_relu' % i)(gamma)
             # gamma = Dense(n_filters, name='generator/block_%d/cond_dense' % i)(gamma)
             # gamma = Reshape((1, 1, n_filters), name='generator/block_%d/gamma_reshape' % i)(gamma)
@@ -556,10 +558,17 @@ class MotionGANV2(_MotionGAN):
             x = Lambda(lambda args: (args[0] * args[1]) + (args[2] * args[3]),
                        name='generator/block_%d/out_x' % i)([pi, tau, shortcut, gamma])
 
-        x = InstanceNormalization(name='generator/inorm_out')(x)
+        x = InstanceNormalization(axis=-1, name='generator/inorm_out')(x)
         x = Activation('relu', name='generator/relu_out')(x)
 
         return x
+
+
+def _preact_dense(x, n_units, i, j):
+    x = InstanceNormalization(axis=-1, name='generator/block_%d/inorm_%d' % (i, j))(x)
+    x = Activation('relu', name='generator/block_%d/relu_%d' % (i, j))(x)
+    x = Dense(n_units, name='generator/block_%d/dense_%d' % (i, j), activation='relu')(x)
+    return x
 
 
 class MotionGANV3(_MotionGAN):

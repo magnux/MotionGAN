@@ -3,7 +3,7 @@ import numpy as np
 import tensorflow.contrib.keras.api.keras.backend as K
 from scipy.fftpack import idct
 from scipy.linalg import pinv
-from tensorflow.contrib.keras.api.keras.models import Model, Sequential
+from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, Conv2D, \
     Dense, Activation, Lambda, Add, Concatenate, Permute, Reshape, Flatten, \
@@ -78,7 +78,7 @@ class _MotionGAN(object):
         self.unfold = config.unfold
         self.vae_pose_enc = config.vae_pose_enc
         self.vae_original_dim = self.njoints * 3
-        self.vae_intermediate_dim = 32
+        self.vae_intermediate_dim = 64
         self.vae_latent_dim = 16
         self.vae_epsilon_std = 1.0
         self.vae_scale = 10.0
@@ -337,9 +337,15 @@ class _MotionGAN(object):
             x = Reshape((self.seq_len, self.njoints * 3))(x)
 
             h = x
+            h = Conv1D(self.vae_intermediate_dim, 1, 1,
+                       name='generator/pose_enc/vae_h_in', **CONV1D_ARGS)(h)
             for i in range(3):
+                shortcut = h
                 h = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
-                           name='generator/pose_enc/vae_h_%d' % i, **CONV1D_ARGS)(h)
+                           name='generator/pose_enc/vae_h_%d_0' % i, **CONV1D_ARGS)(h)
+                h = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                           name='generator/pose_enc/vae_h_%d_1' % i, **CONV1D_ARGS)(h)
+                h = Add(name='generator/pose_enc/vae_h_%d_add' % i)([shortcut, h])
 
             self.vae_z_mean = Conv1D(self.vae_latent_dim, 1, 1, name='generator/pose_enc/vae_z_mean', **CONV1D_ARGS)(h)
             self.vae_z_log_var = Conv1D(self.vae_latent_dim, 1, 1, name='generator/pose_enc/vae_z_log_var', **CONV1D_ARGS)(h)
@@ -358,14 +364,22 @@ class _MotionGAN(object):
                                 name='generator/pose_enc/vae_sampling')(
                              [self.vae_z_mean, self.vae_z_log_var, vae_epsilon])
 
-            self.vae_decoder = Sequential()
-            self.vae_decoder.add(Lambda(lambda x: x, input_shape=(self.seq_len, self.vae_latent_dim)))
 
+            decoder_input = Input(shape=(self.seq_len, self.vae_latent_dim))
+
+            dec_h = Conv1D(self.vae_intermediate_dim, 1, 1,
+                               name='generator/pose_enc/vae_dec_h_in', **CONV1D_ARGS)(decoder_input)
             for i in range(3):
-                self.vae_decoder.add(Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
-                                            name='generator/pose_enc/vae_dec_h_%d' % i, **CONV1D_ARGS))
+                shortcut = dec_h
+                dec_h = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                               name='generator/pose_enc/vae_dec_h_%d_0' % i, **CONV1D_ARGS)(dec_h)
+                dec_h = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                               name='generator/pose_enc/vae_dec_h_%d_1' % i, **CONV1D_ARGS)(dec_h)
+                dec_h = Add(name='generator/pose_enc/vae_dec_h_%d_add' % i)([shortcut, dec_h])
 
-            self.vae_decoder.add(Conv1D(self.vae_original_dim, 1, 1, name='generator/pose_enc/vae_dec_x', **CONV1D_ARGS))
+            dec_h = Conv1D(self.vae_original_dim, 1, 1, name='generator/pose_enc/vae_dec_x', **CONV1D_ARGS)(dec_h)
+
+            self.vae_decoder = Model(decoder_input, dec_h)
 
             vae_dec_x = self.vae_decoder(self.vae_z)
             vae_dec_x = Reshape((self.seq_len, self.njoints, 3), name='generator/gen_out')(vae_dec_x)

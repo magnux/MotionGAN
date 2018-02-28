@@ -56,7 +56,7 @@ class _MotionGAN(object):
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
-        self.rec_scale = 1.0
+        self.rec_scale = 0.1
         self.action_cond = config.action_cond
         self.action_scale_d = 10.0
         self.action_scale_g = 10.0
@@ -239,10 +239,14 @@ class _MotionGAN(object):
         gen_seq = self.gen_outputs[0]
 
         # Reconstruction loss
-        loss_rec = K.sum(K.mean(K.square(real_seq - gen_seq) * seq_mask, axis=-1), axis=(1, 2))
+        loss_rec = K.sum(K.mean(K.square(real_seq - gen_seq) *
+                                seq_mask, axis=-1), axis=(1, 2))
         gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
         if self.vae_pose_enc:
+            vae_loss_dec = K.sum(K.mean(K.square(real_seq - self.vae_dec_x) *
+                                        seq_mask, axis=-1), axis=(1, 2))
+            gen_losses['vae_loss_dec'] = self.vae_scale * K.mean(vae_loss_dec)
             vae_loss_rec = K.sum(K.mean(K.abs(self.vae_z - self.vae_gen_z) *
                                         K.min(seq_mask, axis=1), axis=-1), axis=1)
             gen_losses['vae_loss_rec'] = self.vae_scale * K.mean(vae_loss_rec)
@@ -358,6 +362,20 @@ class _MotionGAN(object):
                                 name='generator/pose_enc/vae_sampling')(
                              [self.vae_z_mean, self.vae_z_log_var, vae_epsilon])
 
+            self.vae_decoder = Sequential()
+            self.vae_decoder.add(Dense(self.vae_intermediate_dim, input_shape=(self.seq_len, self.vae_latent_dim)))
+
+            for i in range(3):
+                self.vae_decoder.add(Dense(self.vae_intermediate_dim, name='generator/pose_enc/vae_dec_h_%d' % i))
+                self.vae_decoder.add(InstanceNormalization(axis=-1, name='generator/pose_enc/vae_dec_h_inorm_%d' % i))
+                self.vae_decoder.add(Activation('relu', name='generator/pose_enc/vae_dec_h_relu_%d' % i))
+
+            self.vae_decoder.add(Dense(self.vae_original_dim, name='generator/pose_enc/vae_dec_x'))
+
+            vae_dec_x = self.vae_decoder(self.vae_z)
+            vae_dec_x = Reshape((self.seq_len, self.njoints, 3), name='generator/gen_out')(vae_dec_x)
+            self.vae_dec_x = Permute((2, 1, 3))(vae_dec_x)
+
             x = Permute((2, 1))(self.vae_z)  # embedding, time
             x = Reshape((self.vae_latent_dim, self.seq_len, 1))(x)
 
@@ -399,15 +417,9 @@ class _MotionGAN(object):
             x = Reshape((self.vae_latent_dim, self.seq_len))(x)
             self.vae_gen_z = Permute((2, 1))(x)
 
-            dec_h = self.vae_gen_z
-            for i in range(3):
-                dec_h = Dense(self.vae_intermediate_dim, name='generator/pose_enc/vae_dec_h_%d' % i)(dec_h)
-                dec_h = InstanceNormalization(axis=-1, name='generator/pose_enc/vae_dec_h_inorm_%d' % i)(dec_h)
-                dec_h = Activation('relu', name='generator/pose_enc/vae_dec_h_relu_%d' % i)(dec_h)
+            vae_gen_x = self.vae_decoder(self.vae_gen_z)
 
-            vae_dec_x = Dense(self.vae_original_dim, name='generator/pose_enc/vae_dec_x')(dec_h)
-
-            x = Reshape((self.seq_len, self.njoints, 3), name='generator/gen_out')(vae_dec_x)
+            x = Reshape((self.seq_len, self.njoints, 3), name='generator/gen_out')(vae_gen_x)
             x = Permute((2, 1, 3))(x)  # joints, time, coords
         else:
             x = Permute((3, 2, 1))(x)  # filters, time, joints

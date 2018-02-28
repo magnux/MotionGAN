@@ -28,7 +28,7 @@
     'shape_loss': True,
     # Sequence smoothing loss
     'smoothing_loss': True,
-    # Time preserving embedding (NOT COMPATIBLE with latent factor model)
+    # Time preserving embedding (NOT COMPATIBLE with latent or VAE)
     'time_pres_emb': False,
     # Joint unfolding
     'unfold': False,

@@ -340,10 +340,9 @@ class _MotionGAN(object):
 
             h = x
             for i in range(3):
-                h = Conv1D(self.vae_intermediate_dim, 1, 1, name='generator/pose_enc/vae_h_%d' % i, **CONV1D_ARGS)(h)
-                # h = InstanceNormalization(axis=-1, name='generator/pose_enc/vae_h_inorm_%d' % i)(h)
-                h = Activation('relu', name='generator/pose_enc/vae_h_relu_%d' % i)(h)
-
+                h = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                           name='generator/pose_enc/vae_h_%d' % i, **CONV1D_ARGS)(h)
+                
             self.vae_z_mean = Conv1D(self.vae_latent_dim, 1, 1, name='generator/pose_enc/vae_z_mean', **CONV1D_ARGS)(h)
             self.vae_z_log_var = Conv1D(self.vae_latent_dim, 1, 1, name='generator/pose_enc/vae_z_log_var', **CONV1D_ARGS)(h)
 
@@ -365,9 +364,8 @@ class _MotionGAN(object):
             self.vae_decoder.add(Lambda(lambda x: x, input_shape=(self.seq_len, self.vae_latent_dim)))
 
             for i in range(3):
-                self.vae_decoder.add(Conv1D(self.vae_intermediate_dim, 1, 1, name='generator/pose_enc/vae_dec_h_%d' % i, **CONV1D_ARGS))
-                # self.vae_decoder.add(InstanceNormalization(axis=-1, name='generator/pose_enc/vae_dec_h_inorm_%d' % i))
-                self.vae_decoder.add(Activation('relu', name='generator/pose_enc/vae_dec_h_relu_%d' % i))
+                self.vae_decoder.add(Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                                            name='generator/pose_enc/vae_dec_h_%d' % i, **CONV1D_ARGS))
 
             self.vae_decoder.add(Conv1D(self.vae_original_dim, 1, 1, name='generator/pose_enc/vae_dec_x', **CONV1D_ARGS))
 

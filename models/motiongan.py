@@ -241,15 +241,13 @@ class _MotionGAN(object):
         gen_seq = self.gen_outputs[0]
 
         # Reconstruction loss
-        loss_rec = K.sum(K.mean(K.square(real_seq - gen_seq) *
-                                seq_mask, axis=-1), axis=(1, 2))
+        loss_rec = K.sum(K.mean(K.square((real_seq - gen_seq) * seq_mask), axis=-1), axis=(1, 2))
         gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
         if self.vae_pose_enc:
-            vae_loss_dec = K.sum(K.mean(K.square((real_seq * seq_mask) - self.vae_dec_x), axis=-1), axis=(1, 2))
+            vae_loss_dec = K.sum(K.mean(K.square((real_seq - self.vae_dec_x) * seq_mask), axis=-1), axis=(1, 2))
             gen_losses['vae_loss_dec'] = self.vae_scale * K.mean(vae_loss_dec)
-            vae_loss_rec = K.sum(K.mean(K.abs(self.vae_z - self.vae_gen_z) *
-                                        K.min(seq_mask, axis=1), axis=-1), axis=1)
+            vae_loss_rec = K.sum(K.mean(K.abs(self.vae_z - self.vae_gen_z) * K.min(seq_mask, axis=1), axis=-1), axis=1)
             gen_losses['vae_loss_rec'] = self.vae_scale * K.mean(vae_loss_rec)
             vae_loss_kl = K.mean(- 0.5 * K.sum(1 + self.vae_z_log_var -
                                                K.square(self.vae_z_mean) -
@@ -342,7 +340,7 @@ class _MotionGAN(object):
             for i in range(3):
                 h = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
                            name='generator/pose_enc/vae_h_%d' % i, **CONV1D_ARGS)(h)
-                
+
             self.vae_z_mean = Conv1D(self.vae_latent_dim, 1, 1, name='generator/pose_enc/vae_z_mean', **CONV1D_ARGS)(h)
             self.vae_z_log_var = Conv1D(self.vae_latent_dim, 1, 1, name='generator/pose_enc/vae_z_log_var', **CONV1D_ARGS)(h)
 

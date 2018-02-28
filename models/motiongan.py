@@ -340,12 +340,12 @@ class _MotionGAN(object):
             h = Conv1D(self.vae_intermediate_dim, 1, 1,
                        name='generator/pose_enc/vae_h_in', **CONV1D_ARGS)(h)
             for i in range(3):
-                shortcut = h
+                # shortcut = h
                 h = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
                            name='generator/pose_enc/vae_h_%d_0' % i, **CONV1D_ARGS)(h)
-                h = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
-                           name='generator/pose_enc/vae_h_%d_1' % i, **CONV1D_ARGS)(h)
-                h = Add(name='generator/pose_enc/vae_h_%d_add' % i)([shortcut, h])
+                # h = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                #            name='generator/pose_enc/vae_h_%d_1' % i, **CONV1D_ARGS)(h)
+                # h = Add(name='generator/pose_enc/vae_h_%d_add' % i)([shortcut, h])
 
             self.vae_z_mean = Conv1D(self.vae_latent_dim, 1, 1, name='generator/pose_enc/vae_z_mean', **CONV1D_ARGS)(h)
             self.vae_z_log_var = Conv1D(self.vae_latent_dim, 1, 1, name='generator/pose_enc/vae_z_log_var', **CONV1D_ARGS)(h)
@@ -370,12 +370,12 @@ class _MotionGAN(object):
             dec_h = Conv1D(self.vae_intermediate_dim, 1, 1,
                                name='generator/pose_enc/vae_dec_h_in', **CONV1D_ARGS)(decoder_input)
             for i in range(3):
-                shortcut = dec_h
+                # shortcut = dec_h
                 dec_h = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
                                name='generator/pose_enc/vae_dec_h_%d_0' % i, **CONV1D_ARGS)(dec_h)
-                dec_h = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
-                               name='generator/pose_enc/vae_dec_h_%d_1' % i, **CONV1D_ARGS)(dec_h)
-                dec_h = Add(name='generator/pose_enc/vae_dec_h_%d_add' % i)([shortcut, dec_h])
+                # dec_h = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                #                name='generator/pose_enc/vae_dec_h_%d_1' % i, **CONV1D_ARGS)(dec_h)
+                # dec_h = Add(name='generator/pose_enc/vae_dec_h_%d_add' % i)([shortcut, dec_h])
 
             dec_h = Conv1D(self.vae_original_dim, 1, 1, name='generator/pose_enc/vae_dec_x', **CONV1D_ARGS)(dec_h)
 

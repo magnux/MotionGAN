@@ -7,7 +7,7 @@ from utils.callbacks import TensorBoard
 from models.motiongan import MotionGANV1, MotionGANV2, MotionGANV3
 from utils.restore_keras_model import restore_keras_model
 from tqdm import trange
-from utils.viz import plot_gif
+from utils.viz import plot_gif, plot_emb
 from tensorflow.python.platform import tf_logging as logging
 
 logging = tf.logging
@@ -175,6 +175,8 @@ if __name__ == "__main__":
 
             disc_losses = model_wrap.disc_eval(disc_inputs + gen_inputs + place_holders)
             gen_losses = model_wrap.gen_eval(gen_inputs + place_holders)
+            if config.vae_pose_enc:
+                vae_z = gen_losses.pop('vae_z', None)
             gen_outputs = gen_losses.pop('gen_outputs', None)
 
             logs = disc_losses.copy()
@@ -195,6 +197,17 @@ if __name__ == "__main__":
                     logs['custom_img_%d' % i] = {'height': gif_height,
                                                  'width': gif_width,
                                                  'enc_string': encoded_image_string}
+
+                    if config.vae_pose_enc:
+                        jpg_name = '%s_mask_tmp.jpg' % config.save_path
+                        plot_emb(vae_z[i, ...], jpg_name)
+
+                    with open(jpg_name, 'rb') as f:
+                        encoded_image_string = f.read()
+
+                    logs['custom_img_emb_%d' % i] = {'height': int(vae_z.shape[1]),
+                                                     'width': int(vae_z.shape[2]),
+                                                     'enc_string': encoded_image_string}
 
             tensorboard.on_epoch_end(epoch, logs)
 

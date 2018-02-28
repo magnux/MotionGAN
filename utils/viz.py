@@ -10,6 +10,7 @@ import h5py
 import os
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.animation import FuncAnimation
+from PIL import Image
 
 
 class Ax3DPose(object):
@@ -203,3 +204,10 @@ def plot_gif(real_seq, gen_seq, labs, data_set, save_path=None):
     plt.close(fig)
 
     return fig_size
+
+
+def plot_emb(seq_emb, save_path):
+    seq_emb = (seq_emb - np.min(seq_emb)) / (np.max(seq_emb) - np.min(seq_emb))
+    seq_emb = (seq_emb * 255).astype(np.uint8)
+    im = Image.fromarray(seq_emb, mode='L')
+    im.save(save_path)

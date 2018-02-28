@@ -64,9 +64,9 @@ class _MotionGAN(object):
         self.latent_scale_d = 1.0
         self.latent_scale_g = 1.0
         self.coherence_loss = config.coherence_loss
-        self.coherence_scale = 10.0
+        self.coherence_scale = 0.1
         self.displacement_loss = config.displacement_loss
-        self.displacement_scale = 1.0
+        self.displacement_scale = 0.1
         self.shape_loss = config.shape_loss
         self.shape_scale = 1.0
         self.smoothing_loss = config.smoothing_loss
@@ -144,8 +144,11 @@ class _MotionGAN(object):
         self.gen_train_f = K.function(self.gen_inputs + self.place_holders,
                                       self.gen_losses.values(),
                                       gen_training_updates)
-        self.gen_eval_f = K.function(self.gen_inputs + self.place_holders,
-                                     self.gen_losses.values() + self.gen_outputs)
+        gen_f_outs = self.gen_losses.values()
+        if self.vae_pose_enc:
+            gen_f_outs.append(self.vae_z)
+        gen_f_outs += self.gen_outputs
+        self.gen_eval_f = K.function(self.gen_inputs + self.place_holders, gen_f_outs)
         self.gen_model = self._pseudo_build_model(self.gen_model, gen_optimizer)
 
         # GAN, complete model
@@ -178,7 +181,10 @@ class _MotionGAN(object):
         eval_outs = self.gen_eval_f(inputs)
         keys = self.gen_losses.keys()
         keys = ['val/%s' % key for key in keys]
-        losses_dict = OrderedDict(zip(keys + ['gen_outputs'], eval_outs))
+        if self.vae_pose_enc:
+            keys.append('vae_z')
+        keys.append('gen_outputs')
+        losses_dict = OrderedDict(zip(keys, eval_outs))
         return losses_dict
 
     def update_lr(self, lr):
@@ -355,7 +361,7 @@ class _MotionGAN(object):
             x = Permute((2, 1))(self.vae_z)  # embedding, time
             x = Reshape((self.vae_latent_dim, self.seq_len, 1))(x)
 
-            self.nblocks = 3
+            self.nblocks = 5
 
         else:
             strides = (2, 1) if self.time_pres_emb else 2
@@ -424,7 +430,7 @@ class MotionGANV1(_MotionGAN):
 
     def discriminator(self, x):
         n_hidden = 64
-        block_factors = [2, 2, 2, 2]
+        block_factors = [1, 1, 2, 2]
         block_strides = [2, 2, 1, 1]
 
         x = Conv2D(n_hidden * block_factors[0], 3, 1, name='discriminator/conv_in', **CONV_ARGS)(x)
@@ -442,8 +448,8 @@ class MotionGANV1(_MotionGAN):
         return x
 
     def generator(self, x):
-        n_hidden = 64
-        block_factors = [2] * self.nblocks
+        n_hidden = 16
+        block_factors = range(1, self.nblocks + 1)
         block_strides = [2] * self.nblocks
 
         if not (self.time_pres_emb or self.vae_pose_enc):
@@ -475,7 +481,7 @@ class MotionGANV2(_MotionGAN):
 
     def discriminator(self, x):
         n_hidden = 64
-        block_factors = [2, 2, 2, 2]
+        block_factors = [1, 1, 2, 2]
         block_strides = [2, 2, 1, 1]
 
         x = Conv2D(n_hidden * block_factors[0], 3, 1, name='discriminator/conv_in', **CONV_ARGS)(x)
@@ -501,8 +507,8 @@ class MotionGANV2(_MotionGAN):
         return x
 
     def generator(self, x):
-        n_hidden = 64
-        block_factors = [2] * self.nblocks
+        n_hidden = 16
+        block_factors = range(1, self.nblocks + 1)
         block_strides = [2] * self.nblocks
 
         # For condition injecting

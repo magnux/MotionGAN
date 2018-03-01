@@ -36,6 +36,7 @@
     'use_pose_vae': False,
     # Path to pretrained pose VAE
     'pose_vae_save_path': False,
+    'vae_add_noise': False,
     # Size of the noise vector
     # 'z_dim': 64,
 
@@ -44,6 +45,8 @@
     'batch_size': 256,
     # Final epoch
     'num_epochs': 200,
+    # Multiplies length of epoch, useful for tiny datasets
+    'epoch_factor': 1,
     # How fast should we learn?
     'learning_rate': 1.0e-3,
     # Train using learning rate decay

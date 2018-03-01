@@ -36,10 +36,9 @@ if __name__ == "__main__":
         model_wrap.autoencoder, config.save_path + '_weights.hdf5')
 
     labs_batch, val_batch = val_generator.next()
-    vae_epsilon = np.zeros(shape=(config.batch_size, model_wrap.seq_len, model_wrap.vae_latent_dim))
 
     # Training call
-    predictions = model_wrap.autoencoder.predict([val_batch, vae_epsilon], config.batch_size)
+    predictions = model_wrap.autoencoder.predict(val_batch, config.batch_size)
 
     test_path = config.save_path + "_test"
     if not tf.gfile.Exists(test_path):

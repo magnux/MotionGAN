@@ -24,7 +24,7 @@ if __name__ == "__main__":
     config = get_config(FLAGS)
 
     data_input = DataInput(config)
-    train_batches = data_input.train_epoch_size
+    train_batches = data_input.train_epoch_size * config.epoch_factor
     train_generator = data_input.batch_generator(True)
     val_batches = data_input.val_epoch_size
     val_generator = data_input.batch_generator(False)
@@ -62,19 +62,17 @@ if __name__ == "__main__":
     @threadsafe_generator
     def vae_train_generator():
         while True:
-            vae_epsilon = np.random.normal(size=(config.batch_size, model_wrap.seq_len, model_wrap.vae_latent_dim), loc=0., scale=1.0)
             _, train_batch = train_generator.next()
-            yield ([train_batch, vae_epsilon], train_batch)
+            yield (train_batch, train_batch)
 
     @threadsafe_generator
     def vae_val_generator():
         while True:
-            vae_epsilon = np.zeros(shape=(config.batch_size, model_wrap.seq_len, model_wrap.vae_latent_dim))
             _, val_batch = val_generator.next()
-            yield ([val_batch, vae_epsilon], val_batch)
+            yield (val_batch, val_batch)
 
     # Training call
-    model_wrap.autoencoder.fit_generator(generator=vae_train_generator(), steps_per_epoch=train_batches*50,
+    model_wrap.autoencoder.fit_generator(generator=vae_train_generator(), steps_per_epoch=train_batches,
                                          validation_data=vae_val_generator(), validation_steps=1,
                                          epochs=config.num_epochs,
                                          max_q_size=config.batch_size * 8, workers=2,

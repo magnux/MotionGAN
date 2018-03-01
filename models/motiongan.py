@@ -63,7 +63,7 @@ class _MotionGAN(object):
         self.rec_scale = 0.1
         self.action_cond = config.action_cond
         self.action_scale_d = 10.0
-        self.action_scale_g = 10.0
+        self.action_scale_g = 1.0
         self.latent_cond_dim = config.latent_cond_dim
         self.latent_scale_d = 1.0
         self.latent_scale_g = 1.0
@@ -74,12 +74,16 @@ class _MotionGAN(object):
         self.shape_loss = config.shape_loss
         self.shape_scale = 1.0
         self.smoothing_loss = config.smoothing_loss
-        self.smoothing_scale = 1.0
+        self.smoothing_scale = 0.1
         self.smoothing_basis = 3
         self.time_pres_emb = config.time_pres_emb
         self.unfold = config.unfold
         self.use_pose_vae = config.use_pose_vae
+        self.vae_scale = 100.0
         # self.z_dim = config.z_dim
+
+        if self.use_pose_vae:
+            self._load_pose_vae(config)
 
         # Placeholders for training phase
         self.place_holders = []
@@ -104,10 +108,6 @@ class _MotionGAN(object):
             latent_cond_input = Input(batch_shape=(self.batch_size, self.latent_cond_dim),
                                       name='latent_cond_input', dtype='float32')
             self.gen_inputs.append(latent_cond_input)
-        if self.use_pose_vae:
-            vae_epsilon = Input(batch_shape=(self.batch_size, self.seq_len, self.vae_latent_dim),
-                                name='vae_epsilon', dtype='float32')
-            self.gen_inputs.append(vae_epsilon)
         x = self._proc_gen_inputs(self.gen_inputs)
         self.gen_outputs = self._proc_gen_outputs(self.generator(x))
         self.gen_model = Model(self.gen_inputs,
@@ -145,7 +145,6 @@ class _MotionGAN(object):
                                       gen_training_updates)
         gen_f_outs = self.gen_losses.values()
         if self.use_pose_vae:
-            self._load_pose_vae(config)
             gen_f_outs.append(self.vae_z)
         gen_f_outs += self.gen_outputs
         self.gen_eval_f = K.function(self.gen_inputs + self.place_holders, gen_f_outs)
@@ -242,6 +241,11 @@ class _MotionGAN(object):
         loss_rec = K.sum(K.mean(K.square((real_seq - gen_seq) * seq_mask), axis=-1), axis=(1, 2))
         gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
+        if self.use_pose_vae:
+            print(seq_mask.shape, self.vae_z.shape, self.vae_gen_z.shape)
+            vae_loss_rec = K.sum(K.mean(K.square(self.vae_z - self.vae_gen_z) * K.min(seq_mask, axis=1), axis=-1), axis=1)
+            gen_losses['vae_loss_rec'] = self.vae_scale * K.mean(vae_loss_rec)
+
         # Conditional losses
         if self.action_cond:
             loss_class_real = K.mean(K.sparse_categorical_crossentropy(
@@ -321,8 +325,7 @@ class _MotionGAN(object):
             self.unfolded_joints = int(x.shape[1])
 
         if self.use_pose_vae:
-            vae_epsilon = _get_tensor(input_tensors, 'vae_epsilon')
-            self.vae_z, _, _ = self.vae_encoder([x, vae_epsilon])
+            self.vae_z = self.vae_encoder(x)
             x = Reshape((self.seq_len, self.vae_latent_dim, 1), name='generator/gen_reshape_in')(self.vae_z)
 
             self.nblocks = 5
@@ -386,6 +389,7 @@ class _MotionGAN(object):
         pose_vae.autoencoder = restore_keras_model(
             pose_vae.autoencoder, config.pose_vae_save_path + '_weights.hdf5')
         pose_vae.autoencoder.trainable = False
+        self.vae_latent_dim = pose_vae.vae_latent_dim
         self.vae_encoder = pose_vae.encoder
         self.vae_encoder.trainable = False
         self.vae_decoder = pose_vae.decoder

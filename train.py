@@ -25,7 +25,7 @@ if __name__ == "__main__":
     config = get_config(FLAGS)
 
     data_input = DataInput(config)
-    train_batches = data_input.train_epoch_size
+    train_batches = data_input.train_epoch_size * config.epoch_factor
     train_generator = data_input.batch_generator(True)
     val_batches = data_input.val_epoch_size
     val_generator = data_input.batch_generator(False)
@@ -120,8 +120,6 @@ if __name__ == "__main__":
                         place_holders.append(labs_batch[:, 2])
                     if config.latent_cond_dim > 0:
                         gen_inputs.append(gen_latent_noise())
-                    if config.use_pose_vae:
-                        gen_inputs.append(gen_vae_epsilon(False))
 
                     losses = model_wrap.disc_train(disc_inputs + gen_inputs + place_holders)
 
@@ -141,8 +139,6 @@ if __name__ == "__main__":
                     place_holders.append(labs_batch[:, 2])
                 if config.latent_cond_dim > 0:
                     gen_inputs.append(gen_latent_noise())
-                if config.use_pose_vae:
-                    gen_inputs.append(gen_vae_epsilon(False))
 
                 gen_losses = model_wrap.gen_train(gen_inputs + place_holders)
 
@@ -170,8 +166,6 @@ if __name__ == "__main__":
                 place_holders.append(labs_batch[:, 2])
             if config.latent_cond_dim > 0:
                 gen_inputs.append(gen_latent_noise())
-            if config.use_pose_vae:
-                gen_inputs.append(gen_vae_epsilon(False))
 
             disc_losses = model_wrap.disc_eval(disc_inputs + gen_inputs + place_holders)
             gen_losses = model_wrap.gen_eval(gen_inputs + place_holders)

@@ -60,26 +60,26 @@ class _MotionGAN(object):
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
-        self.rec_scale = 0.1
+        self.rec_scale = 0.01
         self.action_cond = config.action_cond
         self.action_scale_d = 10.0
-        self.action_scale_g = 1.0
+        self.action_scale_g = 10.0
         self.latent_cond_dim = config.latent_cond_dim
         self.latent_scale_d = 1.0
         self.latent_scale_g = 1.0
         self.coherence_loss = config.coherence_loss
         self.coherence_scale = 0.1
         self.displacement_loss = config.displacement_loss
-        self.displacement_scale = 0.1
+        self.displacement_scale = 0.01
         self.shape_loss = config.shape_loss
         self.shape_scale = 1.0
         self.smoothing_loss = config.smoothing_loss
-        self.smoothing_scale = 0.1
+        self.smoothing_scale = 0.01
         self.smoothing_basis = 3
         self.time_pres_emb = config.time_pres_emb
         self.unfold = config.unfold
         self.use_pose_vae = config.use_pose_vae
-        self.vae_scale = 100.0
+        self.vae_scale = 0.01
         # self.z_dim = config.z_dim
 
         if self.use_pose_vae:

@@ -37,7 +37,7 @@ if __name__ == "__main__":
         print(model_wrap.decoder.summary())
 
     if config.epoch > 0:
-        model_wrap.gen_model = restore_keras_model(
+        model_wrap.autoencoder = restore_keras_model(
             model_wrap.autoencoder, config.save_path + '_weights.hdf5')
 
     # Callbacks
@@ -74,7 +74,7 @@ if __name__ == "__main__":
             yield ([val_batch, vae_epsilon], val_batch)
 
     # Training call
-    model_wrap.autoencoder.fit_generator(generator=vae_train_generator(), steps_per_epoch=train_batches,
+    model_wrap.autoencoder.fit_generator(generator=vae_train_generator(), steps_per_epoch=train_batches*50,
                                          validation_data=vae_val_generator(), validation_steps=1,
                                          epochs=config.num_epochs,
                                          max_q_size=config.batch_size * 8, workers=2,

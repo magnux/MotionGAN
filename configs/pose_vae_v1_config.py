@@ -1,8 +1,7 @@
 {
     # Datasets: MSRC12, NTURGBD
-    'data_set': 'MSRC12',
-    'data_set_version': '',
+    'data_set': 'NTURGBD',
+    'data_set_version': 'v1',
     # Model version to train
     'model_version': 'v1',
-    'num_epochs': 500,
 }

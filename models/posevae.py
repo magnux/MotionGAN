@@ -3,11 +3,12 @@ import tensorflow.contrib.keras.api.keras.backend as K
 from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import \
-    Lambda, Add, Permute, Reshape, Conv1D
+    Lambda, Add, Permute, Reshape, Conv1D, Multiply
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
+from tensorflow.contrib.keras.api.keras.initializers import lecun_normal
 
-CONV1D_ARGS = {'padding': 'same', 'kernel_regularizer': l2(5e-4)}
+CONV1D_ARGS = {'padding': 'same', 'kernel_regularizer': l2(5e-4), 'kernel_initializer': lecun_normal()}
 
 
 class _PoseVAE(object):
@@ -19,8 +20,9 @@ class _PoseVAE(object):
         self.njoints = config.njoints
 
         self.vae_original_dim = self.njoints * 3
-        self.vae_intermediate_dim = 32
-        self.vae_latent_dim = 16
+        self.vae_intermediate_dim = self.vae_original_dim // 2
+        # We are only expecting half of the latent features to be activated
+        self.vae_latent_dim = self.vae_original_dim // 2
         self.vae_epsilon_std = 1.0
 
         pose_input = Input(batch_shape=(self.batch_size, self.njoints, self.seq_len, 3), dtype='float32')
@@ -61,15 +63,19 @@ class PoseVAEV1(_PoseVAE):
         h = Conv1D(self.vae_intermediate_dim, 1, 1,
                    name='pose_vae/enc_in', **CONV1D_ARGS)(x)
         for i in range(3):
-            # shortcut = h
-            h = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
-                       name='pose_vae/enc_%d_0' % i, **CONV1D_ARGS)(h)
-            h = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
-                       name='pose_vae/enc_%d_1' % i, **CONV1D_ARGS)(h)
-            # h = Add(name='pose_vae/enc_%d_add' % i)([shortcut, h])
+            pi = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                        name='pose_vae/enc_%d_0' % i, **CONV1D_ARGS)(h)
+            pi = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                        name='pose_vae/enc_%d_1' % i, **CONV1D_ARGS)(pi)
+            tau = Conv1D(self.vae_intermediate_dim, 1, 1, activation='sigmoid',
+                         name='pose_vae/enc_%d_tau' % i, **CONV1D_ARGS)(h)
+            h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
+                       name='pose_vae/enc_%d_attention' % i)([h, pi, tau])
 
         z_mean = Conv1D(self.vae_latent_dim, 1, 1, name='pose_vae/z_mean', **CONV1D_ARGS)(h)
         z_log_var = Conv1D(self.vae_latent_dim, 1, 1, name='pose_vae/z_log_var', **CONV1D_ARGS)(h)
+        z_attention = Conv1D(self.vae_latent_dim, 1, 1, activation='sigmoid',
+                             name='pose_vae/z_attention', **CONV1D_ARGS)(h)
 
         # Had to discard this function because it breaks keras model.save()
         # def sampling(args):
@@ -83,18 +89,22 @@ class PoseVAEV1(_PoseVAE):
                    output_shape=(self.vae_latent_dim,),
                    name='pose_vae/vae_sampling')([z_mean, z_log_var, vae_epsilon])
 
+        z = Multiply(name='pose_vae/vae_attention')([z, z_attention])
+
         return z_mean, z_log_var, z
         
     def decoder(self, embedded_input):
         dec_h = Conv1D(self.vae_intermediate_dim, 1, 1,
                            name='pose_vae/dec_in', **CONV1D_ARGS)(embedded_input)
         for i in range(3):
-            # shortcut = dec_h
-            dec_h = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
-                           name='pose_vae/dec_%d_0' % i, **CONV1D_ARGS)(dec_h)
-            dec_h = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
-                           name='pose_vae/dec_%d_1' % i, **CONV1D_ARGS)(dec_h)
-            # dec_h = Add(name='pose_vae/dec_%d_add' % i)([shortcut, dec_h])
+            pi = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                        name='pose_vae/dec_%d_0' % i, **CONV1D_ARGS)(dec_h)
+            pi = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                        name='pose_vae/dec_%d_1' % i, **CONV1D_ARGS)(pi)
+            tau = Conv1D(self.vae_intermediate_dim, 1, 1, activation='sigmoid',
+                         name='pose_vae/dec_%d_tau' % i, **CONV1D_ARGS)(dec_h)
+            dec_h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
+                           name='pose_vae/dec_%d_attention' % i)([dec_h, pi, tau])
 
         dec_x = Conv1D(self.vae_original_dim, 1, 1, name='pose_vae/dec_out', **CONV1D_ARGS)(dec_h)
 

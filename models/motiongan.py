@@ -10,6 +10,8 @@ from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, Conv2D, \
     Conv1D, Multiply
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
+from models.posevae import PoseVAEV1
+from utils.restore_keras_model import restore_keras_model
 from layers.joints import UnfoldJoints, FoldJoints
 from layers.normalization import InstanceNormalization
 from collections import OrderedDict
@@ -76,7 +78,7 @@ class _MotionGAN(object):
         self.smoothing_basis = 3
         self.time_pres_emb = config.time_pres_emb
         self.unfold = config.unfold
-        self.vae_pose_enc = config.vae_pose_enc
+        self.use_pose_vae = config.use_pose_vae
         # self.z_dim = config.z_dim
 
         # Placeholders for training phase
@@ -102,7 +104,7 @@ class _MotionGAN(object):
             latent_cond_input = Input(batch_shape=(self.batch_size, self.latent_cond_dim),
                                       name='latent_cond_input', dtype='float32')
             self.gen_inputs.append(latent_cond_input)
-        if self.vae_pose_enc:
+        if self.use_pose_vae:
             vae_epsilon = Input(batch_shape=(self.batch_size, self.seq_len, self.vae_latent_dim),
                                 name='vae_epsilon', dtype='float32')
             self.gen_inputs.append(vae_epsilon)
@@ -142,7 +144,8 @@ class _MotionGAN(object):
                                       self.gen_losses.values(),
                                       gen_training_updates)
         gen_f_outs = self.gen_losses.values()
-        if self.vae_pose_enc:
+        if self.use_pose_vae:
+            self._load_pose_vae(config)
             gen_f_outs.append(self.vae_z)
         gen_f_outs += self.gen_outputs
         self.gen_eval_f = K.function(self.gen_inputs + self.place_holders, gen_f_outs)
@@ -178,7 +181,7 @@ class _MotionGAN(object):
         eval_outs = self.gen_eval_f(inputs)
         keys = self.gen_losses.keys()
         keys = ['val/%s' % key for key in keys]
-        if self.vae_pose_enc:
+        if self.use_pose_vae:
             keys.append('vae_z')
         keys.append('gen_outputs')
         losses_dict = OrderedDict(zip(keys, eval_outs))
@@ -238,16 +241,6 @@ class _MotionGAN(object):
         # Reconstruction loss
         loss_rec = K.sum(K.mean(K.square((real_seq - gen_seq) * seq_mask), axis=-1), axis=(1, 2))
         gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
-
-        if self.vae_pose_enc:
-            vae_loss_dec = K.sum(K.mean(K.square((real_seq - self.vae_dec_x) * seq_mask), axis=-1), axis=(1, 2))
-            gen_losses['vae_loss_dec'] = self.vae_scale * K.mean(vae_loss_dec)
-            vae_loss_rec = K.sum(K.mean(K.abs(self.vae_z - self.vae_gen_z) * K.min(seq_mask, axis=1), axis=-1), axis=1)
-            gen_losses['vae_loss_rec'] = self.vae_scale * K.mean(vae_loss_rec)
-            vae_loss_kl = K.sum(- 0.5 * K.sum(1 + self.vae_z_log_var -
-                                               K.square(self.vae_z_mean) -
-                                               K.exp(self.vae_z_log_var), axis=-1), axis=1)
-            gen_losses['vae_loss_kl'] = self.vae_scale * K.mean(vae_loss_kl)
 
         # Conditional losses
         if self.action_cond:
@@ -327,61 +320,10 @@ class _MotionGAN(object):
             x = UnfoldJoints(self.data_set)(x)
             self.unfolded_joints = int(x.shape[1])
 
-        if self.vae_pose_enc:
-            x = Permute((2, 1, 3))(x)  # time, joints, coords
-            x = Reshape((self.seq_len, self.njoints * 3))(x)
-
-            h = x
-            h = Conv1D(self.vae_intermediate_dim, 1, 1,
-                       name='generator/pose_enc/vae_h_in', **CONV1D_ARGS)(h)
-            for i in range(3):
-                # shortcut = h
-                h = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
-                           name='generator/pose_enc/vae_h_%d_0' % i, **CONV1D_ARGS)(h)
-                # h = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
-                #            name='generator/pose_enc/vae_h_%d_1' % i, **CONV1D_ARGS)(h)
-                # h = Add(name='generator/pose_enc/vae_h_%d_add' % i)([shortcut, h])
-
-            self.vae_z_mean = Conv1D(self.vae_latent_dim, 1, 1, name='generator/pose_enc/vae_z_mean', **CONV1D_ARGS)(h)
-            self.vae_z_log_var = Conv1D(self.vae_latent_dim, 1, 1, name='generator/pose_enc/vae_z_log_var', **CONV1D_ARGS)(h)
-
-            # Had to discard this function because it breaks keras model.save()
-            # def sampling(args):
-            #     z_mean, z_log_var = args
-            #     epsilon = K.random_normal(
-            #         shape=(self.batch_size, self.seq_len, self.vae_latent_dim), mean=0.,
-            #         stddev=self.vae_epsilon_std)
-            #     return z_mean + K.exp(z_log_var / 2) * epsilon
-
+        if self.use_pose_vae:
             vae_epsilon = _get_tensor(input_tensors, 'vae_epsilon')
-            self.vae_z = Lambda(lambda args: args[0] + (K.exp(args[1] / 2) * K.exp(args[2])),
-                                output_shape=(self.vae_latent_dim,),
-                                name='generator/pose_enc/vae_sampling')(
-                             [self.vae_z_mean, self.vae_z_log_var, vae_epsilon])
-
-
-            decoder_input = Input(shape=(self.seq_len, self.vae_latent_dim))
-
-            dec_h = Conv1D(self.vae_intermediate_dim, 1, 1,
-                               name='generator/pose_enc/vae_dec_h_in', **CONV1D_ARGS)(decoder_input)
-            for i in range(3):
-                # shortcut = dec_h
-                dec_h = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
-                               name='generator/pose_enc/vae_dec_h_%d_0' % i, **CONV1D_ARGS)(dec_h)
-                # dec_h = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
-                #                name='generator/pose_enc/vae_dec_h_%d_1' % i, **CONV1D_ARGS)(dec_h)
-                # dec_h = Add(name='generator/pose_enc/vae_dec_h_%d_add' % i)([shortcut, dec_h])
-
-            dec_h = Conv1D(self.vae_original_dim, 1, 1, name='generator/pose_enc/vae_dec_x', **CONV1D_ARGS)(dec_h)
-
-            self.vae_decoder = Model(decoder_input, dec_h)
-
-            vae_dec_x = self.vae_decoder(self.vae_z)
-            vae_dec_x = Reshape((self.seq_len, self.njoints, 3), name='generator/gen_out')(vae_dec_x)
-            self.vae_dec_x = Permute((2, 1, 3))(vae_dec_x)
-
-            x = Permute((2, 1))(self.vae_z)  # embedding, time
-            x = Reshape((self.vae_latent_dim, self.seq_len, 1))(x)
+            self.vae_z, _, _ = self.vae_encoder([x, vae_epsilon])
+            x = Reshape((self.seq_len, self.vae_latent_dim, 1), name='generator/gen_reshape_in')(self.vae_z)
 
             self.nblocks = 5
 
@@ -416,22 +358,21 @@ class _MotionGAN(object):
 
     def _proc_gen_outputs(self, x):
 
-        if self.vae_pose_enc:
+        if self.use_pose_vae:
             x = Conv2D(1, 3, 1, name='generator/vae_merge', **CONV2D_ARGS)(x)
-            x = Reshape((self.vae_latent_dim, self.seq_len))(x)
-            self.vae_gen_z = Permute((2, 1))(x)
+            self.vae_gen_z = Reshape((self.seq_len, self.vae_latent_dim), name='generator/vae_reshape')(x)
 
             vae_gen_x = self.vae_decoder(self.vae_gen_z)
 
-            x = Reshape((self.seq_len, self.njoints, 3), name='generator/gen_out')(vae_gen_x)
-            x = Permute((2, 1, 3))(x)  # joints, time, coords
+            x = Reshape((self.seq_len, self.njoints, 3), name='generator/coords_reshape')(vae_gen_x)
+            x = Permute((2, 1, 3), name='generator/coords_permute')(x)  # joints, time, coords
         else:
-            x = Permute((3, 2, 1))(x)  # filters, time, joints
+            x = Permute((3, 2, 1), name='generator/joint_permute')(x)  # filters, time, joints
             x = Conv2D(self.unfolded_joints, 3, 1, name='generator/joint_reshape', **CONV2D_ARGS)(x)
-            x = Permute((1, 3, 2))(x)  # filters, joints, time
+            x = Permute((1, 3, 2), name='generator/time_permute')(x)  # filters, joints, time
             x = Conv2D(self.seq_len, 3, 1, name='generator/time_reshape', **CONV2D_ARGS)(x)
-            x = Permute((2, 3, 1))(x)  # joints, time, filters
-            x = Conv2D(3, 3, 1, name='generator/gen_out', **CONV2D_ARGS)(x)
+            x = Permute((2, 3, 1), name='generator/coords_permute')(x)  # joints, time, filters
+            x = Conv2D(3, 3, 1, name='generator/coords_reshape', **CONV2D_ARGS)(x)
 
         if self.unfold:
             x = FoldJoints(self.data_set)(x)
@@ -439,6 +380,16 @@ class _MotionGAN(object):
         output_tensors = [x]
 
         return output_tensors
+
+    def _load_pose_vae(self, config):
+        pose_vae = PoseVAEV1(config)
+        pose_vae.autoencoder = restore_keras_model(
+            pose_vae.autoencoder, config.pose_vae_save_path + '_weights.hdf5')
+        pose_vae.autoencoder.trainable = False
+        self.vae_encoder = pose_vae.encoder
+        self.vae_encoder.trainable = False
+        self.vae_decoder = pose_vae.decoder
+        self.vae_decoder.trainable = False
 
 
 class MotionGANV1(_MotionGAN):
@@ -468,7 +419,7 @@ class MotionGANV1(_MotionGAN):
         block_factors = range(1, self.nblocks + 1)
         block_strides = [2] * self.nblocks
 
-        if not (self.time_pres_emb or self.vae_pose_enc):
+        if not (self.time_pres_emb or self.use_pose_vae):
             x = Dense(4 * 4 * n_hidden * block_factors[0], name='generator/dense_in')(x)
             x = Reshape((4, 4, n_hidden * block_factors[0]), name='generator/reshape_in')(x)
 
@@ -477,7 +428,7 @@ class MotionGANV1(_MotionGAN):
             strides = block_strides[i]
             if self.time_pres_emb:
                 strides = (block_strides[i], 1)
-            elif self.vae_pose_enc:
+            elif self.use_pose_vae:
                 strides = 1
             shortcut = Conv2DTranspose(n_filters, strides, strides,
                                        name='generator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
@@ -530,7 +481,7 @@ class MotionGANV2(_MotionGAN):
         # For condition injecting
         # z = x
 
-        if not (self.time_pres_emb or self.vae_pose_enc):
+        if not (self.time_pres_emb or self.use_pose_vae):
             for i in range(2):
                 if i > 0:
                     x = InstanceNormalization(axis=-1, name='generator/dense_block%d/bn' % i)(x)
@@ -547,7 +498,7 @@ class MotionGANV2(_MotionGAN):
             strides = block_strides[i]
             if self.time_pres_emb:
                 strides = (block_strides[i], 1)
-            elif self.vae_pose_enc:
+            elif self.use_pose_vae:
                 strides = 1
             shortcut = Conv2DTranspose(n_filters, strides, strides,
                                        name='generator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)

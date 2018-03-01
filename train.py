@@ -120,7 +120,7 @@ if __name__ == "__main__":
                         place_holders.append(labs_batch[:, 2])
                     if config.latent_cond_dim > 0:
                         gen_inputs.append(gen_latent_noise())
-                    if config.vae_pose_enc:
+                    if config.use_pose_vae:
                         gen_inputs.append(gen_vae_epsilon(False))
 
                     losses = model_wrap.disc_train(disc_inputs + gen_inputs + place_holders)
@@ -141,8 +141,8 @@ if __name__ == "__main__":
                     place_holders.append(labs_batch[:, 2])
                 if config.latent_cond_dim > 0:
                     gen_inputs.append(gen_latent_noise())
-                if config.vae_pose_enc:
-                    gen_inputs.append(gen_vae_epsilon(True))
+                if config.use_pose_vae:
+                    gen_inputs.append(gen_vae_epsilon(False))
 
                 gen_losses = model_wrap.gen_train(gen_inputs + place_holders)
 
@@ -170,12 +170,12 @@ if __name__ == "__main__":
                 place_holders.append(labs_batch[:, 2])
             if config.latent_cond_dim > 0:
                 gen_inputs.append(gen_latent_noise())
-            if config.vae_pose_enc:
+            if config.use_pose_vae:
                 gen_inputs.append(gen_vae_epsilon(False))
 
             disc_losses = model_wrap.disc_eval(disc_inputs + gen_inputs + place_holders)
             gen_losses = model_wrap.gen_eval(gen_inputs + place_holders)
-            if config.vae_pose_enc:
+            if config.use_pose_vae:
                 vae_z = gen_losses.pop('vae_z', None)
             gen_outputs = gen_losses.pop('gen_outputs', None)
 
@@ -198,7 +198,7 @@ if __name__ == "__main__":
                                                  'width': gif_width,
                                                  'enc_string': encoded_image_string}
 
-                    if config.vae_pose_enc:
+                    if config.use_pose_vae:
                         jpg_name = '%s_mask_tmp.jpg' % config.save_path
                         plot_emb(vae_z[i, ...], jpg_name)
 

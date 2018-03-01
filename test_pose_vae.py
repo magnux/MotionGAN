@@ -41,5 +41,9 @@ if __name__ == "__main__":
     # Training call
     predictions = model_wrap.autoencoder.predict([val_batch, vae_epsilon], config.batch_size)
 
+    test_path = config.save_path + "_test"
+    if not tf.gfile.Exists(test_path):
+        tf.gfile.MkDir(test_path)
+
     for i in range(config.batch_size):
-        plot_gif(val_batch[i, ...], predictions[i, ...], labs_batch[i, ...], config.data_set, config.save_path + ("pose_vae_test_%03d.gif" % i))
+        plot_gif(val_batch[i, ...], predictions[i, ...], labs_batch[i, ...], config.data_set, test_path + ("/%03d.gif" % i))

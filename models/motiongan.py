@@ -77,11 +77,6 @@ class _MotionGAN(object):
         self.time_pres_emb = config.time_pres_emb
         self.unfold = config.unfold
         self.vae_pose_enc = config.vae_pose_enc
-        self.vae_original_dim = self.njoints * 3
-        self.vae_intermediate_dim = 64
-        self.vae_latent_dim = 16
-        self.vae_epsilon_std = 1.0
-        self.vae_scale = 10.0
         # self.z_dim = config.z_dim
 
         # Placeholders for training phase

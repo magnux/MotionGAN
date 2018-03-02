@@ -130,7 +130,7 @@ if __name__ == "__main__":
                             disc_losses[key] += losses[key]
 
                 for key in disc_losses.keys():
-                    disc_losses[key] /= train_batches
+                    disc_losses[key] /= disc_batches
 
                 labs_batch, poses_batch = train_generator.next()
                 gen_inputs = [poses_batch, gen_mask(np.random.randint(4), keep_prob)]

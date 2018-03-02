@@ -247,7 +247,7 @@ class _MotionGAN(object):
             gen_losses['gen_loss_reg'] = gen_loss_reg
 
         # Reconstruction loss
-        loss_rec = K.sum(K.sum(K.mean(K.square((real_seq - gen_seq) * seq_mask), axis=-1), axis=1) * zero_frames)
+        loss_rec = K.sum(K.sum(K.mean(K.square((real_seq - gen_seq) * seq_mask), axis=-1), axis=1) * zero_frames, axis=1)
         gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
         if self.use_pose_vae:

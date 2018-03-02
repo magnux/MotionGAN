@@ -21,13 +21,13 @@
     # Latent factor conditional model, size (0 means no condition)
     'latent_cond_dim': 0,
     # Motion coherence loss
-    'coherence_loss': True,
+    'coherence_loss': False,
     # Total displacement loss
     'displacement_loss': False,
     # Body shape conservation loss
-    'shape_loss': True,
+    'shape_loss': False,
     # Sequence smoothing loss
-    'smoothing_loss': True,
+    'smoothing_loss': False,
     # Time preserving embedding (NOT COMPATIBLE with latent or VAE)
     'time_pres_emb': False,
     # Joint unfolding

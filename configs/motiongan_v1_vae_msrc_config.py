@@ -5,7 +5,7 @@
     # Model version to train
     'model_version': 'v1',
     # Final epoch
-    'num_epochs': 100,
+    'num_epochs': 200,
     # Multiplies length of epoch, useful for tiny datasets
     'epoch_factor': 10,
     # Use pose VAE

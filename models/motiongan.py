@@ -79,11 +79,16 @@ class _MotionGAN(object):
         self.time_pres_emb = config.time_pres_emb
         self.unfold = config.unfold
         self.use_pose_vae = config.use_pose_vae
-        self.vae_scale = 0.01
+        # self.vae_scale = 0.1
+        self.vae_original_dim = self.njoints * 3
+        self.vae_intermediate_dim = self.vae_original_dim // 2
+        # We are only expecting half of the latent features to be activated
+        self.vae_latent_dim = self.vae_original_dim // 4
         # self.z_dim = config.z_dim
+        self.frame_scale = 10.0
 
-        if self.use_pose_vae:
-            self._load_pose_vae(config)
+        # if self.use_pose_vae:
+        #     self._load_pose_vae(config)
 
         # Placeholders for training phase
         self.place_holders = []
@@ -196,6 +201,14 @@ class _MotionGAN(object):
         disc_losses = OrderedDict()
         gen_losses = OrderedDict()
 
+        # Grabbing tensors
+        real_seq = _get_tensor(self.disc_inputs, 'real_seq')
+        seq_mask = _get_tensor(self.gen_inputs, 'seq_mask')
+        gen_seq = self.gen_outputs[0]
+        zero_sum = K.sum(real_seq, axis=(1, 3))
+        zero_mask = K.zeros_like(zero_sum)
+        zero_frames = K.cast(K.not_equal(zero_sum, zero_mask), 'float32') + K.epsilon()
+
         # WGAN Basic losses
         loss_real = K.mean(_get_tensor(self.real_outputs, 'score_out'), axis=-1)
         loss_fake = K.mean(_get_tensor(self.fake_outputs, 'score_out'), axis=-1)
@@ -204,11 +217,12 @@ class _MotionGAN(object):
 
         # Interpolates for GP
         alpha = K.random_uniform((self.batch_size, 1, 1, 1))
-        interpolates = (alpha * (self.disc_inputs[0])) + ((1 - alpha) * self.gen_outputs[0])
+        interpolates = (alpha * real_seq) + ((1 - alpha) * gen_seq)
 
         # Gradient Penalty
-        inter_out = _get_tensor(self.disc_model(interpolates), 'discriminator/score_out')
-        grad_mixed = K.gradients(inter_out, [interpolates])[0]
+        inter_outputs = self.disc_model(interpolates)
+        inter_score = _get_tensor(inter_outputs, 'discriminator/score_out')
+        grad_mixed = K.gradients(inter_score, [interpolates])[0]
         norm_grad_mixed = K.sqrt(K.sum(K.square(grad_mixed), axis=(1, 2, 3)))
         grad_penalty = K.mean(K.square(norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
 
@@ -232,19 +246,30 @@ class _MotionGAN(object):
                 gen_loss_reg += reg_loss
             gen_losses['gen_loss_reg'] = gen_loss_reg
 
-        # Grabbing tensors
-        real_seq = _get_tensor(self.gen_inputs, 'real_seq')
-        seq_mask = _get_tensor(self.gen_inputs, 'seq_mask')
-        gen_seq = self.gen_outputs[0]
-
         # Reconstruction loss
-        loss_rec = K.sum(K.mean(K.square((real_seq - gen_seq) * seq_mask), axis=-1), axis=(1, 2))
+        loss_rec = K.sum(K.sum(K.mean(K.square((real_seq - gen_seq) * seq_mask), axis=-1), axis=1) * zero_frames)
         gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
         if self.use_pose_vae:
-            print(seq_mask.shape, self.vae_z.shape, self.vae_gen_z.shape)
-            vae_loss_rec = K.sum(K.mean(K.square(self.vae_z - self.vae_gen_z) * K.min(seq_mask, axis=1), axis=-1), axis=1)
-            gen_losses['vae_loss_rec'] = self.vae_scale * K.mean(vae_loss_rec)
+            # vae_loss_rec = K.sum(K.mean(K.square(self.vae_z - self.vae_gen_z) * K.min(seq_mask, axis=1), axis=-1), axis=1)
+            # gen_losses['vae_loss_rec'] = self.vae_scale * K.mean(vae_loss_rec)
+            frame_loss_real = K.sum(K.squeeze(_get_tensor(self.real_outputs, 'frame_score_out'), axis=-1) * zero_frames, axis=1)
+            frame_loss_fake = K.sum(K.squeeze(_get_tensor(self.fake_outputs, 'frame_score_out'), axis=-1) * zero_frames, axis=1)
+            wgan_losses['frame_loss_real'] = K.mean(frame_loss_real)
+            wgan_losses['frame_loss_fake'] = K.mean(frame_loss_fake)
+
+            frame_inter_score = _get_tensor(inter_outputs, 'discriminator/frame_score_out')
+            frame_grad_mixed = K.gradients(frame_inter_score, [interpolates])[0]
+            frame_norm_grad_mixed = K.sqrt(K.sum(K.sum(K.square(frame_grad_mixed), axis=(1, 3)) * zero_frames, axis=1))
+            frame_grad_penalty = K.mean(K.square(frame_norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
+
+            # WGAN-GP losses
+            frame_disc_loss_wgan = frame_loss_fake - frame_loss_real + (self.lambda_grads * frame_grad_penalty)
+            disc_losses['frame_disc_loss_wgan'] = self.frame_scale * K.mean(frame_disc_loss_wgan)
+
+            frame_gen_loss_wgan = -frame_loss_fake
+            gen_losses['frame_gen_loss_wgan'] = self.frame_scale * K.mean(frame_gen_loss_wgan)
+
 
         # Conditional losses
         if self.action_cond:
@@ -311,6 +336,32 @@ class _MotionGAN(object):
             latent_cond_out = Dense(self.latent_cond_dim, name='discriminator/latent_cond_out')(x)
             output_tensors.append(latent_cond_out)
 
+        if self.use_pose_vae:
+            gen_seq = self.disc_inputs[0]
+
+            h = Permute((2, 1, 3), name='discriminator/pose_vae/perm_in')(gen_seq)
+            h = Reshape((self.seq_len, self.njoints * 3), name='discriminator/pose_vae/resh_in')(h)
+
+            h = Conv1D(self.vae_intermediate_dim, 1, 1,
+                       name='discriminator/pose_vae/enc_in', **CONV1D_ARGS)(h)
+            for i in range(3):
+                pi = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                            name='discriminator/pose_vae/enc_%d_0' % i, **CONV1D_ARGS)(h)
+                pi = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                            name='discriminator/pose_vae/enc_%d_1' % i, **CONV1D_ARGS)(pi)
+                tau = Conv1D(self.vae_intermediate_dim, 1, 1, activation='sigmoid',
+                             name='discriminator/pose_vae/enc_%d_tau' % i, **CONV1D_ARGS)(h)
+                h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
+                           name='discriminator/pose_vae/enc_%d_attention' % i)([h, pi, tau])
+
+            z = Conv1D(self.vae_latent_dim, 1, 1, name='discriminator/pose_vae/z_mean', **CONV1D_ARGS)(h)
+            z_attention = Conv1D(self.vae_latent_dim, 1, 1, activation='sigmoid',
+                                 name='discriminator/pose_vae/z_attention', **CONV1D_ARGS)(h)
+            z = Multiply(name='discriminator/pose_vae/vae_attention')([z, z_attention])
+
+            frame_score_out = Conv1D(1, 1, 1, name='discriminator/frame_score_out', **CONV1D_ARGS)(z)
+            output_tensors.append(frame_score_out)
+
         return output_tensors
 
     def _proc_gen_inputs(self, input_tensors):
@@ -325,7 +376,28 @@ class _MotionGAN(object):
             self.unfolded_joints = int(x.shape[1])
 
         if self.use_pose_vae:
-            self.vae_z = self.vae_encoder(x)
+
+            x = Permute((2, 1, 3), name='pose_vae/perm_in')(x)
+            x = Reshape((self.seq_len, self.njoints * 3), name='pose_vae/resh_in')(x)
+
+            h = Conv1D(self.vae_intermediate_dim, 1, 1,
+                       name='pose_vae/enc_in', **CONV1D_ARGS)(x)
+            for i in range(3):
+                pi = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                            name='pose_vae/enc_%d_0' % i, **CONV1D_ARGS)(h)
+                pi = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                            name='pose_vae/enc_%d_1' % i, **CONV1D_ARGS)(pi)
+                tau = Conv1D(self.vae_intermediate_dim, 1, 1, activation='sigmoid',
+                             name='pose_vae/enc_%d_tau' % i, **CONV1D_ARGS)(h)
+                h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
+                           name='pose_vae/enc_%d_attention' % i)([h, pi, tau])
+
+            z = Conv1D(self.vae_latent_dim, 1, 1, name='pose_vae/z_mean', **CONV1D_ARGS)(h)
+            z_attention = Conv1D(self.vae_latent_dim, 1, 1, activation='sigmoid',
+                                 name='pose_vae/z_attention', **CONV1D_ARGS)(h)
+            z = Multiply(name='pose_vae/vae_attention')([z, z_attention])
+            
+            self.vae_z = z
             x = Reshape((self.seq_len, self.vae_latent_dim, 1), name='generator/gen_reshape_in')(self.vae_z)
 
             self.nblocks = 5
@@ -365,7 +437,24 @@ class _MotionGAN(object):
             x = Conv2D(1, 3, 1, name='generator/vae_merge', **CONV2D_ARGS)(x)
             self.vae_gen_z = Reshape((self.seq_len, self.vae_latent_dim), name='generator/vae_reshape')(x)
 
-            vae_gen_x = self.vae_decoder(self.vae_gen_z)
+            dec_h = Conv1D(self.vae_intermediate_dim, 1, 1,
+                           name='pose_vae/dec_in', **CONV1D_ARGS)(self.vae_gen_z)
+            for i in range(3):
+                pi = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                            name='pose_vae/dec_%d_0' % i, **CONV1D_ARGS)(dec_h)
+                pi = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                            name='pose_vae/dec_%d_1' % i, **CONV1D_ARGS)(pi)
+                tau = Conv1D(self.vae_intermediate_dim, 1, 1, activation='sigmoid',
+                             name='pose_vae/dec_%d_tau' % i, **CONV1D_ARGS)(dec_h)
+                dec_h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
+                               name='pose_vae/dec_%d_attention' % i)([dec_h, pi, tau])
+
+            dec_x = Conv1D(self.vae_original_dim, 1, 1, name='pose_vae/dec_out', **CONV1D_ARGS)(dec_h)
+
+            dec_x = Reshape((self.seq_len, self.njoints, 3), name='pose_vae/resh_out')(dec_x)
+            dec_x = Permute((2, 1, 3), name='pose_vae/perm_out')(dec_x)
+
+            vae_gen_x = dec_x
 
             x = Reshape((self.seq_len, self.njoints, 3), name='generator/coords_reshape')(vae_gen_x)
             x = Permute((2, 1, 3), name='generator/coords_permute')(x)  # joints, time, coords
@@ -384,16 +473,16 @@ class _MotionGAN(object):
 
         return output_tensors
 
-    def _load_pose_vae(self, config):
-        pose_vae = PoseVAEV1(config)
-        pose_vae.autoencoder = restore_keras_model(
-            pose_vae.autoencoder, config.pose_vae_save_path + '_weights.hdf5')
-        pose_vae.autoencoder.trainable = False
-        self.vae_latent_dim = pose_vae.vae_latent_dim
-        self.vae_encoder = pose_vae.encoder
-        self.vae_encoder.trainable = False
-        self.vae_decoder = pose_vae.decoder
-        self.vae_decoder.trainable = False
+    # def _load_pose_vae(self, config):
+    #     pose_vae = PoseVAEV1(config)
+    #     pose_vae.autoencoder = restore_keras_model(
+    #         pose_vae.autoencoder, config.pose_vae_save_path + '_weights.hdf5')
+    #     pose_vae.autoencoder.trainable = False
+    #     self.vae_latent_dim = pose_vae.vae_latent_dim
+    #     self.vae_encoder = pose_vae.encoder
+    #     self.vae_encoder.trainable = False
+    #     self.vae_decoder = pose_vae.decoder
+    #     self.vae_decoder.trainable = False
 
 
 class MotionGANV1(_MotionGAN):

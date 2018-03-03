@@ -60,7 +60,7 @@ class _MotionGAN(object):
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
-        self.rec_scale = 1.0
+        self.rec_scale = 10.0
         self.action_cond = config.action_cond
         self.action_scale_d = 10.0
         self.action_scale_g = 10.0
@@ -247,8 +247,10 @@ class _MotionGAN(object):
             gen_losses['gen_loss_reg'] = gen_loss_reg
 
         # Reconstruction loss
-        loss_rec = K.sum(K.sum(K.mean(K.square((real_seq - gen_seq) * seq_mask), axis=-1), axis=1) * zero_frames, axis=1)
-        gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
+        loss_rec_cent = K.sum(K.mean(K.square((real_seq[:, 0, :, :] - gen_seq[:, 0, :, :]) * seq_mask[:, 0, :, :]), axis=-1) * zero_frames, axis=1)
+        gen_losses['gen_loss_rec_cent'] = self.rec_scale * K.mean(loss_rec_cent)
+        loss_rec_edm = K.sum(K.sum(K.square(_edm(real_seq) - _edm(gen_seq)), axis=(1, 2)) * K.squeeze(K.min(seq_mask, axis=1), axis=2) * zero_frames, axis=1)
+        gen_losses['gen_loss_rec_edm'] = self.rec_scale * K.mean(loss_rec_edm)
 
         if self.use_pose_vae:
             # vae_loss_rec = K.sum(K.mean(K.square(self.vae_z - self.vae_gen_z) * K.min(seq_mask, axis=1), axis=-1), axis=1)
@@ -400,7 +402,7 @@ class _MotionGAN(object):
             self.vae_z = z
             x = Reshape((self.seq_len, self.vae_latent_dim, 1), name='generator/gen_reshape_in')(self.vae_z)
 
-            self.nblocks = 5
+            self.nblocks = 4
 
         else:
             strides = (2, 1) if self.time_pres_emb else 2
@@ -508,7 +510,7 @@ class MotionGANV1(_MotionGAN):
         return x
 
     def generator(self, x):
-        n_hidden = 16
+        n_hidden = 64
         block_factors = range(1, self.nblocks + 1)
         block_strides = [2] * self.nblocks
 
@@ -567,7 +569,7 @@ class MotionGANV2(_MotionGAN):
         return x
 
     def generator(self, x):
-        n_hidden = 16
+        n_hidden = 64
         block_factors = range(1, self.nblocks + 1)
         block_strides = [2] * self.nblocks
 

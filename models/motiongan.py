@@ -60,7 +60,7 @@ class _MotionGAN(object):
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
-        self.rec_scale = 1.0
+        self.rec_scale = 10.0
         self.action_cond = config.action_cond
         self.action_scale_d = 10.0
         self.action_scale_g = 10.0
@@ -206,8 +206,7 @@ class _MotionGAN(object):
         seq_mask = _get_tensor(self.gen_inputs, 'seq_mask')
         gen_seq = self.gen_outputs[0]
         zero_sum = K.sum(real_seq, axis=(1, 3))
-        zero_mask = K.zeros_like(zero_sum)
-        zero_frames = K.cast(K.not_equal(zero_sum, zero_mask), 'float32') + K.epsilon()
+        zero_frames = K.cast(K.not_equal(zero_sum, K.zeros_like(zero_sum)), 'float32') + K.epsilon()
 
         # WGAN Basic losses
         loss_real = K.mean(_get_tensor(self.real_outputs, 'score_out'), axis=-1)

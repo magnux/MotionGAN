@@ -60,7 +60,7 @@ class _MotionGAN(object):
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
-        self.rec_scale = 10.0
+        self.rec_scale = 1.0
         self.action_cond = config.action_cond
         self.action_scale_d = 10.0
         self.action_scale_g = 10.0
@@ -509,7 +509,7 @@ class MotionGANV1(_MotionGAN):
         return x
 
     def generator(self, x):
-        n_hidden = 64
+        n_hidden = 32
         block_factors = range(1, self.nblocks + 1)
         block_strides = [2] * self.nblocks
 
@@ -568,7 +568,7 @@ class MotionGANV2(_MotionGAN):
         return x
 
     def generator(self, x):
-        n_hidden = 64
+        n_hidden = 32
         block_factors = range(1, self.nblocks + 1)
         block_strides = [2] * self.nblocks
 

@@ -246,13 +246,10 @@ class _MotionGAN(object):
             gen_losses['gen_loss_reg'] = gen_loss_reg
 
         # Reconstruction loss
-        rec_l2 = K.mean(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1)
-        loss_rec = K.sum(rec_l2[:, 0, :] * zero_frames, axis=1)
-        loss_rec += K.sum(rec_l2[:, 4, :] * zero_frames, axis=1)
-        loss_rec += K.sum(rec_l2[:, 8, :] * zero_frames, axis=1)
+        loss_rec = K.sum(K.sum(K.mean(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1), axis=1) * zero_frames, axis=1)
         gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
         loss_rec_edm = K.sum(K.sum(K.square(_edm(real_seq * seq_mask) - _edm(gen_seq * seq_mask)), axis=(1, 2)) * zero_frames, axis=1)
-        gen_losses['gen_loss_rec_edm'] = self.rec_scale * K.mean(loss_rec_edm)
+        gen_losses['gen_loss_rec_edm'] = 0.1 * self.rec_scale * K.mean(loss_rec_edm)
 
         if self.use_pose_vae:
             # vae_loss_rec = K.sum(K.mean(K.square(self.vae_z - self.vae_gen_z) * K.min(seq_mask, axis=1), axis=-1), axis=1)
@@ -386,6 +383,7 @@ class _MotionGAN(object):
 
             h = Conv1D(self.vae_intermediate_dim, 1, 1,
                        name='pose_vae/enc_in', **CONV1D_ARGS)(x)
+            self.enc_layers = []
             for i in range(3):
                 pi = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
                             name='pose_vae/enc_%d_0' % i, **CONV1D_ARGS)(h)
@@ -395,6 +393,7 @@ class _MotionGAN(object):
                              name='pose_vae/enc_%d_tau' % i, **CONV1D_ARGS)(h)
                 h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                            name='pose_vae/enc_%d_attention' % i)([h, pi, tau])
+                self.enc_layers.append(h)
 
             z = Conv1D(self.vae_latent_dim, 1, 1, name='pose_vae/z_mean', **CONV1D_ARGS)(h)
             z_attention = Conv1D(self.vae_latent_dim, 1, 1, activation='sigmoid',
@@ -444,8 +443,9 @@ class _MotionGAN(object):
             dec_h = Conv1D(self.vae_intermediate_dim, 1, 1,
                            name='pose_vae/dec_in', **CONV1D_ARGS)(self.vae_gen_z)
             for i in range(3):
+                pi = Concatenate(name='pose_vae/dec_%d_skip_cat' % i, axis=-1)([dec_h, self.enc_layers[2 - i]])
                 pi = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
-                            name='pose_vae/dec_%d_0' % i, **CONV1D_ARGS)(dec_h)
+                            name='pose_vae/dec_%d_0' % i, **CONV1D_ARGS)(pi)
                 pi = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
                             name='pose_vae/dec_%d_1' % i, **CONV1D_ARGS)(pi)
                 tau = Conv1D(self.vae_intermediate_dim, 1, 1, activation='sigmoid',

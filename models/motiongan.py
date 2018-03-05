@@ -600,7 +600,14 @@ class MotionGANV2(_MotionGAN):
             shortcut = Conv2DTranspose(n_filters, strides, strides,
                                        name='generator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
 
-            pi = _conv_block(x, n_filters, 1, 3, strides, i, 0, 'generator', Conv2DTranspose)
+            def _seq_shift(args):
+                shifted = K.zeros_like(args)
+                shifted[:, 1:, :, :] += args[:, :-1, :, :]
+                return shifted
+
+            pi = Lambda(_seq_shift, name='generator/block_%d/shift' % i)(x)
+            pi = Concatenate(axis=-1, name='generator/block_%d/pi_cat' % i)([x, pi])
+            pi = _conv_block(pi, n_filters, 1, 3, strides, i, 0, 'generator', Conv2DTranspose)
 
             # For condition injecting
             # squeeze_kernel = (x.shape[1], x.shape[2])

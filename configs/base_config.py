@@ -39,6 +39,7 @@
     'vae_add_noise': False,
     # Size of the noise vector
     # 'z_dim': 64,
+    'use_shifting': False,
 
     ## Training Options
     # It's the batch size

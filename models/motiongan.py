@@ -60,21 +60,21 @@ class _MotionGAN(object):
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
-        self.rec_scale = 1.0
+        self.rec_scale = 10.0
         self.action_cond = config.action_cond
-        self.action_scale_d = 10.0
-        self.action_scale_g = 10.0
+        self.action_scale_d = 1.0
+        self.action_scale_g = 1.0
         self.latent_cond_dim = config.latent_cond_dim
         self.latent_scale_d = 1.0
         self.latent_scale_g = 1.0
         self.coherence_loss = config.coherence_loss
-        self.coherence_scale = 0.1
+        self.coherence_scale = 1.0
         self.displacement_loss = config.displacement_loss
         self.displacement_scale = 0.1
         self.shape_loss = config.shape_loss
-        self.shape_scale = 1.0
+        self.shape_scale = 10.0
         self.smoothing_loss = config.smoothing_loss
-        self.smoothing_scale = 0.1
+        self.smoothing_scale = 1.0
         self.smoothing_basis = 3
         self.time_pres_emb = config.time_pres_emb
         self.unfold = config.unfold
@@ -85,7 +85,8 @@ class _MotionGAN(object):
         # We are only expecting half of the latent features to be activated
         self.vae_latent_dim = self.vae_original_dim
         # self.z_dim = config.z_dim
-        self.frame_scale = 10.0
+        self.frame_scale = 1.0
+        self.use_shifting = config.use_shifting
 
         # if self.use_pose_vae:
         #     self._load_pose_vae(config)
@@ -600,13 +601,16 @@ class MotionGANV2(_MotionGAN):
             shortcut = Conv2DTranspose(n_filters, strides, strides,
                                        name='generator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
 
-            def _seq_shift(args):
-                return K.concatenate(
-                    [K.zeros((args.shape[0], 1, args.shape[2], args.shape[3])),
-                     args[:, :-1, :, :]], axis=1)
+            pi = x
+            if self.use_shifting:
+                def _seq_shift(args):
+                    return K.concatenate(
+                        [K.zeros((args.shape[0], 1, args.shape[2], args.shape[3])),
+                         args[:, :-1, :, :]], axis=1)
 
-            pi = Lambda(_seq_shift, name='generator/block_%d/shift' % i)(x)
-            pi = Concatenate(axis=-1, name='generator/block_%d/pi_cat' % i)([x, pi])
+                pi = Lambda(_seq_shift, name='generator/block_%d/shift' % i)(pi)
+                pi = Concatenate(axis=-1, name='generator/block_%d/pi_cat' % i)([x, pi])
+
             pi = _conv_block(pi, n_filters, 1, 3, strides, i, 0, 'generator', Conv2DTranspose)
 
             # For condition injecting

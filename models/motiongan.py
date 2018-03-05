@@ -81,9 +81,9 @@ class _MotionGAN(object):
         self.use_pose_vae = config.use_pose_vae
         # self.vae_scale = 0.1
         self.vae_original_dim = self.njoints * 3
-        self.vae_intermediate_dim = self.vae_original_dim // 2
+        self.vae_intermediate_dim = self.vae_original_dim
         # We are only expecting half of the latent features to be activated
-        self.vae_latent_dim = self.vae_original_dim // 4
+        self.vae_latent_dim = self.vae_original_dim
         # self.z_dim = config.z_dim
         self.frame_scale = 10.0
 
@@ -600,7 +600,7 @@ class MotionGANV2(_MotionGAN):
             shortcut = Conv2DTranspose(n_filters, strides, strides,
                                        name='generator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
 
-            pi = _conv_block(x, n_filters, 2, 3, strides, i, 0, 'generator', Conv2DTranspose)
+            pi = _conv_block(x, n_filters, 1, 3, strides, i, 0, 'generator', Conv2DTranspose)
 
             # For condition injecting
             # squeeze_kernel = (x.shape[1], x.shape[2])

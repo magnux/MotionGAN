@@ -81,9 +81,9 @@ class _MotionGAN(object):
         self.use_pose_vae = config.use_pose_vae
         # self.vae_scale = 0.1
         self.vae_original_dim = self.njoints * 3
-        self.vae_intermediate_dim = self.vae_original_dim
+        self.vae_intermediate_dim = self.vae_original_dim // 2
         # We are only expecting half of the latent features to be activated
-        self.vae_latent_dim = self.vae_original_dim
+        self.vae_latent_dim = self.vae_original_dim // 4
         # self.z_dim = config.z_dim
         self.frame_scale = 1.0
         self.use_shifting = config.use_shifting

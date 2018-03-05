@@ -601,9 +601,9 @@ class MotionGANV2(_MotionGAN):
                                        name='generator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
 
             def _seq_shift(args):
-                shifted = K.zeros_like(args)
-                shifted[:, 1:, :, :] += args[:, :-1, :, :]
-                return shifted
+                return K.concatenate(
+                    [K.zeros((args.shape[0], 1, args.shape[2], args.shape[3])),
+                     args[:, :-1, :, :]], axis=1)
 
             pi = Lambda(_seq_shift, name='generator/block_%d/shift' % i)(x)
             pi = Concatenate(axis=-1, name='generator/block_%d/pi_cat' % i)([x, pi])

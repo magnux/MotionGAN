@@ -303,15 +303,15 @@ class _MotionGAN(object):
             mask = np.ones((self.njoints, self.njoints), dtype='float32')
             mask = np.triu(mask, 1) - np.triu(mask, 2)
             mask = np.reshape(mask, (1, self.njoints, self.njoints, 1))
-            real_shape = K.mean(_edm(real_seq) * zero_frames_edm, axis=-1, keepdims=True) * mask
+            real_shape = K.sum(_edm(real_seq) * zero_frames_edm / K.sum(zero_frames_edm, axis=-1, keepdims=True), axis=-1, keepdims=True) * mask
             gen_shape = _edm(gen_seq) * zero_frames_edm * mask
             loss_shape = K.sum(K.mean(K.square(real_shape - gen_shape), axis=-1), axis=(1, 2))
             gen_losses['gen_loss_shape'] = self.shape_scale * K.mean(loss_shape)
             joint_dists = _edm(real_seq) * zero_frames_edm
-            mean_dists = K.mean(_edm(real_seq) * zero_frames_edm, axis=-1, keepdims=True)
+            mean_dists = K.sum(_edm(real_seq) * zero_frames_edm / K.sum(zero_frames_edm, axis=-1, keepdims=True), axis=-1, keepdims=True)
             fix_joints = K.cast(K.greater_equal(joint_dists, mean_dists - 1e-4), 'float32')
             fix_joints = fix_joints * K.cast(K.less_equal(joint_dists, mean_dists + 1e-4), 'float32')
-            real_fix_shape = _edm(real_seq) * zero_frames_edm * fix_joints
+            real_fix_shape = mean_dists * fix_joints
             gen_fix_shape = _edm(gen_seq) * zero_frames_edm * fix_joints
             loss_fix_shape = K.sum(K.mean(K.square(real_fix_shape - gen_fix_shape), axis=-1), axis=(1, 2))
             gen_losses['gen_loss_fix_shape'] = 10.0 * self.shape_scale * K.mean(loss_fix_shape)

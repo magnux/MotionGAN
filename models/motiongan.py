@@ -60,7 +60,7 @@ class _MotionGAN(object):
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
-        self.rec_scale = 10.0
+        self.rec_scale = 1.0
         self.action_cond = config.action_cond
         self.action_scale_d = 1.0
         self.action_scale_g = 1.0
@@ -251,7 +251,7 @@ class _MotionGAN(object):
         loss_rec = K.sum(K.sum(K.mean(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1), axis=1) * zero_frames, axis=1)
         gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
         loss_rec_edm = K.sum(K.mean(K.square(_edm(real_seq * seq_mask) - _edm(gen_seq * seq_mask)) * zero_frames_edm, axis=(1, 2)), axis=1)
-        gen_losses['gen_loss_rec_edm'] = self.rec_scale * K.mean(loss_rec_edm)
+        gen_losses['gen_loss_rec_edm'] = 10.0  * self.rec_scale * K.mean(loss_rec_edm)
 
         if self.use_pose_vae:
             # vae_loss_rec = K.sum(K.mean(K.square(self.vae_z - self.vae_gen_z) * K.min(seq_mask, axis=1), axis=-1), axis=1)
@@ -314,7 +314,7 @@ class _MotionGAN(object):
             real_fix_shape = _edm(real_seq) * zero_frames_edm * fix_joints
             gen_fix_shape = _edm(gen_seq) * zero_frames_edm * fix_joints
             loss_fix_shape = K.sum(K.mean(K.square(real_fix_shape - gen_fix_shape), axis=-1), axis=(1, 2))
-            gen_losses['gen_loss_fix_shape'] = self.shape_scale * K.mean(loss_fix_shape)
+            gen_losses['gen_loss_fix_shape'] = 10.0 * self.shape_scale * K.mean(loss_fix_shape)
         if self.smoothing_loss:
             Q = idct(np.eye(self.seq_len))[:self.smoothing_basis, :]
             Q_inv = pinv(Q)

@@ -19,6 +19,7 @@ class DataInput(object):
         self.crop_len = config.crop_len
         self.only_val = config.only_val
         self.data_set_version = config.data_set_version
+        self.normalize_data = config.normalize_data
 
         file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '.h5')
         self.h5file = h5.File(file_path, 'r')
@@ -76,6 +77,27 @@ class DataInput(object):
             plen = self.max_plen if plen > self.max_plen else plen
             labs[k, :] = [key_idx, subject, action, plen]
             poses[k, :, :plen, :] = pose
+
+        if self.normalize_data:
+            min_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '_poses_mean.npy')
+            std_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '_poses_std.npy')
+
+            if is_training:
+                if tf.gfile.Exists(min_file_path) and tf.gfile.Exists(std_file_path):
+                    self.poses_mean = np.load(min_file_path)
+                    self.poses_std = np.load(std_file_path)
+                else:
+                    print('Computing mean and std of skels')
+                    self.poses_mean = np.mean(poses, axis=(0, 1, 2), keepdims=True)
+                    self.poses_std = np.std(poses, axis=(0, 1, 2), keepdims=True)
+                    print(self.poses_mean, self.poses_std)
+                    np.save(min_file_path, self.poses_mean)
+                    np.save(std_file_path, self.poses_std)
+            elif self.only_val:
+                self.poses_mean = np.load(min_file_path)
+                self.poses_std = np.load(std_file_path)
+
+            poses = self.normalize_poses(poses)
 
         return labs, poses
 
@@ -167,3 +189,9 @@ class DataInput(object):
                 yield self.sub_sample_batch(batches[rand_indices[slice_idx]])
             else:
                 yield self.sub_sample_batch(batches[slice_idx])
+
+    def normalize_poses(self, poses):
+        return (poses - self.poses_mean) / self.poses_std
+
+    def denormalize_poses(self, poses):
+        return (poses * self.poses_std) + self.poses_mean

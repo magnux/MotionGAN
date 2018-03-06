@@ -178,6 +178,8 @@ if __name__ == "__main__":
 
             # Generating images
             if (epoch % (config.num_epochs // 10)) == 0 or epoch == (config.num_epochs - 1):
+                poses_batch = data_input.denormalize_poses(poses_batch)
+                gen_outputs = data_input.denormalize_poses(gen_outputs)
                 for i in range(16):  # config.batch_size
                     gif_name = '%s_tmp.gif' % config.save_path
                     gif_height, gif_width = plot_gif(poses_batch[i, ...],

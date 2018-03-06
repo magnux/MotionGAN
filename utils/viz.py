@@ -90,6 +90,8 @@ class Ax3DPose(object):
         self.ax.set_ylabel("y")
         self.ax.set_zlabel("z")
 
+        self.axes_set = False
+
     def update(self, channels, lcolor="#3498db", rcolor="#e74c3c"):
         """
         Update the plotted 3d pose.
@@ -119,14 +121,16 @@ class Ax3DPose(object):
                 self.plots[(j_idx_start, j_idx_end)][0].set_color(
                     lcolor if member['side'] == 'left' else rcolor)
 
-        r = 1  # 500;
-        xroot, yroot, zroot = vals[0, 0], vals[0, 1], vals[0, 2]
-        self.ax.set_xlim3d([-r + xroot, r + xroot])
-        self.ax.set_zlim3d([-r + zroot, r + zroot])
-        self.ax.set_ylim3d([-r + yroot, r + yroot])
+        if not self.axes_set:
+            r = 1  # 500;
+            # xroot, yroot, zroot = vals[0, 0], vals[0, 1], vals[0, 2]
+            xroot, yroot, zroot = 0, 0, vals[0, 2]
+            self.ax.set_xlim3d([-r + xroot, r + xroot])
+            self.ax.set_zlim3d([-r + zroot, r + zroot])
+            self.ax.set_ylim3d([-r + yroot, r + yroot])
 
-        self.ax.set_aspect('equal')
-
+            self.ax.set_aspect('equal')
+            self.axes_set = True
 
 NTU_ACTIONS = ["drink water", "eat meal/snack", "brushing teeth",
                "brushing hair", "drop", "pickup", "throw", "sitting down",

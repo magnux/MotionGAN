@@ -4,8 +4,8 @@
     # Datasets: MSRC12, NTURGBD
     'data_set': 'NTURGBD',
     'data_set_version': 'v1',
-    # Format input as distance matrix
-    'format_dm': False,
+    # Normalize skeletons offline
+    'normalize_data': True,
 
     ## Model Options
     # Model type to train

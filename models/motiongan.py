@@ -74,7 +74,7 @@ class _MotionGAN(object):
         self.shape_loss = config.shape_loss
         self.shape_scale = 10.0
         self.smoothing_loss = config.smoothing_loss
-        self.smoothing_scale = 1.0
+        self.smoothing_scale = 0.1
         self.smoothing_basis = 3
         self.time_pres_emb = config.time_pres_emb
         self.unfold = config.unfold
@@ -208,6 +208,7 @@ class _MotionGAN(object):
         gen_seq = self.gen_outputs[0]
         zero_sum = K.sum(real_seq, axis=(1, 3))
         zero_frames = K.cast(K.not_equal(zero_sum, K.zeros_like(zero_sum)), 'float32') + K.epsilon()
+        zero_frames_edm = K.reshape(zero_frames, (zero_frames.shape[0], 1, 1, zero_frames.shape[1]))
 
         # WGAN Basic losses
         loss_real = K.mean(_get_tensor(self.real_outputs, 'score_out'), axis=-1)
@@ -249,8 +250,8 @@ class _MotionGAN(object):
         # Reconstruction loss
         loss_rec = K.sum(K.sum(K.mean(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1), axis=1) * zero_frames, axis=1)
         gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
-        loss_rec_edm = K.sum(K.sum(K.square(_edm(real_seq * seq_mask) - _edm(gen_seq * seq_mask)), axis=(1, 2)) * zero_frames, axis=1)
-        gen_losses['gen_loss_rec_edm'] = 0.1 * self.rec_scale * K.mean(loss_rec_edm)
+        loss_rec_edm = K.sum(K.mean(K.square(_edm(real_seq * seq_mask) - _edm(gen_seq * seq_mask)) * zero_frames_edm, axis=(1, 2)), axis=1)
+        gen_losses['gen_loss_rec_edm'] = self.rec_scale * K.mean(loss_rec_edm)
 
         if self.use_pose_vae:
             # vae_loss_rec = K.sum(K.mean(K.square(self.vae_z - self.vae_gen_z) * K.min(seq_mask, axis=1), axis=-1), axis=1)
@@ -291,7 +292,7 @@ class _MotionGAN(object):
         if self.coherence_loss:
             exp_decay = 1.0 / np.exp(np.linspace(0.0, 2.0, self.seq_len, dtype='float32'))
             exp_decay = np.reshape(exp_decay, (1, 1, 1, self.seq_len))
-            loss_coh = K.sum(K.mean(K.square(_edm(real_seq) - _edm(gen_seq)) * exp_decay, axis=-1), axis=(1, 2))
+            loss_coh = K.sum(K.mean(K.square(_edm(real_seq) - _edm(gen_seq)) * zero_frames_edm * exp_decay, axis=-1), axis=(1, 2))
             gen_losses['gen_loss_coh'] = self.coherence_scale * K.mean(loss_coh)
         if self.displacement_loss:
             gen_seq_l = gen_seq[:, :, :-1, :]
@@ -302,10 +303,18 @@ class _MotionGAN(object):
             mask = np.ones((self.njoints, self.njoints), dtype='float32')
             mask = np.triu(mask, 1) - np.triu(mask, 2)
             mask = np.reshape(mask, (1, self.njoints, self.njoints, 1))
-            real_shape = K.mean(_edm(real_seq), axis=-1, keepdims=True) * mask
-            gen_shape = _edm(gen_seq) * mask
+            real_shape = K.mean(_edm(real_seq) * zero_frames_edm, axis=-1, keepdims=True) * mask
+            gen_shape = _edm(gen_seq) * zero_frames_edm * mask
             loss_shape = K.sum(K.mean(K.square(real_shape - gen_shape), axis=-1), axis=(1, 2))
             gen_losses['gen_loss_shape'] = self.shape_scale * K.mean(loss_shape)
+            joint_dists = _edm(real_seq) * zero_frames_edm
+            mean_dists = K.mean(_edm(real_seq) * zero_frames_edm, axis=-1, keepdims=True)
+            fix_joints = K.cast(K.greater_equal(joint_dists, mean_dists - 1e-4), 'float32')
+            fix_joints = fix_joints * K.cast(K.less_equal(joint_dists, mean_dists + 1e-4), 'float32')
+            real_fix_shape = _edm(real_seq) * zero_frames_edm * fix_joints
+            gen_fix_shape = _edm(gen_seq) * zero_frames_edm * fix_joints
+            loss_fix_shape = K.sum(K.mean(K.square(real_fix_shape - gen_fix_shape), axis=-1), axis=(1, 2))
+            gen_losses['gen_loss_fix_shape'] = self.shape_scale * K.mean(loss_fix_shape)
         if self.smoothing_loss:
             Q = idct(np.eye(self.seq_len))[:self.smoothing_basis, :]
             Q_inv = pinv(Q)

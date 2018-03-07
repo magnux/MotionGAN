@@ -28,18 +28,16 @@
     'shape_loss': True,
     # Sequence smoothing loss
     'smoothing_loss': True,
-    # Time preserving embedding (NOT COMPATIBLE with latent or VAE)
+    # Time preserving embedding (NOT COMPATIBLE with latent or FAE)
     'time_pres_emb': False,
     # Joint unfolding
     'unfold': False,
-    # Use pose VAE
-    'use_pose_vae': False,
-    # Path to pretrained pose VAE
-    'pose_vae_save_path': False,
-    'vae_add_noise': False,
+    # Use pose FAE
+    'use_pose_fae': False,
+    # Concatenate shifted sequence in the generator (Only model v2)
+    'use_shifting': False,
     # Size of the noise vector
     # 'z_dim': 64,
-    'use_shifting': False,
 
     ## Training Options
     # It's the batch size

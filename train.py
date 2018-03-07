@@ -169,7 +169,7 @@ if __name__ == "__main__":
 
             disc_losses = model_wrap.disc_eval(disc_inputs + gen_inputs + place_holders)
             gen_losses = model_wrap.gen_eval(gen_inputs + place_holders)
-            if config.use_pose_vae:
+            if config.use_pose_fae:
                 vae_z = gen_losses.pop('vae_z', None)
             gen_outputs = gen_losses.pop('gen_outputs', None)
 
@@ -195,7 +195,7 @@ if __name__ == "__main__":
                                                  'width': gif_width,
                                                  'enc_string': encoded_image_string}
 
-                    if config.use_pose_vae:
+                    if config.use_pose_fae:
                         jpg_name = '%s_mask_tmp.jpg' % config.save_path
                         plot_emb(vae_z[i, ...], jpg_name)
 

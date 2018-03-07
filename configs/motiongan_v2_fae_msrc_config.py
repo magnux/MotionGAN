@@ -8,7 +8,6 @@
     'num_epochs': 200,
     # Multiplies length of epoch, useful for tiny datasets
     'epoch_factor': 10,
-    # Use pose VAE
-    'use_pose_vae': True,
-    'use_shifting': True,
+    # Use pose FAE
+    'use_pose_fae': True,
 }

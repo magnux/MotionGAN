@@ -4,6 +4,9 @@
     'data_set_version': '',
     # Model version to train
     'model_version': 'v4',
+
+    'batch_size': 128,
+
     # Final epoch
     'num_epochs': 200,
     # Multiplies length of epoch, useful for tiny datasets

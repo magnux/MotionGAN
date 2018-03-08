@@ -674,19 +674,19 @@ class MotionGANV4(_MotionGAN):
 
         x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name='discriminator/resh_in')(x)
 
-        x = Conv2D(n_hidden, 3, 1,
+        x = Conv2D(n_hidden, 1, 1,
                    name='discriminator/conv_in', **CONV2D_ARGS)(x)
-        for i in range(3):
+        for i in range(4):
             n_filters = n_hidden * (2 ** i)
             shortcut = Conv2D(n_filters, 2, 2,
                         name='discriminator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
-            pi = Conv2D(n_filters // 2, 3, 1, activation='relu',
+            pi = Conv2D(n_filters // 2, 3, 2, activation='relu',
                         name='discriminator/block_%d/pi_0' % i, **CONV2D_ARGS)(x)
-            pi = Conv2D(n_filters, 3, 2, activation='relu',
+            pi = Conv2D(n_filters, 3, 1, activation='relu',
                         name='discriminator/block_%d/pi_1' % i, **CONV2D_ARGS)(pi)
-            tau = Conv2D(n_filters // 8, 3, 1, activation='relu',
+            tau = Conv2D(n_filters // 8, 3, 2, activation='relu',
                          name='discriminator/block_%d/tau_0' % i, **CONV2D_ARGS)(x)
-            tau = Conv2D(n_filters, 3, 2, activation='sigmoid',
+            tau = Conv2D(n_filters, 3, 1, activation='sigmoid',
                          name='discriminator/block_%d/tau_1' % i, **CONV2D_ARGS)(tau)
             x = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                        name='discriminator/block_%d/attention' % i)([shortcut, pi, tau])

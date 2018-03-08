@@ -152,9 +152,6 @@ if __name__ == "__main__":
                 tensorboard.on_batch_end(batch, logs)
 
                 config.batch = batch + 1
-                config.save()
-
-            save_models()
 
             labs_batch, poses_batch = val_generator.next()
             disc_inputs = [poses_batch]
@@ -212,9 +209,12 @@ if __name__ == "__main__":
 
             config.epoch = epoch + 1
             config.batch = 0
+
+            save_models()
             config.save()
 
     except KeyboardInterrupt:
         save_models()
+        config.save()
 
     tensorboard.on_train_end(None)

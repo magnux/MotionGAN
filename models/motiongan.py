@@ -668,7 +668,7 @@ class MotionGANV4(_MotionGAN):
     # Distance Based discriminator
 
     def discriminator(self, x):
-        n_hidden = 64
+        n_hidden = 32
 
         x = Lambda(lambda args: K.expand_dims(_edm(args), axis=-1), name='discriminator/edms')(x)
 
@@ -692,7 +692,6 @@ class MotionGANV4(_MotionGAN):
                        name='discriminator/block_%d/attention' % i)([shortcut, pi, tau])
 
         x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name='discriminator/mean_pool')(x)
-        print(x.shape)
 
         return x
 

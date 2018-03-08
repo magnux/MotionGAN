@@ -233,8 +233,8 @@ def plot_mult_gif(seqs, labs, data_set, save_path=None):
 
     n_seqs = seqs.shape[0]
     n_rows = np.int(np.ceil(np.sqrt(n_seqs) * 9 / 16))
-    n_cols = np.int(n_seqs / n_rows)
-    
+    n_cols = np.int(np.ceil(n_seqs / n_rows))
+
     my_dpi = 60
     fig = plt.figure(figsize=(1920 / my_dpi, 1080 / my_dpi), dpi=my_dpi)
 

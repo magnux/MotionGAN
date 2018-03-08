@@ -1,10 +1,6 @@
 from __future__ import absolute_import, division, print_function
 
 """Functions to visualize human poses"""
-import matplotlib
-matplotlib.use('Agg')
-
-import matplotlib.pyplot as plt
 import numpy as np
 import h5py
 import os
@@ -71,8 +67,6 @@ class Ax3DPose(object):
         # }
         # self.njoints = 16
 
-        vals = np.zeros((self.njoints, 3))
-
         self.ax = ax
 
         # Make connection matrix
@@ -81,10 +75,13 @@ class Ax3DPose(object):
             for j in range(len(member['joints']) - 1):
                 j_idx_start = member['joints'][j]
                 j_idx_end = member['joints'][j + 1]
-                x = np.array([vals[j_idx_start, 0], vals[j_idx_end, 0]])
-                y = np.array([vals[j_idx_start, 1], vals[j_idx_end, 1]])
-                z = np.array([vals[j_idx_start, 2], vals[j_idx_end, 2]])
-                self.plots[(j_idx_start, j_idx_end)] = self.ax.plot(x, y, z, lw=2, c=lcolor if member['side'] == 'left' else rcolor)
+                self.plots[(j_idx_start, j_idx_end)] = \
+                    self.ax.plot([0, 0], [0, 0], [0, 0], lw=2, c=lcolor if member['side'] == 'left' else rcolor)
+
+        self.plots_mask = []
+        for j in range(self.njoints):
+            self.plots_mask.append(
+                self.ax.plot([0], [0], [0], lw=2, c='black', markersize=12, marker='o', linestyle='dashed', visible=False))
 
         self.ax.set_xlabel("x")
         self.ax.set_ylabel("y")
@@ -92,7 +89,7 @@ class Ax3DPose(object):
 
         self.axes_set = False
 
-    def update(self, channels, lcolor="#3498db", rcolor="#e74c3c"):
+    def update(self, channels, mask=None):
         """
         Update the plotted 3d pose.
 
@@ -118,8 +115,14 @@ class Ax3DPose(object):
                 self.plots[(j_idx_start, j_idx_end)][0].set_xdata(x)
                 self.plots[(j_idx_start, j_idx_end)][0].set_ydata(y)
                 self.plots[(j_idx_start, j_idx_end)][0].set_3d_properties(z)
-                self.plots[(j_idx_start, j_idx_end)][0].set_color(
-                    lcolor if member['side'] == 'left' else rcolor)
+
+        if mask is not None:
+            for j in range(self.njoints):
+                if mask[j] == 0:
+                    self.plots_mask[j].set_visible(True)
+                self.plots_mask[j].set_xdata(vals[j, 0])
+                self.plots_mask[j].set_ydata(vals[j, 1])
+                self.plots_mask[j].set_3d_properties(vals[j, 2])
 
         if not self.axes_set:
             r = 1  # 500;
@@ -164,7 +167,12 @@ MSRC_ACTIONS = ["Start system", "Duck", "Push right",
                 "Bow", "Throw", "Had enough",
                 "Change weapon", "Beat both", "Kick"]
 
-def plot_gif(real_seq, gen_seq, labs, data_set, save_path=None):
+def plot_gif(real_seq, gen_seq, labs, data_set, save_path=None, extra_text=None, seq_mask=None):
+    import matplotlib
+    if save_path is not None:
+        matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
     # === Plot and animate ===
     fig = plt.figure(dpi=80, figsize=plt.figaspect(1 / 2))
 
@@ -188,16 +196,73 @@ def plot_gif(real_seq, gen_seq, labs, data_set, save_path=None):
     ax1.view_init(elev=90, azim=-90)
     ob1 = Ax3DPose(ax1, data_set)
 
-    fig.tight_layout()
+    seq_len = np.shape(real_seq)[1]
+    frame_counter = fig.text(0.9, 0.1, 'frame: 0')
+    if extra_text is not None:
+        fig.text(0.1, 0.1, extra_text)
 
     def update(frame):
-        ob0.update(real_seq[:, frame, :])
+        mask = None
+        if seq_mask is not None:
+            mask = seq_mask[:, frame, 0]
+        ob0.update(real_seq[:, frame, :], mask)
         ob1.update(gen_seq[:, frame, :])
-        # label = 'timestep {0}'.format(frame)
-        # ax.set_xlabel(label)
+        frame_counter.set_text('frame: %d' % frame)
+        frame_counter.set_color('red' if frame > seq_len // 2 else 'blue')
         return ax0, ax1
 
-    seq_len = np.shape(real_seq)[1]
+    anim = FuncAnimation(fig, update, frames=np.arange(0, seq_len), interval=100)
+    if save_path is not None:
+        anim.save(save_path, dpi=80, writer='imagemagick')
+    else:
+        plt.show()
+
+    fig_size = (int(fig.get_figheight()), int(fig.get_figwidth()))
+    plt.close(fig)
+
+    return fig_size
+
+
+def plot_mult_gif(seqs, labs, data_set, save_path=None):
+    import matplotlib
+    if save_path is not None:
+        matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    n_seqs = seqs.shape[0]
+    n_rows = np.int(np.sqrt(n_seqs) * 9 / 16)
+    n_cols = np.int(n_seqs / n_rows)
+    # Note some seqs will not be displayed by rounding
+    n_seqs = n_rows * n_cols
+
+    my_dpi = 60
+    fig = plt.figure(figsize=(1920 / my_dpi, 1080 / my_dpi), dpi=my_dpi)
+
+    if data_set == "NTURGBD":
+        actions_l = NTU_ACTIONS
+    elif data_set == "MSRC12":
+        actions_l = MSRC_ACTIONS
+
+    axs = []
+    obs = []
+    for i in range(n_seqs):
+        ax = fig.add_subplot(n_rows, n_cols, i + 1, projection='3d')
+        ax.view_init(elev=90, azim=-90)
+        # ax.view_init(elev=0, azim=90)
+        ob = Ax3DPose(ax, data_set)
+        axs.append(ax)
+        obs.append(ob)
+
+    seq_len = seqs.shape[2]
+    frame_counter = fig.text(0.9, 0.1, 'frame: 0')
+
+    def update(frame):
+        for i in range(n_seqs):
+            obs[i].update(seqs[i, :, frame, :])
+            axs[i].set_xlabel('seq_idx: %d' % labs[i, 0])
+        frame_counter.set_text('frame: %d' % frame)
+        frame_counter.set_color('red' if frame > seq_len // 2 else 'blue')
+
     anim = FuncAnimation(fig, update, frames=np.arange(0, seq_len), interval=100)
     if save_path is not None:
         anim.save(save_path, dpi=80, writer='imagemagick')

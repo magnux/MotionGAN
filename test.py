@@ -10,7 +10,6 @@ from utils.viz import plot_gif
 from scipy.linalg import pinv
 from scipy.fftpack import idct
 
-
 logging = tf.logging
 flags = tf.flags
 flags.DEFINE_bool("verbose", False, "To talk or not to talk")
@@ -22,6 +21,7 @@ if __name__ == "__main__":
     # Config stuff
     config = get_config(FLAGS)
     config.only_val = True
+    config.batch_size = 4
     # config.pick_num = 0
     data_input = DataInput(config)
     val_batches = data_input.val_epoch_size
@@ -49,30 +49,57 @@ if __name__ == "__main__":
     model_wrap.gen_model = restore_keras_model(
         model_wrap.gen_model, config.save_path + '_gen_weights.hdf5', False)
 
-    labs_batch, poses_batch = val_generator.next()
 
-    gen_inputs = [poses_batch]
-    if config.latent_cond_dim > 0:
-        latent_noise = np.random.uniform(
-            size=(config.batch_size, config.latent_cond_dim))
-        gen_inputs.append(latent_noise)
-    gen_outputs = model_wrap.gen_model.predict(gen_inputs, config.batch_size)
+    def gen_mask(mask_type=0, keep_prob=1.0):
+        # Default mask, no mask
+        mask = np.ones(shape=(config.batch_size, config.njoints, model_wrap.seq_len, 1))
+        if mask_type == 1:  # Future Prediction
+            mask[:, :, np.int(model_wrap.seq_len * keep_prob):, :] = 0.0
+        elif mask_type == 2:  # Occlusion Simulation
+            rand_joints = np.random.randint(config.njoints, size=np.int(config.njoints * (1.0 - keep_prob)))
+            mask[:, rand_joints, :, :] = 0.0
+        elif mask_type == 3:  # Noisy transmission
+            mask = np.random.binomial(1, keep_prob, size=mask.shape)
 
-    rand_indices = np.random.permutation(config.batch_size)
+        return mask
 
     # Q = idct(np.eye(10))[:3, :]
     # Q_inv = pinv(Q)
     # Qs = np.matmul(Q_inv, Q)
+    mask_modes = ['No mask', 'Future Prediction', 'Oclusion Simulation', 'Noisy Transmission']
+    while True:
+        labs_batch, poses_batch = val_generator.next()
 
-    for j in range(config.batch_size):
-        seq_idx = rand_indices[j]
+        mask_mode = np.random.randint(4)
+        mask_batch = gen_mask(mask_mode, 0.5)
+        gen_inputs = [poses_batch, mask_batch]
 
-        plot_gif(poses_batch[seq_idx, ...], gen_outputs[seq_idx, ...], labs_batch[seq_idx, ...], config.data_set)
+        if config.latent_cond_dim > 0:
+            latent_noise = np.random.uniform(
+                size=(config.batch_size, config.latent_cond_dim))
+            gen_inputs.append(latent_noise)
 
-        # Smoothing code
-        # smoothed = np.transpose(gen_outputs[seq_idx, ...], (0, 2, 1))
-        # smoothed = np.reshape(smoothed, (25 * 3, 20))
-        # smoothed[:, 10:] = np.matmul(smoothed[:, 10:], Qs)
-        # smoothed = np.reshape(smoothed, (25, 3, 20))
-        # smoothed = np.transpose(smoothed, (0, 2, 1))
-        # plot_gif(gen_outputs[seq_idx, ...], smoothed, labs_batch[seq_idx, ...])
+        gen_outputs = model_wrap.gen_model.predict(gen_inputs, config.batch_size)
+
+        poses_batch = data_input.denormalize_poses(poses_batch)
+        gen_outputs = data_input.denormalize_poses(gen_outputs)
+
+        rand_indices = np.random.permutation(config.batch_size)
+
+        for j in range(config.batch_size):
+            seq_idx = rand_indices[j]
+
+            plot_gif(poses_batch[seq_idx, ...],
+                     gen_outputs[seq_idx, ...],
+                     labs_batch[seq_idx, ...],
+                     config.data_set,
+                     extra_text='mask mode: %s' % mask_modes[mask_mode],
+                     seq_mask=mask_batch[seq_idx, ...])
+
+            # Smoothing code
+            # smoothed = np.transpose(gen_outputs[seq_idx, ...], (0, 2, 1))
+            # smoothed = np.reshape(smoothed, (25 * 3, 20))
+            # smoothed[:, 10:] = np.matmul(smoothed[:, 10:], Qs)
+            # smoothed = np.reshape(smoothed, (25, 3, 20))
+            # smoothed = np.transpose(smoothed, (0, 2, 1))
+            # plot_gif(gen_outputs[seq_idx, ...], smoothed, labs_batch[seq_idx, ...])

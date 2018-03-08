@@ -4,7 +4,7 @@ import tensorflow as tf
 import numpy as np
 from config import get_config
 from data_input import DataInput
-from utils.viz import plot_gif
+from utils.viz import plot_gif, plot_mult_gif
 
 logging = tf.logging
 flags = tf.flags
@@ -16,18 +16,21 @@ FLAGS = flags.FLAGS
 if __name__ == "__main__":
     # Config stuff
     config = get_config(FLAGS)
-    config.only_val = True
+    # config.only_val = True
+    config.normalize_data = False
     # config.pick_num = 0
     data_input = DataInput(config)
 
-    labs_batch, poses_batch = data_input.batch_generator(False).next()
+    n_batches = 4
+    n_splits = 8
+    print('Plotting %d batches in %d splits for the %s dataset' %
+          (n_batches, n_splits, config.data_set))
+    for b in range(n_batches):
 
-    print(np.shape(poses_batch), np.shape(labs_batch))
+        labs_batch, poses_batch = data_input.batch_generator(False).next()
 
-    rand_indices = np.random.permutation(config.batch_size)
-
-    for j in range(config.batch_size):
-
-        seq_idx = rand_indices[j]
-
-        plot_gif(poses_batch[seq_idx, ...], poses_batch[seq_idx, ...], labs_batch[seq_idx, ...], config.data_set)
+        n_seqs = (config.batch_size // n_splits)
+        for i in range(n_splits):
+            plot_mult_gif(poses_batch[i * n_seqs:(i + 1) * n_seqs, ...],
+                          labs_batch[i * n_seqs:(i + 1) * n_seqs, ...],
+                          config.data_set, 'save/%s_viz_%d%d.gif' % (config.data_set, b, i))

@@ -445,7 +445,7 @@ class _MotionGAN(object):
     def _proc_gen_outputs(self, x):
 
         if self.use_pose_fae:
-            x = Conv2D(1, 3, 1, name='generator/vae_merge', **CONV2D_ARGS)(x)
+            x = Conv2D(1, 3, 1, name='generator/fae_merge', **CONV2D_ARGS)(x)
             self.fae_gen_z = Reshape((self.seq_len, self.fae_latent_dim), name='generator/fae_reshape')(x)
 
             dec_h = Conv1D(self.fae_intermediate_dim, 1, 1,

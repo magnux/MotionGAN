@@ -78,12 +78,6 @@ if __name__ == "__main__":
     def gen_latent_noise():
         return np.random.uniform(size=(config.batch_size, config.latent_cond_dim))
 
-    def gen_vae_epsilon(training=False):
-        if training:
-            return np.random.normal(size=(config.batch_size, model_wrap.seq_len, model_wrap.vae_latent_dim), loc=0., scale=1.0)
-        else:
-            return np.zeros(shape=(config.batch_size, model_wrap.seq_len, model_wrap.vae_latent_dim))
-
     def save_models():
         # logging.set_verbosity(50)  # Avoid warinings when saving
         model_wrap.disc_model.save(config.save_path + '_disc_weights.hdf5')
@@ -174,7 +168,7 @@ if __name__ == "__main__":
             disc_losses = model_wrap.disc_eval(disc_inputs + gen_inputs + place_holders)
             gen_losses = model_wrap.gen_eval(gen_inputs + place_holders)
             if config.use_pose_fae:
-                vae_z = gen_losses.pop('vae_z', None)
+                fae_z = gen_losses.pop('fae_z', None)
             gen_outputs = gen_losses.pop('gen_outputs', None)
 
             logs = disc_losses.copy()
@@ -203,13 +197,13 @@ if __name__ == "__main__":
 
                     if config.use_pose_fae:
                         jpg_name = '%s_mask_tmp.jpg' % config.save_path
-                        plot_emb(vae_z[i, ...], jpg_name)
+                        plot_emb(fae_z[i, ...], jpg_name)
 
                     with open(jpg_name, 'rb') as f:
                         encoded_image_string = f.read()
 
-                    logs['custom_img_emb_%d' % i] = {'height': int(vae_z.shape[1]),
-                                                     'width': int(vae_z.shape[2]),
+                    logs['custom_img_emb_%d' % i] = {'height': int(fae_z.shape[1]),
+                                                     'width': int(fae_z.shape[2]),
                                                      'enc_string': encoded_image_string}
 
             tensorboard.on_epoch_end(epoch, logs)

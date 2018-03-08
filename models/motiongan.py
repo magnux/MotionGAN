@@ -77,11 +77,11 @@ class _MotionGAN(object):
         self.time_pres_emb = config.time_pres_emb
         self.unfold = config.unfold
         self.use_pose_fae = config.use_pose_fae
-        # self.vae_scale = 0.1
-        self.vae_original_dim = self.njoints * 3
-        self.vae_intermediate_dim = self.vae_original_dim // 2
+        # self.fae_scale = 0.1
+        self.fae_original_dim = self.njoints * 3
+        self.fae_intermediate_dim = self.fae_original_dim // 2
         # We are only expecting half of the latent features to be activated
-        self.vae_latent_dim = self.vae_original_dim // 4
+        self.fae_latent_dim = self.fae_original_dim // 4
         # self.z_dim = config.z_dim
         self.frame_scale = 1.0
         self.use_shifting = config.use_shifting
@@ -149,7 +149,7 @@ class _MotionGAN(object):
                                       gen_training_updates)
         gen_f_outs = self.gen_losses.values()
         if self.use_pose_fae:
-            gen_f_outs.append(self.vae_z)
+            gen_f_outs.append(self.fae_z)
         gen_f_outs += self.gen_outputs
         self.gen_eval_f = K.function(self.gen_inputs + self.place_holders, gen_f_outs)
         self.gen_model = self._pseudo_build_model(self.gen_model, gen_optimizer)
@@ -185,7 +185,7 @@ class _MotionGAN(object):
         keys = self.gen_losses.keys()
         keys = ['val/%s' % key for key in keys]
         if self.use_pose_fae:
-            keys.append('vae_z')
+            keys.append('fae_z')
         keys.append('gen_outputs')
         losses_dict = OrderedDict(zip(keys, eval_outs))
         return losses_dict
@@ -252,8 +252,8 @@ class _MotionGAN(object):
         gen_losses['gen_loss_rec_edm'] = 10.0  * self.rec_scale * K.mean(loss_rec_edm)
 
         if self.use_pose_fae:
-            # vae_loss_rec = K.sum(K.mean(K.square(self.vae_z - self.vae_gen_z) * K.min(seq_mask, axis=1), axis=-1), axis=1)
-            # gen_losses['vae_loss_rec'] = self.vae_scale * K.mean(vae_loss_rec)
+            # fae_loss_rec = K.sum(K.mean(K.square(self.fae_z - self.fae_gen_z) * K.min(seq_mask, axis=1), axis=-1), axis=1)
+            # gen_losses['fae_loss_rec'] = self.fae_scale * K.mean(fae_loss_rec)
             frame_loss_real = K.sum(K.squeeze(_get_tensor(self.real_outputs, 'frame_score_out'), axis=-1) * zero_frames, axis=1)
             frame_loss_fake = K.sum(K.squeeze(_get_tensor(self.fake_outputs, 'frame_score_out'), axis=-1) * zero_frames, axis=1)
             wgan_losses['frame_loss_real'] = K.mean(frame_loss_real)
@@ -351,22 +351,22 @@ class _MotionGAN(object):
             h = Permute((2, 1, 3), name='discriminator/pose_fae/perm_in')(gen_seq)
             h = Reshape((self.seq_len, self.njoints * 3), name='discriminator/pose_fae/resh_in')(h)
 
-            h = Conv1D(self.vae_intermediate_dim, 1, 1,
+            h = Conv1D(self.fae_intermediate_dim, 1, 1,
                        name='discriminator/pose_fae/enc_in', **CONV1D_ARGS)(h)
             for i in range(3):
-                pi = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
                             name='discriminator/pose_fae/enc_%d_0' % i, **CONV1D_ARGS)(h)
-                pi = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
                             name='discriminator/pose_fae/enc_%d_1' % i, **CONV1D_ARGS)(pi)
-                tau = Conv1D(self.vae_intermediate_dim, 1, 1, activation='sigmoid',
+                tau = Conv1D(self.fae_intermediate_dim, 1, 1, activation='sigmoid',
                              name='discriminator/pose_fae/enc_%d_tau' % i, **CONV1D_ARGS)(h)
                 h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                            name='discriminator/pose_fae/enc_%d_attention' % i)([h, pi, tau])
 
-            z = Conv1D(self.vae_latent_dim, 1, 1, name='discriminator/pose_fae/z_mean', **CONV1D_ARGS)(h)
-            z_attention = Conv1D(self.vae_latent_dim, 1, 1, activation='sigmoid',
+            z = Conv1D(self.fae_latent_dim, 1, 1, name='discriminator/pose_fae/z_mean', **CONV1D_ARGS)(h)
+            z_attention = Conv1D(self.fae_latent_dim, 1, 1, activation='sigmoid',
                                  name='discriminator/pose_fae/z_attention', **CONV1D_ARGS)(h)
-            z = Multiply(name='discriminator/pose_fae/vae_attention')([z, z_attention])
+            z = Multiply(name='discriminator/pose_fae/fae_attention')([z, z_attention])
 
             frame_score_out = Conv1D(1, 1, 1, name='discriminator/frame_score_out', **CONV1D_ARGS)(z)
             output_tensors.append(frame_score_out)
@@ -389,27 +389,27 @@ class _MotionGAN(object):
             x = Permute((2, 1, 3), name='pose_fae/perm_in')(x)
             x = Reshape((self.seq_len, self.njoints * 3), name='pose_fae/resh_in')(x)
 
-            h = Conv1D(self.vae_intermediate_dim, 1, 1,
+            h = Conv1D(self.fae_intermediate_dim, 1, 1,
                        name='pose_fae/enc_in', **CONV1D_ARGS)(x)
             self.enc_layers = []
             for i in range(3):
-                pi = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
                             name='pose_fae/enc_%d_0' % i, **CONV1D_ARGS)(h)
-                pi = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
                             name='pose_fae/enc_%d_1' % i, **CONV1D_ARGS)(pi)
-                tau = Conv1D(self.vae_intermediate_dim, 1, 1, activation='sigmoid',
+                tau = Conv1D(self.fae_intermediate_dim, 1, 1, activation='sigmoid',
                              name='pose_fae/enc_%d_tau' % i, **CONV1D_ARGS)(h)
                 h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                            name='pose_fae/enc_%d_attention' % i)([h, pi, tau])
                 self.enc_layers.append(h)
 
-            z = Conv1D(self.vae_latent_dim, 1, 1, name='pose_fae/z_mean', **CONV1D_ARGS)(h)
-            z_attention = Conv1D(self.vae_latent_dim, 1, 1, activation='sigmoid',
+            z = Conv1D(self.fae_latent_dim, 1, 1, name='pose_fae/z_mean', **CONV1D_ARGS)(h)
+            z_attention = Conv1D(self.fae_latent_dim, 1, 1, activation='sigmoid',
                                  name='pose_fae/z_attention', **CONV1D_ARGS)(h)
-            z = Multiply(name='pose_fae/vae_attention')([z, z_attention])
+            z = Multiply(name='pose_fae/fae_attention')([z, z_attention])
             
-            self.vae_z = z
-            x = Reshape((self.seq_len, self.vae_latent_dim, 1), name='generator/gen_reshape_in')(self.vae_z)
+            self.fae_z = z
+            x = Reshape((self.seq_len, self.fae_latent_dim, 1), name='generator/gen_reshape_in')(self.fae_z)
 
             self.nblocks = 4
 
@@ -446,29 +446,29 @@ class _MotionGAN(object):
 
         if self.use_pose_fae:
             x = Conv2D(1, 3, 1, name='generator/vae_merge', **CONV2D_ARGS)(x)
-            self.vae_gen_z = Reshape((self.seq_len, self.vae_latent_dim), name='generator/vae_reshape')(x)
+            self.fae_gen_z = Reshape((self.seq_len, self.fae_latent_dim), name='generator/fae_reshape')(x)
 
-            dec_h = Conv1D(self.vae_intermediate_dim, 1, 1,
-                           name='pose_fae/dec_in', **CONV1D_ARGS)(self.vae_gen_z)
+            dec_h = Conv1D(self.fae_intermediate_dim, 1, 1,
+                           name='pose_fae/dec_in', **CONV1D_ARGS)(self.fae_gen_z)
             for i in range(3):
                 pi = Concatenate(name='pose_fae/dec_%d_skip_cat' % i, axis=-1)([dec_h, self.enc_layers[2 - i]])
-                pi = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
                             name='pose_fae/dec_%d_0' % i, **CONV1D_ARGS)(pi)
-                pi = Conv1D(self.vae_intermediate_dim, 1, 1, activation='relu',
+                pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
                             name='pose_fae/dec_%d_1' % i, **CONV1D_ARGS)(pi)
-                tau = Conv1D(self.vae_intermediate_dim, 1, 1, activation='sigmoid',
+                tau = Conv1D(self.fae_intermediate_dim, 1, 1, activation='sigmoid',
                              name='pose_fae/dec_%d_tau' % i, **CONV1D_ARGS)(dec_h)
                 dec_h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                                name='pose_fae/dec_%d_attention' % i)([dec_h, pi, tau])
 
-            dec_x = Conv1D(self.vae_original_dim, 1, 1, name='pose_fae/dec_out', **CONV1D_ARGS)(dec_h)
+            dec_x = Conv1D(self.fae_original_dim, 1, 1, name='pose_fae/dec_out', **CONV1D_ARGS)(dec_h)
 
             dec_x = Reshape((self.seq_len, self.njoints, 3), name='pose_fae/resh_out')(dec_x)
             dec_x = Permute((2, 1, 3), name='pose_fae/perm_out')(dec_x)
 
-            vae_gen_x = dec_x
+            fae_gen_x = dec_x
 
-            x = Reshape((self.seq_len, self.njoints, 3), name='generator/coords_reshape')(vae_gen_x)
+            x = Reshape((self.seq_len, self.njoints, 3), name='generator/coords_reshape')(fae_gen_x)
             x = Permute((2, 1, 3), name='generator/coords_permute')(x)  # joints, time, coords
         else:
             x = Permute((3, 2, 1), name='generator/joint_permute')(x)  # filters, time, joints

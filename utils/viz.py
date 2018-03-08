@@ -236,7 +236,6 @@ def plot_mult_gif(seqs, labs, data_set, save_path=None):
     while n_seqs % n_rows != 0:
         n_rows -= 1
     n_cols = np.int(n_seqs / n_rows)
-    # Note some seqs will not be displayed by rounding
     n_seqs = n_rows * n_cols
 
     my_dpi = 60

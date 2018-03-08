@@ -33,4 +33,4 @@ if __name__ == "__main__":
         for i in range(n_splits):
             plot_mult_gif(poses_batch[i * n_seqs:(i + 1) * n_seqs, ...],
                           labs_batch[i * n_seqs:(i + 1) * n_seqs, ...],
-                          config.data_set, 'save/%s_viz_%d%d.gif' % (config.data_set, b, i))
+                          config.data_set, 'save/viz_%s_%d_%d.gif' % (config.data_set, b, i))

@@ -232,7 +232,9 @@ def plot_mult_gif(seqs, labs, data_set, save_path=None):
     import matplotlib.pyplot as plt
 
     n_seqs = seqs.shape[0]
-    n_rows = np.int(np.sqrt(n_seqs) * 9 / 16)
+    n_rows = np.int(np.ceil(np.sqrt(n_seqs) * 9 / 16))
+    while n_seqs % n_rows != 0:
+        n_rows -= 1
     n_cols = np.int(n_seqs / n_rows)
     # Note some seqs will not be displayed by rounding
     n_seqs = n_rows * n_cols

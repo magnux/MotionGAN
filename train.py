@@ -60,6 +60,8 @@ if __name__ == "__main__":
                               write_graph=True)
     tensorboard.set_model(model_wrap.gan_model)
 
+    mask_modes = ['No mask', 'Future Prediction', 'Oclusion Simulation', 'Noisy Transmission']
+
     def gen_mask(mask_type=0, keep_prob=1.0):
         # Default mask, no mask
         mask = np.ones(shape=(config.batch_size, config.njoints, model_wrap.seq_len, 1))
@@ -160,7 +162,9 @@ if __name__ == "__main__":
 
             labs_batch, poses_batch = val_generator.next()
             disc_inputs = [poses_batch]
-            gen_inputs = [poses_batch, gen_mask(1, keep_prob)]
+            mask_mode = np.random.randint(4)
+            mask_batch = gen_mask(mask_mode, 0.5)
+            gen_inputs = [poses_batch, mask_batch]
             place_holders = []
             if config.action_cond:
                 place_holders.append(labs_batch[:, 2])
@@ -186,7 +190,9 @@ if __name__ == "__main__":
                     gif_height, gif_width = plot_gif(poses_batch[i, ...],
                                                      gen_outputs[i, ...],
                                                      labs_batch[i, ...],
-                                                     config.data_set, gif_name)
+                                                     config.data_set, gif_name,
+                                                     extra_text='mask mode: %s' % mask_modes[mask_mode],
+                                                     seq_mask=mask_batch[i, ...])
 
                     with open(gif_name, 'rb') as f:
                         encoded_image_string = f.read()

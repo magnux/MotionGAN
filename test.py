@@ -49,6 +49,7 @@ if __name__ == "__main__":
     model_wrap.gen_model = restore_keras_model(
         model_wrap.gen_model, config.save_path + '_gen_weights.hdf5', False)
 
+    mask_modes = ['No mask', 'Future Prediction', 'Oclusion Simulation', 'Noisy Transmission']
 
     def gen_mask(mask_type=0, keep_prob=1.0):
         # Default mask, no mask
@@ -66,7 +67,7 @@ if __name__ == "__main__":
     # Q = idct(np.eye(10))[:3, :]
     # Q_inv = pinv(Q)
     # Qs = np.matmul(Q_inv, Q)
-    mask_modes = ['No mask', 'Future Prediction', 'Oclusion Simulation', 'Noisy Transmission']
+
     while True:
         labs_batch, poses_batch = val_generator.next()
 

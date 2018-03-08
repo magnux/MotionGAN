@@ -81,7 +81,7 @@ class Ax3DPose(object):
         self.plots_mask = []
         for j in range(self.njoints):
             self.plots_mask.append(
-                self.ax.plot([0], [0], [0], lw=2, c='black', markersize=12, marker='o', linestyle='dashed', visible=False))
+                self.ax.plot([0], [0], [0], lw=2, c='black', markersize=8, marker='o', linestyle='dashed', visible=False))
 
         self.ax.set_xlabel("x")
         self.ax.set_ylabel("y")
@@ -119,10 +119,12 @@ class Ax3DPose(object):
         if mask is not None:
             for j in range(self.njoints):
                 if mask[j] == 0:
-                    self.plots_mask[j].set_visible(True)
-                self.plots_mask[j].set_xdata(vals[j, 0])
-                self.plots_mask[j].set_ydata(vals[j, 1])
-                self.plots_mask[j].set_3d_properties(vals[j, 2])
+                    self.plots_mask[j][0].set_visible(True)
+                else:
+                    self.plots_mask[j][0].set_visible(False)
+                self.plots_mask[j][0].set_xdata(vals[j, 0])
+                self.plots_mask[j][0].set_ydata(vals[j, 1])
+                self.plots_mask[j][0].set_3d_properties(vals[j, 2])
 
         if not self.axes_set:
             r = 1  # 500;

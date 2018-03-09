@@ -432,7 +432,7 @@ class _MotionGAN(object):
 
     def _pose_encoder(self, seq, net_name):
         h = Permute((2, 1, 3), name='%s/encoder/perm_in' % net_name)(seq)
-        h = Reshape((self.seq_len, seq.shape[1] * seq.shape[3]), name='%s/encoder/resh_in' % net_name)(h)
+        h = Reshape((self.seq_len, int(seq.shape[1] * seq.shape[3])), name='%s/encoder/resh_in' % net_name)(h)
 
         h = Conv1D(self.fae_intermediate_dim, 1, 1,
                    name='%s/encoder/conv_in' % net_name, **CONV1D_ARGS)(h)

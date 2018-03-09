@@ -677,4 +677,54 @@ class MotionGANV4(_MotionGAN):
         return x
 
     def generator(self, x):
-        return MotionGANV2.generator(self, x)
+        n_hidden = 32
+        block_factors = range(1, self.nblocks + 1)
+        block_strides = [2] * self.nblocks
+
+        if not (self.time_pres_emb or self.use_pose_fae):
+            for i in range(2):
+                if i > 0:
+                    x = InstanceNormalization(axis=-1, name='generator/dense_block%d/bn' % i)(x)
+                    x = Activation('relu', name='generator/dense_block%d/relu' % i)(x)
+                x = Dense(n_hidden * 4, name='generator/dense_block%d/dense' % i)(x)
+
+            x = InstanceNormalization(axis=-1, name='generator/inorm_conv_in')(x)
+            x = Activation('relu', name='generator/relu_conv_in')(x)
+            x = Dense(4 * 4 * n_hidden * block_factors[0], name='generator/dense_conv_in')(x)
+            x = Reshape((4, 4, n_hidden * block_factors[0]), name='generator/reshape_conv_in')(x)
+
+        for i, factor in enumerate(block_factors):
+            n_filters = n_hidden * factor
+            strides = block_strides[i]
+            if self.time_pres_emb:
+                strides = (block_strides[i], 1)
+            elif self.use_pose_fae:
+                strides = 1
+            shortcut = Conv2DTranspose(n_filters, strides, strides,
+                                       name='generator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
+            pi = x
+            if self.use_shifting:
+                def _seq_shift(args):
+                    return K.concatenate(
+                        [K.zeros((args.shape[0], 1, args.shape[2], args.shape[3])),
+                         args[:, :-1, :, :]], axis=1)
+
+                pi = Lambda(_seq_shift, name='generator/block_%d/shift' % i)(pi)
+                pi = Concatenate(axis=-1, name='generator/block_%d/pi_cat' % i)([x, pi])
+
+            pi = _conv_block(pi, n_filters, 1, 3, strides, i, 0, 'generator', Conv2DTranspose)
+
+            gamma = _conv_block(x, n_filters, 4, 3, strides, i, 1, 'generator', Conv2DTranspose)
+            gamma = Activation('sigmoid', name='generator/block_%d/gamma_sigmoid' % i)(gamma)
+
+            # tau = 1 - gamma
+            tau = Lambda(lambda arg: 1 - arg, name='generator/block_%d/tau' % i)(gamma)
+
+            # x = (pi * tau) + (shortcut * gamma)
+            x = Lambda(lambda args: (args[0] * args[1]) + (args[2] * args[3]),
+                       name='generator/block_%d/out_x' % i)([pi, tau, shortcut, gamma])
+
+        x = InstanceNormalization(axis=-1, name='generator/inorm_out')(x)
+        x = Activation('relu', name='generator/relu_out')(x)
+
+        return x

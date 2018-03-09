@@ -21,9 +21,9 @@
     # Latent factor conditional model, size (0 means no condition)
     'latent_cond_dim': 0,
     # Motion coherence loss
-    'coherence_loss': True,
-    # Total displacement loss
-    'displacement_loss': False,
+    # 'coherence_loss': True,
+    # # Total displacement loss
+    # 'displacement_loss': False,
     # Body shape conservation loss
     'shape_loss': True,
     # Sequence smoothing loss

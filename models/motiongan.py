@@ -67,10 +67,10 @@ class _MotionGAN(object):
         self.latent_cond_dim = config.latent_cond_dim
         self.latent_scale_d = 1.0
         self.latent_scale_g = 1.0
-        self.coherence_loss = config.coherence_loss
-        self.coherence_scale = 1.0
-        self.displacement_loss = config.displacement_loss
-        self.displacement_scale = 0.1
+        # self.coherence_loss = config.coherence_loss
+        # self.coherence_scale = 1.0
+        # self.displacement_loss = config.displacement_loss
+        # self.displacement_scale = 0.1
         self.shape_loss = config.shape_loss
         self.shape_scale = 10.0
         self.smoothing_loss = config.smoothing_loss
@@ -248,10 +248,10 @@ class _MotionGAN(object):
             gen_losses['gen_loss_reg'] = gen_loss_reg
 
         # Reconstruction loss
-        loss_rec = K.sum(K.sum(K.mean(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1), axis=1) * zero_frames, axis=1)
+        loss_rec = K.sum(K.sum(K.mean(K.square(real_seq - gen_seq), axis=-1), axis=1) * zero_frames, axis=1)
         gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
-        loss_rec_edm = K.sum(K.mean(K.square(_edm(real_seq * seq_mask) - _edm(gen_seq * seq_mask)) * zero_frames_edm, axis=(1, 2)), axis=1)
-        gen_losses['gen_loss_rec_edm'] = 10.0  * self.rec_scale * K.mean(loss_rec_edm)
+        loss_rec_edm = K.sum(K.mean(K.square(_edm(real_seq) - _edm(gen_seq)) * zero_frames_edm, axis=(1, 2)), axis=1)
+        gen_losses['gen_loss_rec_edm'] = 10.0 * self.rec_scale * K.mean(loss_rec_edm)
 
         if self.use_pose_fae:
             # fae_loss_rec = K.sum(K.mean(K.square(self.fae_z - self.fae_gen_z) * K.min(seq_mask, axis=1), axis=-1), axis=1)
@@ -289,16 +289,16 @@ class _MotionGAN(object):
                                           - _get_tensor(self.gen_inputs, 'latent_cond_input')))
             disc_losses['disc_loss_latent'] = self.latent_scale_d * loss_latent
             gen_losses['gen_loss_latent'] = self.latent_scale_g * loss_latent
-        if self.coherence_loss:
-            exp_decay = 1.0 / np.exp(np.linspace(0.0, 2.0, self.seq_len, dtype='float32'))
-            exp_decay = np.reshape(exp_decay, (1, 1, 1, self.seq_len))
-            loss_coh = K.sum(K.mean(K.square(_edm(real_seq) - _edm(gen_seq)) * zero_frames_edm * exp_decay, axis=-1), axis=(1, 2))
-            gen_losses['gen_loss_coh'] = self.coherence_scale * K.mean(loss_coh)
-        if self.displacement_loss:
-            gen_seq_l = gen_seq[:, :, :-1, :]
-            gen_seq_r = gen_seq[:, :, 1:, :]
-            loss_disp = K.sum(K.mean(K.square(gen_seq_l - gen_seq_r), axis=-1), axis=(1, 2))
-            gen_losses['gen_loss_disp'] = self.displacement_scale * K.mean(loss_disp)
+        # if self.coherence_loss:
+        #     exp_decay = 1.0 / np.exp(np.linspace(0.0, 2.0, self.seq_len, dtype='float32'))
+        #     exp_decay = np.reshape(exp_decay, (1, 1, 1, self.seq_len))
+        #     loss_coh = K.sum(K.mean(K.square(_edm(real_seq) - _edm(gen_seq)) * zero_frames_edm * exp_decay, axis=-1), axis=(1, 2))
+        #     gen_losses['gen_loss_coh'] = self.coherence_scale * K.mean(loss_coh)
+        # if self.displacement_loss:
+        #     gen_seq_l = gen_seq[:, :, :-1, :]
+        #     gen_seq_r = gen_seq[:, :, 1:, :]
+        #     loss_disp = K.sum(K.mean(K.square(gen_seq_l - gen_seq_r), axis=-1), axis=(1, 2))
+        #     gen_losses['gen_loss_disp'] = self.displacement_scale * K.mean(loss_disp)
         if self.shape_loss:
             mask = np.ones((self.njoints, self.njoints), dtype='float32')
             mask = np.triu(mask, 1) - np.triu(mask, 2)

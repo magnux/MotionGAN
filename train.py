@@ -99,7 +99,7 @@ if __name__ == "__main__":
             t.set_description('| ep: %d | lr: %.2e |' % (epoch, learning_rate))
             disc_loss_sum = 0.0
             gen_loss_sum = 0.0
-            keep_prob = 0.9 - (0.4 * epoch / config.num_epochs)
+            keep_prob = 0.5 - (0.4 * epoch / config.num_epochs)
             for batch in t:
                 tensorboard.on_batch_begin(batch)
 

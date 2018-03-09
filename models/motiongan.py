@@ -79,17 +79,11 @@ class _MotionGAN(object):
         self.time_pres_emb = config.time_pres_emb
         self.unfold = config.unfold
         self.use_pose_fae = config.use_pose_fae
-        # self.fae_scale = 0.1
         self.fae_original_dim = self.njoints * 3
         self.fae_intermediate_dim = self.fae_original_dim // 2
-        # We are only expecting half of the latent features to be activated
         self.fae_latent_dim = self.fae_original_dim // 4
-        # self.z_dim = config.z_dim
         self.frame_scale = 1.0
         self.use_shifting = config.use_shifting
-
-        # if self.use_pose_fae:
-        #     self._load_pose_fae(config)
 
         # Placeholders for training phase
         self.place_holders = []
@@ -436,7 +430,6 @@ class _MotionGAN(object):
 
         h = Conv1D(self.fae_intermediate_dim, 1, 1,
                    name='%s/encoder/conv_in' % net_name, **CONV1D_ARGS)(h)
-        # self.enc_layers = []
         for i in range(3):
             pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
                         name='%s/encoder/block_%d/pi_0' % (net_name, i), **CONV1D_ARGS)(h)
@@ -446,11 +439,12 @@ class _MotionGAN(object):
                          name='%s/encoder/block_%d/tau_0' % (net_name, i), **CONV1D_ARGS)(h)
             h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                        name='%s/encoder/block_%d/attention' % (net_name, i))([h, pi, tau])
-            # self.enc_layers.append(h)
 
         z = Conv1D(self.fae_latent_dim, 1, 1, name='%s/encoder/z_mean' % net_name, **CONV1D_ARGS)(h)
         z_attention = Conv1D(self.fae_latent_dim, 1, 1, activation='sigmoid',
                              name='%s/encoder/attention_mask' % net_name, **CONV1D_ARGS)(h)
+
+        # We are only expecting half of the latent features to be activated
         z = Multiply(name='%s/encoder/z_attention' % net_name)([z, z_attention])
 
         return z
@@ -460,10 +454,8 @@ class _MotionGAN(object):
         dec_h = Conv1D(self.fae_intermediate_dim, 1, 1,
                        name='%s/decoder/conv_in' % net_name, **CONV1D_ARGS)(gen_z)
         for i in range(3):
-            # pi = Concatenate(name='%s/decoder/block_%d_skip_cat' % i, axis=-1)([dec_h, self.enc_layers[2 - i]])
-            pi = dec_h
             pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
-                        name='%s/decoder/block_%d/pi_0' % (net_name, i), **CONV1D_ARGS)(pi)
+                        name='%s/decoder/block_%d/pi_0' % (net_name, i), **CONV1D_ARGS)(dec_h)
             pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
                         name='%s/decoder/block_%d/pi_1' % (net_name, i), **CONV1D_ARGS)(pi)
             tau = Conv1D(self.fae_intermediate_dim, 1, 1, activation='sigmoid',
@@ -566,9 +558,6 @@ class MotionGANV2(_MotionGAN):
         block_factors = range(1, self.nblocks + 1)
         block_strides = [2] * self.nblocks
 
-        # For condition injecting
-        # z = x
-
         if not (self.time_pres_emb or self.use_pose_fae):
             for i in range(2):
                 if i > 0:
@@ -590,7 +579,6 @@ class MotionGANV2(_MotionGAN):
                 strides = 1
             shortcut = Conv2DTranspose(n_filters, strides, strides,
                                        name='generator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
-
             pi = x
             if self.use_shifting:
                 def _seq_shift(args):
@@ -602,16 +590,6 @@ class MotionGANV2(_MotionGAN):
                 pi = Concatenate(axis=-1, name='generator/block_%d/pi_cat' % i)([x, pi])
 
             pi = _conv_block(pi, n_filters, 1, 3, strides, i, 0, 'generator', Conv2DTranspose)
-
-            # For condition injecting
-            # squeeze_kernel = (x.shape[1], x.shape[2])
-            # gamma = _conv_block(x, n_filters, 8, squeeze_kernel, squeeze_kernel, i, 1, 'generator')
-            # gamma = Flatten(name='generator/block_%d/gamma_flatten' % i)(gamma)
-            # gamma = Concatenate(name='generator/block_%d/cond_concat' % i)([gamma, z])
-            # gamma = InstanceNormalization(axis=-1, name='generator/block_%d/cond_bn' % i)(gamma)
-            # gamma = Activation('relu', name='generator/block_%d/cond_relu' % i)(gamma)
-            # gamma = Dense(n_filters, name='generator/block_%d/cond_dense' % i)(gamma)
-            # gamma = Reshape((1, 1, n_filters), name='generator/block_%d/gamma_reshape' % i)(gamma)
 
             gamma = _conv_block(x, n_filters, 4, 3, strides, i, 1, 'generator', Conv2DTranspose)
             gamma = Activation('sigmoid', name='generator/block_%d/gamma_sigmoid' % i)(gamma)

@@ -36,8 +36,6 @@
     'use_pose_fae': False,
     # Concatenate shifted sequence in the generator (Only model v2)
     'use_shifting': False,
-    # Size of the noise vector
-    # 'z_dim': 64,
 
     ## Training Options
     # It's the batch size

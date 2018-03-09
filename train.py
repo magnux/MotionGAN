@@ -155,7 +155,7 @@ if __name__ == "__main__":
 
             labs_batch, poses_batch = val_generator.next()
             disc_inputs = [poses_batch]
-            mask_mode = np.random.randint(4)
+            mask_mode = 1  # np.random.randint(4)
             mask_batch = gen_mask(mask_mode, 0.5)
             gen_inputs = [poses_batch, mask_batch]
             place_holders = []

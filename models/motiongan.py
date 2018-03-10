@@ -618,11 +618,11 @@ class MotionGANV3(_MotionGAN):
             x = Add(name='generator/block_%d/add' % i)([x, pi])
 
         if self.use_pose_fae:
-            x = Dense((self.unfolded_joints * self.seq_len * 3), name='generator/dense_out', activation='relu')(x)
-            x = Reshape((self.unfolded_joints, self.seq_len, 3), name='generator/reshape_out')(x)
-        else:
             x = Dense((self.seq_len * self.fae_latent_dim), name='generator/dense_out', activation='relu')(x)
             x = Reshape((self.seq_len, self.fae_latent_dim, 1), name='generator/reshape_out')(x)
+        else:
+            x = Dense((self.unfolded_joints * self.seq_len * 3), name='generator/dense_out', activation='relu')(x)
+            x = Reshape((self.unfolded_joints, self.seq_len, 3), name='generator/reshape_out')(x)
 
         return x
 

@@ -594,29 +594,35 @@ class MotionGANV3(_MotionGAN):
     # Simple dense ResNet
 
     def discriminator(self, x):
+        n_hidden = 512
 
         x = Reshape((self.njoints * self.seq_len * 3, ), name='discriminator/reshape_in')(x)
-        x = Dense(1024, name='discriminator/block_0/dense_0', activation='relu')(x)
+        x = Dense(n_hidden, name='discriminator/block_0/dense_0', activation='relu')(x)
         for i in range(1, 5):
-            pi = Dense(1024, name='discriminator/block_%d/dense_0' % i, activation='relu')(x)
-            pi = Dense(1024, name='discriminator/block_%d/dense_1' % i, activation='relu')(pi)
+            pi = Dense(n_hidden, name='discriminator/block_%d/dense_0' % i, activation='relu')(x)
+            pi = Dense(n_hidden, name='discriminator/block_%d/dense_1' % i, activation='relu')(pi)
 
             x = Add(name='discriminator/block_%d/add' % i)([x, pi])
 
         return x
 
     def generator(self, x):
+        n_hidden = 512
 
         x = Flatten(name='generator/flatten_in')(x)
-        x = _preact_dense(x, 1024, 0, 0)
+        x = _preact_dense(x, n_hidden, 0, 0)
         for i in range(1, 5):
-            pi = _preact_dense(x, 1024, i, 0)
-            pi = _preact_dense(pi, 1024, i, 1)
+            pi = _preact_dense(x, n_hidden, i, 0)
+            pi = _preact_dense(pi, n_hidden, i, 1)
 
             x = Add(name='generator/block_%d/add' % i)([x, pi])
 
-        x = Dense((self.unfolded_joints * self.seq_len * 3), name='generator/dense_out', activation='relu')(x)
-        x = Reshape((self.unfolded_joints, self.seq_len, 3), name='generator/reshape_out')(x)
+        if self.use_pose_fae:
+            x = Dense((self.unfolded_joints * self.seq_len * 3), name='generator/dense_out', activation='relu')(x)
+            x = Reshape((self.unfolded_joints, self.seq_len, 3), name='generator/reshape_out')(x)
+        else:
+            x = Dense((self.seq_len * self.fae_latent_dim), name='generator/dense_out', activation='relu')(x)
+            x = Reshape((self.seq_len, self.fae_latent_dim, 1), name='generator/reshape_out')(x)
 
         return x
 

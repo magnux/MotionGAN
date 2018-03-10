@@ -2,11 +2,83 @@ from __future__ import absolute_import, division, print_function
 
 """Functions to visualize human poses"""
 import numpy as np
-import h5py
-import os
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.animation import FuncAnimation
 from PIL import Image
+
+
+NTU_BODY_MEMBERS = {
+    'left_arm': {'joints': [20, 8, 9, 10, 11], 'side': 'left'},
+    # [21, 9, 10, 11, 12, 24, 25]
+    'right_arm': {'joints': [20, 4, 5, 6, 7], 'side': 'right'},
+    # [21, 5, 6, 7, 8, 22, 23]
+    'head': {'joints': [20, 2, 3], 'side': 'right'},
+    'torso': {'joints': [20, 1, 0], 'side': 'right'},
+    'left_leg': {'joints': [0, 16, 17, 18, 19], 'side': 'left'},
+    'right_leg': {'joints': [0, 12, 13, 14, 15], 'side': 'right'},
+}
+NTU_NJOINTS = 25
+NTU_ACTIONS = ["drink water", "eat meal/snack", "brushing teeth",
+               "brushing hair", "drop", "pickup", "throw", "sitting down",
+               "standing up (from sitting position)", "clapping", "reading",
+               "writing", "tear up paper", "wear jacket", "take off jacket",
+               "wear a shoe", "take off a shoe", "wear on glasses",
+               "take off glasses", "put on a hat/cap", "take off a hat/cap",
+               "cheer up", "hand waving", "kicking something",
+               "put something inside pocket / take out something from pocket",
+               "hopping (one foot jumping)", "jump up",
+               "make a phone call/answer phone", "playing with phone/tablet",
+               "typing on a keyboard", "pointing to something with finger",
+               "taking a selfie", "check time (from watch)",
+               "rub two hands together", "nod head/bow", "shake head",
+               "wipe face", "salute", "put the palms together",
+               "cross hands in front (say stop)", "sneeze/cough", "staggering",
+               "falling", "touch head (headache)",
+               "touch chest (stomachache/heart pain)", "touch back (backache)",
+               "touch neck (neckache)", "nausea or vomiting condition",
+               "use a fan (with hand or paper)/feeling warm",
+               "punching/slapping other person", "kicking other person",
+               "pushing other person", "pat on back of other person",
+               "point finger at the other person", "hugging other person",
+               "giving something to other person",
+               "touch other person's pocket", "handshaking",
+               "walking towards each other", "walking apart from each other"]
+
+MSRC_BODY_MEMBERS = {
+    'left_arm': {'joints': [2, 4, 5, 6, 7], 'side': 'left'},
+    'right_arm': {'joints': [2, 8, 9, 10, 11], 'side': 'right'},
+    'head': {'joints': [1, 2, 3], 'side': 'right'},
+    'torso': {'joints': [1, 0], 'side': 'right'},
+    'left_leg': {'joints': [0, 12, 13, 14, 15], 'side': 'left'},
+    'right_leg': {'joints': [0, 16, 17, 18, 19], 'side': 'right'},
+}
+MSRC_NJOINTS = 20
+MSRC_ACTIONS = ["Start system", "Duck", "Push right",
+                "Googles", "Wind it up", "Shoot",
+                "Bow", "Throw", "Had enough",
+                "Change weapon", "Beat both", "Kick"]
+
+H36_BODY_MEMBERS = {
+    'left_arm': {'joints': [16, 17, 18, 19, 20, 21, 20, 19, 22, 23, 22, 19, 18, 17, 16, 12], 'side': 'left'},
+    'right_arm': {'joints': [24, 25, 26, 27, 28, 29, 28, 27, 30, 31, 30, 27, 26, 25, 24, 12], 'side': 'right'},
+    'head': {'joints': [13, 14, 15, 14, 13, 12], 'side': 'right'},
+    'torso': {'joints': [0, 11, 12], 'side': 'right'},
+    'left_leg': {'joints': [0, 6, 7, 8, 9, 10, 9, 8, 7, 6], 'side': 'left'},
+    'right_leg': {'joints': [0, 1, 2, 3, 4, 5, 4, 3, 2, 1], 'side': 'right'},
+}
+H36_NJOINTS = 32
+
+OPENPOSE_BODY_MEMBERS = {
+    'left_arm': {'joints': [2, 3, 4, 3, 2], 'side': 'left'},
+    'right_arm': {'joints': [5, 6, 7, 6, 5], 'side': 'right'},
+    'head': {'joints': [1, 0, 1], 'side': 'right'},
+    # 'ext_head': {'joints': [14, 15, 16, 17, 16, 15, 14], 'side': 'right'},
+    'ears': {'joints': [14, 0, 15], 'side': 'right'},
+    'torso': {'joints': [2, 1, 5, 1, 8, 1, 11], 'side': 'right'},
+    'left_leg': {'joints': [8, 9, 10, 9, 8], 'side': 'left'},
+    'right_leg': {'joints': [11, 12, 13, 12, 11], 'side': 'right'},
+}
+OPENPOSE_NJOINTS = 16
 
 
 class Ax3DPose(object):
@@ -21,51 +93,11 @@ class Ax3DPose(object):
         """
 
         if data_set == "NTURGBD":
-            self.body_members = {
-                'left_arm': {'joints': [20, 8, 9, 10, 11], 'side': 'left'},
-                # [21, 9, 10, 11, 12, 24, 25]
-                'right_arm': {'joints': [20, 4, 5, 6, 7], 'side': 'right'},
-                # [21, 5, 6, 7, 8, 22, 23]
-                'head': {'joints': [20, 2, 3], 'side': 'right'},
-                'torso': {'joints': [20, 1, 0], 'side': 'right'},
-                'left_leg': {'joints': [0, 16, 17, 18, 19], 'side': 'left'},
-                'right_leg': {'joints': [0, 12, 13, 14, 15], 'side': 'right'},
-            }
-            self.njoints = 25
+            self.body_members = NTU_BODY_MEMBERS
+            self.njoints = NTU_NJOINTS
         elif data_set == "MSRC12":
-            self.body_members = {
-                'left_arm': {'joints': [2, 4, 5, 6, 7], 'side': 'left'},
-                'right_arm': {'joints': [2, 8, 9, 10, 11], 'side': 'right'},
-                'head': {'joints': [1, 2, 3], 'side': 'right'},
-                'torso': {'joints': [1, 0], 'side': 'right'},
-                'left_leg': {'joints': [0, 12, 13, 14, 15], 'side': 'left'},
-                'right_leg': {'joints': [0, 16, 17, 18, 19], 'side': 'right'},
-            }
-            self.njoints = 20
-
-        # Human3.6
-        # self.body_members = {
-        #   'left_arm': {'joints': [16, 17, 18, 19, 20, 21, 20, 19, 22, 23, 22, 19, 18, 17, 16, 12], 'side': 'left'},
-        #   'right_arm': {'joints': [24, 25, 26, 27, 28, 29, 28, 27, 30, 31, 30, 27, 26, 25, 24, 12], 'side': 'right'},
-        #   'head': {'joints': [13, 14, 15, 14, 13, 12], 'side': 'right'},
-        #   'torso': {'joints': [0, 11, 12], 'side': 'right'},
-        #   'left_leg': {'joints': [0, 6, 7, 8, 9, 10, 9, 8, 7, 6], 'side': 'left'},
-        #   'right_leg': {'joints': [0, 1, 2, 3, 4, 5, 4, 3, 2, 1], 'side': 'right'},
-        # }
-        # self.njoints = 32
-
-        # OpenPose
-        # self.body_members = {
-        #       'left_arm': {'joints': [2, 3, 4, 3, 2], 'side': 'left'},
-        #       'right_arm': {'joints': [5, 6, 7, 6, 5], 'side': 'right'},
-        #       'head': {'joints': [1, 0, 1], 'side': 'right'},
-        #       # 'ext_head': {'joints': [14, 15, 16, 17, 16, 15, 14], 'side': 'right'},
-        #       'ears': {'joints': [14, 0, 15], 'side': 'right'},
-        #       'torso': {'joints': [2, 1, 5, 1, 8, 1, 11], 'side': 'right'},
-        #       'left_leg': {'joints': [8, 9, 10, 9, 8], 'side': 'left'},
-        #       'right_leg': {'joints': [11, 12, 13, 12, 11], 'side': 'right'},
-        # }
-        # self.njoints = 16
+            self.body_members = MSRC_BODY_MEMBERS
+            self.njoints = MSRC_NJOINTS
 
         self.ax = ax
 
@@ -137,111 +169,47 @@ class Ax3DPose(object):
             self.ax.set_aspect('equal')
             self.axes_set = True
 
-NTU_ACTIONS = ["drink water", "eat meal/snack", "brushing teeth",
-               "brushing hair", "drop", "pickup", "throw", "sitting down",
-               "standing up (from sitting position)", "clapping", "reading",
-               "writing", "tear up paper", "wear jacket", "take off jacket",
-               "wear a shoe", "take off a shoe", "wear on glasses",
-               "take off glasses", "put on a hat/cap", "take off a hat/cap",
-               "cheer up", "hand waving", "kicking something",
-               "put something inside pocket / take out something from pocket",
-               "hopping (one foot jumping)", "jump up",
-               "make a phone call/answer phone", "playing with phone/tablet",
-               "typing on a keyboard", "pointing to something with finger",
-               "taking a selfie", "check time (from watch)",
-               "rub two hands together", "nod head/bow", "shake head",
-               "wipe face", "salute", "put the palms together",
-               "cross hands in front (say stop)", "sneeze/cough", "staggering",
-               "falling", "touch head (headache)",
-               "touch chest (stomachache/heart pain)", "touch back (backache)",
-               "touch neck (neckache)", "nausea or vomiting condition",
-               "use a fan (with hand or paper)/feeling warm",
-               "punching/slapping other person", "kicking other person",
-               "pushing other person", "pat on back of other person",
-               "point finger at the other person", "hugging other person",
-               "giving something to other person",
-               "touch other person's pocket", "handshaking",
-               "walking towards each other", "walking apart from each other"]
 
-
-MSRC_ACTIONS = ["Start system", "Duck", "Push right",
-                "Googles", "Wind it up", "Shoot",
-                "Bow", "Throw", "Had enough",
-                "Change weapon", "Beat both", "Kick"]
-
-def plot_gif(real_seq, gen_seq, labs, data_set, save_path=None, extra_text=None, seq_mask=None):
+def plot_seq_gif(seqs, labs, data_set, seq_masks=None, extra_text=None, save_path=None, figwidth=768, figheight=384, dpi=80):
     import matplotlib
     if save_path is not None:
         matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-
-    # === Plot and animate ===
-    fig = plt.figure(dpi=80, figsize=plt.figaspect(1 / 2))
 
     if data_set == "NTURGBD":
         actions_l = NTU_ACTIONS
+        njoints = NTU_NJOINTS
     elif data_set == "MSRC12":
         actions_l = MSRC_ACTIONS
+        njoints = MSRC_NJOINTS
 
-    seq_idx, subject, action, plen = labs
-    title = "action: %s  subject: %d  seq_idx: %d  length: %d" % \
-              (actions_l[action], subject, seq_idx, plen)
-
-    fig.suptitle(title)
-
-    ax0 = fig.add_subplot(1, 2, 1, projection='3d')
-    ax0.view_init(elev=90, azim=-90)
-    # ax0.view_init(elev=0, azim=90)
-    ob0 = Ax3DPose(ax0, data_set)
-
-    ax1 = fig.add_subplot(1, 2, 2, projection='3d')
-    ax1.view_init(elev=90, azim=-90)
-    ob1 = Ax3DPose(ax1, data_set)
-
-    seq_len = np.shape(real_seq)[1]
-    frame_counter = fig.text(0.9, 0.1, 'frame: 0')
-    if extra_text is not None:
-        fig.text(0.1, 0.1, extra_text)
-
-    def update(frame):
-        mask = None
-        if seq_mask is not None:
-            mask = seq_mask[:, frame, 0]
-        ob0.update(real_seq[:, frame, :], mask)
-        ob1.update(gen_seq[:, frame, :])
-        frame_counter.set_text('frame: %d' % frame)
-        frame_counter.set_color('red' if frame > seq_len // 2 else 'blue')
-        return ax0, ax1
-
-    anim = FuncAnimation(fig, update, frames=np.arange(0, seq_len), interval=100)
-    if save_path is not None:
-        anim.save(save_path, dpi=80, writer='imagemagick')
+    if labs.shape[0] == seqs.shape[0]:
+        labs_mode = "multi"
     else:
-        plt.show()
+        assert labs.shape[0] == 1, \
+            "seqs and labs len must match or be a single lab"
+        labs_mode = "single"
 
-    fig_size = (int(fig.get_figheight()), int(fig.get_figwidth()))
-    plt.close(fig)
-
-    return fig_size
-
-
-def plot_mult_gif(seqs, labs, data_set, save_path=None):
-    import matplotlib
-    if save_path is not None:
-        matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
+    if seq_masks is not None:
+        if seq_masks.shape[0] == seqs.shape[0]:
+            mask_mode = "multi"
+        else:
+            assert seq_masks.shape[0] == njoints, \
+                "seqs and labs len must match or be a single lab"
+            mask_mode = "single"
 
     n_seqs = seqs.shape[0]
-    n_rows = np.int(np.ceil(np.sqrt(n_seqs) * 9 / 16))
+    n_rows = np.int(np.ceil(np.sqrt(n_seqs) * figheight / figwidth))
     n_cols = np.int(np.ceil(n_seqs / n_rows))
 
-    my_dpi = 60
-    fig = plt.figure(figsize=(1920 / my_dpi, 1080 / my_dpi), dpi=my_dpi)
+    fig = plt.figure(figsize=(figwidth / dpi, figheight / dpi), dpi=dpi)
 
-    if data_set == "NTURGBD":
-        actions_l = NTU_ACTIONS
-    elif data_set == "MSRC12":
-        actions_l = MSRC_ACTIONS
+    title = 'Plotting samples from %s dataset' % data_set
+    if labs_mode == "single":
+        seq_idx, subject, action, plen = labs
+        title += "\n action: %s  subject: %d  seq_idx: %d  length: %d" % \
+                  (actions_l[action], subject, seq_idx, plen)
+    fig.suptitle(title)
 
     axs = []
     obs = []
@@ -255,17 +223,27 @@ def plot_mult_gif(seqs, labs, data_set, save_path=None):
 
     seq_len = seqs.shape[2]
     frame_counter = fig.text(0.9, 0.1, 'frame: 0')
+    if extra_text is not None:
+        fig.text(0.1, 0.1, extra_text)
 
     def update(frame):
         for i in range(n_seqs):
-            obs[i].update(seqs[i, :, frame, :])
-            axs[i].set_xlabel('seq_idx: %d' % labs[i, 0])
+            mask = None
+            if seq_masks is not None:
+                if mask_mode == "single" and i == 0:
+                    mask = seq_masks[:, frame, 0]
+                elif mask_mode == "multi":
+                    mask = seq_masks[i, :, frame, 0]
+            obs[i].update(seqs[i, :, frame, :], mask)
+            if labs_mode == "multi":
+                seq_idx, subject, action, plen = labs[i, ...]
+                axs[i].set_xlabel('idx: %d \n act: %s' % (seq_idx, actions_l[action]))
         frame_counter.set_text('frame: %d' % frame)
         frame_counter.set_color('red' if frame > seq_len // 2 else 'blue')
 
-    anim = FuncAnimation(fig, update, frames=np.arange(0, seq_len), interval=100)
     if save_path is not None:
-        anim.save(save_path, dpi=80, writer='imagemagick')
+        anim = FuncAnimation(fig, update, frames=np.arange(0, seq_len), interval=100)
+        anim.save(save_path, dpi=dpi, writer='imagemagick')
     else:
         plt.show()
 
@@ -275,7 +253,120 @@ def plot_mult_gif(seqs, labs, data_set, save_path=None):
     return fig_size
 
 
-def plot_emb(seq_emb, save_path):
+def plot_seq_pano(seqs, labs, data_set, seq_masks=None, extra_text=None, save_path=None, figwidth=768, figheight=384, dpi=80):
+    import matplotlib
+    if save_path is not None:
+        matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    if data_set == "NTURGBD":
+        actions_l = NTU_ACTIONS
+        njoints = NTU_NJOINTS
+        body_members = NTU_BODY_MEMBERS
+    elif data_set == "MSRC12":
+        actions_l = MSRC_ACTIONS
+        njoints = MSRC_NJOINTS
+        body_members = MSRC_BODY_MEMBERS
+
+    if labs.shape[0] == seqs.shape[0]:
+        labs_mode = "multi"
+    else:
+        assert labs.shape[0] == 1, \
+            "seqs and labs len must match or be a single lab"
+        labs_mode = "single"
+
+    if seq_masks is not None:
+        if seq_masks.shape[0] == seqs.shape[0]:
+            mask_mode = "multi"
+        else:
+            assert seq_masks.shape[0] == njoints, \
+                "seqs and labs len must match or be a single lab"
+            mask_mode = "single"
+
+    n_seqs = seqs.shape[0]
+    n_rows = np.int(np.ceil(np.sqrt(n_seqs) * figheight / figwidth))
+    n_cols = np.int(np.ceil(n_seqs / n_rows))
+
+    fig = plt.figure(figsize=(figwidth / dpi, figheight / dpi), dpi=dpi)
+
+    title = 'Plotting samples from %s dataset' % data_set
+    if labs_mode == "single":
+        seq_idx, subject, action, plen = labs
+        title += "\n action: %s  subject: %d  seq_idx: %d  length: %d" % \
+                  (actions_l[action], subject, seq_idx, plen)
+    fig.suptitle(title)
+
+    axs = []
+    obs = []
+    for i in range(n_seqs):
+        ax = fig.add_subplot(n_rows, n_cols, i + 1, projection='3d')
+        ax.view_init(elev=90, azim=-90)
+        # ax.view_init(elev=0, azim=90)
+        ob = Ax3DPose(ax, data_set)
+        axs.append(ax)
+        obs.append(ob)
+
+    seq_len = seqs.shape[2]
+    if extra_text is not None:
+        fig.text(0.1, 0.1, extra_text)
+
+    pano_len = seq_len / 2
+    lcolor = "#3498db"
+    rcolor = "#e74c3c"
+    for i in range(n_seqs):
+        axs[i].set_xlabel("time")
+        axs[i].set_ylabel("y")
+        axs[i].set_zlabel("z")
+        r = 1
+
+        yroot, zroot = 0, seqs[i, 0, 0, 0]
+        axs[i].set_xlim3d([-r, r + pano_len])
+        axs[i].set_zlim3d([-r + zroot, r + zroot])
+        axs[i].set_ylim3d([-r + yroot, r + yroot])
+        axs[i].set_aspect('equal')
+
+        mask = None
+        if seq_masks is not None:
+            if mask_mode == "single" and i == 0:
+                mask = seq_masks[:, :, 0]
+            elif mask_mode == "multi":
+                mask = seq_masks[i, :, :, 0]
+
+        for f in range(seq_len):
+            x_hip = seqs[i, 0, f, 0]
+            f_pos = (f / seq_len) * pano_len
+
+            for member in body_members.values():
+                for j in range(len(member['joints']) - 1):
+                    j_idx_start = member['joints'][j]
+                    j_idx_end = member['joints'][j + 1]
+                    x = np.array([seqs[i, j_idx_start, f, 0] - x_hip + f_pos,
+                                  seqs[i, j_idx_end, f, 0] - x_hip + f_pos])
+                    y = np.array([seqs[i, j_idx_start, f, 1], seqs[i, j_idx_end, f, 1]])
+                    z = np.array([seqs[i, j_idx_start, f, 2], seqs[i, j_idx_end, f, 2]])
+                    axs[i].plot(x, y, z, lw=2, c=lcolor if member['side'] == 'left' else rcolor)
+
+            if mask is not None:
+                for j in range(njoints):
+                    x = np.array([seqs[i, j, f, 0] - x_hip + f_pos])
+                    y = np.array([seqs[i, j, f, 1]])
+                    z = np.array([seqs[i, j, f, 2]])
+                    axs[i].plot(x, y, z, lw=2, c='black', markersize=8,
+                                marker='o', linestyle='dashed',
+                                visible=True if mask[j, f] == 0 else False)
+
+    if save_path is not None:
+        fig.save(save_path, dpi=dpi)
+    else:
+        plt.show()
+
+    fig_size = (int(fig.get_figheight()), int(fig.get_figwidth()))
+    plt.close(fig)
+
+    return fig_size
+
+
+def plot_seq_emb(seq_emb, save_path):
     seq_emb = (seq_emb - np.min(seq_emb)) / (np.max(seq_emb) - np.min(seq_emb))
     seq_emb = (seq_emb * 255).astype(np.uint8)
     im = Image.fromarray(seq_emb, mode='L')

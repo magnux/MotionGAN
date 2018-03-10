@@ -6,7 +6,7 @@ from config import get_config
 from data_input import DataInput
 from models.motiongan import MotionGANV1, MotionGANV2, MotionGANV3, MotionGANV4
 from utils.restore_keras_model import restore_keras_model
-from utils.viz import plot_gif
+from utils.viz import plot_seq_gif
 import h5py as h5
 from tqdm import trange
 
@@ -17,7 +17,7 @@ flags = tf.flags
 flags.DEFINE_bool("verbose", False, "To talk or not to talk")
 flags.DEFINE_string("save_path", None, "Model output directory")
 flags.DEFINE_string("config_file", None, "Model config file")
-flags.DEFINE_string("test_mode", "show", "Test modes: show, write")
+flags.DEFINE_string("test_mode", "show_images", "Test modes: show_images, write_images, write_data")
 flags.DEFINE_integer("mask_mode", 0, "Mask modes: 0:%s, 1:%s, 2:%s, 3:%s" % MASK_MODES)
 flags.DEFINE_float("keep_prob", 0.5, "Probability of keeping input data. (1 == Keep All)")
 FLAGS = flags.FLAGS
@@ -26,7 +26,7 @@ if __name__ == "__main__":
     # Config stuff
     config = get_config(FLAGS)
     config.only_val = True
-    if FLAGS.test_mode == "show":
+    if FLAGS.test_mode == "show_imgs":
         config.batch_size = 4
     # config.pick_num = 0
     data_input = DataInput(config)
@@ -85,9 +85,21 @@ if __name__ == "__main__":
 
         return labs_batch, poses_batch, mask_batch, gen_inputs
 
-    if FLAGS.test_mode == "show":
+    def apply_constant_motion(seq, mask):
+        new_seq = seq * mask
+        for j in range(seq.shape[0]):
+            for f in range(seq.shape[1]):
+                if mask[j, f, 0] == 0:
+                    new_seq[j, f, :] = 2 * new_seq[j, f - 1, :] - new_seq[j, f - 2, :]
+        return new_seq
 
-        while True:
+    def apply_kalman_filter(seq, mask):
+        new_seq = np.zeros_like(seq)
+        return new_seq
+
+    if "images" in FLAGS.test_mode:
+
+        for i in trange(val_batches):
             labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
 
             gen_outputs = model_wrap.gen_model.predict(gen_inputs, config.batch_size)
@@ -101,14 +113,18 @@ if __name__ == "__main__":
             for j in range(config.batch_size):
                 seq_idx = rand_indices[j]
 
-                plot_gif(poses_batch[seq_idx, ...],
-                         gen_outputs[seq_idx, ...],
-                         labs_batch[seq_idx, ...],
-                         config.data_set,
-                         extra_text='mask mode: %s' % MASK_MODES[FLAGS.mask_mode],
-                         seq_mask=mask_batch[seq_idx, ...])
+                save_path = None
+                if FLAGS.test_mode == "write_images":
+                    save_path = "%s_test_gifs/%d_%d.gif" % (config.save_path, i, j)
+                plot_seq_gif(np.concatenate([poses_batch[np.newaxis, seq_idx, ...],
+                                             gen_outputs[np.newaxis, seq_idx, ...]]),
+                             labs_batch[seq_idx, ...],
+                             config.data_set,
+                             seq_masks=mask_batch[seq_idx, ...],
+                             extra_text='mask mode: %s' % MASK_MODES[FLAGS.mask_mode],
+                             save_path=save_path)
 
-    elif FLAGS.test_mode == "write":
+    elif FLAGS.test_mode == "write_data":
         data_split = 'Validate'
 
         h5file = h5.File("%s_%s_%s_%s_%d_%.1f.h5" %

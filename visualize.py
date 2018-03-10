@@ -1,10 +1,10 @@
 from __future__ import absolute_import, division, print_function
 
 import tensorflow as tf
-import numpy as np
 from config import get_config
 from data_input import DataInput
-from utils.viz import plot_gif, plot_mult_gif
+from utils.viz import plot_seq_gif
+from tqdm import trange
 
 logging = tf.logging
 flags = tf.flags
@@ -30,7 +30,9 @@ if __name__ == "__main__":
         labs_batch, poses_batch = data_input.batch_generator(False).next()
 
         n_seqs = (config.batch_size // n_splits)
-        for i in range(n_splits):
-            plot_mult_gif(poses_batch[i * n_seqs:(i + 1) * n_seqs, ...],
-                          labs_batch[i * n_seqs:(i + 1) * n_seqs, ...],
-                          config.data_set, 'save/viz_%s_%d_%d.gif' % (config.data_set, b, i))
+        for i in trange(n_splits):
+            plot_seq_gif(poses_batch[i * n_seqs:(i + 1) * n_seqs, ...],
+                         labs_batch[i * n_seqs:(i + 1) * n_seqs, ...],
+                         config.data_set,
+                         save_path='save/vis_%s_%d_%d.gif' % (config.data_set, b, i),
+                         figwidth=1920, figheight=1080)

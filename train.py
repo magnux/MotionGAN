@@ -7,7 +7,7 @@ from utils.callbacks import TensorBoard
 from models.motiongan import MotionGANV1, MotionGANV2, MotionGANV3, MotionGANV4
 from utils.restore_keras_model import restore_keras_model
 from tqdm import trange
-from utils.viz import plot_gif, plot_emb
+from utils.viz import plot_seq_gif, plot_seq_emb
 from tensorflow.python.platform import tf_logging as logging
 
 logging = tf.logging
@@ -180,12 +180,14 @@ if __name__ == "__main__":
                     gen_outputs = data_input.denormalize_poses(gen_outputs)
                 for i in range(16):  # config.batch_size
                     gif_name = '%s_tmp.gif' % config.save_path
-                    gif_height, gif_width = plot_gif(poses_batch[i, ...],
-                                                     gen_outputs[i, ...],
-                                                     labs_batch[i, ...],
-                                                     config.data_set, gif_name,
-                                                     extra_text='mask mode: %s' % mask_modes[mask_mode],
-                                                     seq_mask=mask_batch[i, ...])
+                    gif_height, gif_width = plot_seq_gif(
+                        np.concatenate([poses_batch[np.newaxis, i, ...],
+                                       gen_outputs[np.newaxis, i, ...]]),
+                        labs_batch[i, ...],
+                        config.data_set,
+                        seq_masks=mask_batch[np.newaxis, i, ...],
+                        extra_text='mask mode: %s' % mask_modes[mask_mode],
+                        save_path=gif_name)
 
                     with open(gif_name, 'rb') as f:
                         encoded_image_string = f.read()
@@ -195,10 +197,10 @@ if __name__ == "__main__":
                                                  'enc_string': encoded_image_string}
 
                     if config.use_pose_fae:
-                        jpg_name = '%s_mask_tmp.jpg' % config.save_path
-                        plot_emb(fae_z[i, ...], jpg_name)
+                        png_name = '%s_mask_tmp.png' % config.save_path
+                        plot_seq_emb(fae_z[i, ...], png_name)
 
-                        with open(jpg_name, 'rb') as f:
+                        with open(png_name, 'rb') as f:
                             encoded_image_string = f.read()
 
                         logs['custom_img_emb_%d' % i] = {'height': int(fae_z.shape[1]),

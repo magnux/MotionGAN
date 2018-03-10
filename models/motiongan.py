@@ -584,7 +584,7 @@ class MotionGANV2(_MotionGAN):
 
 
 def _preact_dense(x, n_units, i, j):
-    x = InstanceNormalization(axis=-1, name='generator/block_%d/inorm_%d' % (i, j))(x)
+    x = InstanceNormalization(name='generator/block_%d/inorm_%d' % (i, j))(x)
     x = Activation('relu', name='generator/block_%d/relu_%d' % (i, j))(x)
     x = Dense(n_units, name='generator/block_%d/dense_%d' % (i, j), activation='relu')(x)
     return x

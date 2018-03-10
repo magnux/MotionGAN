@@ -198,12 +198,12 @@ if __name__ == "__main__":
                         jpg_name = '%s_mask_tmp.jpg' % config.save_path
                         plot_emb(fae_z[i, ...], jpg_name)
 
-                    with open(jpg_name, 'rb') as f:
-                        encoded_image_string = f.read()
+                        with open(jpg_name, 'rb') as f:
+                            encoded_image_string = f.read()
 
-                    logs['custom_img_emb_%d' % i] = {'height': int(fae_z.shape[1]),
-                                                     'width': int(fae_z.shape[2]),
-                                                     'enc_string': encoded_image_string}
+                        logs['custom_img_emb_%d' % i] = {'height': int(fae_z.shape[1]),
+                                                         'width': int(fae_z.shape[2]),
+                                                         'enc_string': encoded_image_string}
 
             tensorboard.on_epoch_end(epoch, logs)
 

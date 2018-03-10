@@ -67,10 +67,6 @@ class _MotionGAN(object):
         self.latent_cond_dim = config.latent_cond_dim
         self.latent_scale_d = 1.0
         self.latent_scale_g = 1.0
-        # self.coherence_loss = config.coherence_loss
-        # self.coherence_scale = 1.0
-        # self.displacement_loss = config.displacement_loss
-        # self.displacement_scale = 0.1
         self.shape_loss = config.shape_loss
         self.shape_scale = 10.0
         self.smoothing_loss = config.smoothing_loss
@@ -83,7 +79,6 @@ class _MotionGAN(object):
         self.fae_intermediate_dim = self.fae_original_dim // 2
         self.fae_latent_dim = self.fae_original_dim // 4
         self.frame_scale = 1.0
-        self.use_shifting = config.use_shifting
 
         # Placeholders for training phase
         self.place_holders = []
@@ -283,16 +278,6 @@ class _MotionGAN(object):
                                           - _get_tensor(self.gen_inputs, 'latent_cond_input')))
             disc_losses['disc_loss_latent'] = self.latent_scale_d * loss_latent
             gen_losses['gen_loss_latent'] = self.latent_scale_g * loss_latent
-        # if self.coherence_loss:
-        #     exp_decay = 1.0 / np.exp(np.linspace(0.0, 2.0, self.seq_len, dtype='float32'))
-        #     exp_decay = np.reshape(exp_decay, (1, 1, 1, self.seq_len))
-        #     loss_coh = K.sum(K.mean(K.square(_edm(real_seq) - _edm(gen_seq)) * zero_frames_edm * exp_decay, axis=-1), axis=(1, 2))
-        #     gen_losses['gen_loss_coh'] = self.coherence_scale * K.mean(loss_coh)
-        # if self.displacement_loss:
-        #     gen_seq_l = gen_seq[:, :, :-1, :]
-        #     gen_seq_r = gen_seq[:, :, 1:, :]
-        #     loss_disp = K.sum(K.mean(K.square(gen_seq_l - gen_seq_r), axis=-1), axis=(1, 2))
-        #     gen_losses['gen_loss_disp'] = self.displacement_scale * K.mean(loss_disp)
         if self.shape_loss:
             mask = np.ones((self.njoints, self.njoints), dtype='float32')
             mask = np.triu(mask, 1) - np.triu(mask, 2)
@@ -579,17 +564,8 @@ class MotionGANV2(_MotionGAN):
                 strides = 1
             shortcut = Conv2DTranspose(n_filters, strides, strides,
                                        name='generator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
-            pi = x
-            if self.use_shifting:
-                def _seq_shift(args):
-                    return K.concatenate(
-                        [K.zeros((args.shape[0], 1, args.shape[2], args.shape[3])),
-                         args[:, :-1, :, :]], axis=1)
 
-                pi = Lambda(_seq_shift, name='generator/block_%d/shift' % i)(pi)
-                pi = Concatenate(axis=-1, name='generator/block_%d/pi_cat' % i)([x, pi])
-
-            pi = _conv_block(pi, n_filters, 1, 3, strides, i, 0, 'generator', Conv2DTranspose)
+            pi = _conv_block(x, n_filters, 1, 3, strides, i, 0, 'generator', Conv2DTranspose)
 
             gamma = _conv_block(x, n_filters, 4, 3, strides, i, 1, 'generator', Conv2DTranspose)
             gamma = Activation('sigmoid', name='generator/block_%d/gamma_sigmoid' % i)(gamma)
@@ -702,17 +678,8 @@ class MotionGANV4(_MotionGAN):
                 strides = 1
             shortcut = Conv2DTranspose(n_filters, strides, strides,
                                        name='generator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
-            pi = x
-            if self.use_shifting:
-                def _seq_shift(args):
-                    return K.concatenate(
-                        [K.zeros((args.shape[0], 1, args.shape[2], args.shape[3])),
-                         args[:, :-1, :, :]], axis=1)
 
-                pi = Lambda(_seq_shift, name='generator/block_%d/shift' % i)(pi)
-                pi = Concatenate(axis=-1, name='generator/block_%d/pi_cat' % i)([x, pi])
-
-            pi = _conv_block(pi, n_filters, 1, 3, strides, i, 0, 'generator', Conv2DTranspose)
+            pi = _conv_block(x, n_filters, 1, 3, strides, i, 0, 'generator', Conv2DTranspose)
 
             gamma = _conv_block(x, n_filters, 4, 3, strides, i, 1, 'generator', Conv2DTranspose)
             gamma = Activation('sigmoid', name='generator/block_%d/gamma_sigmoid' % i)(gamma)

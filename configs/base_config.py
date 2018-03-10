@@ -20,10 +20,6 @@
     'action_cond': True,
     # Latent factor conditional model, size (0 means no condition)
     'latent_cond_dim': 0,
-    # Motion coherence loss
-    # 'coherence_loss': True,
-    # # Total displacement loss
-    # 'displacement_loss': False,
     # Body shape conservation loss
     'shape_loss': True,
     # Sequence smoothing loss
@@ -34,8 +30,6 @@
     'unfold': False,
     # Use pose FAE
     'use_pose_fae': False,
-    # Concatenate shifted sequence in the generator (Only model v2)
-    'use_shifting': False,
 
     ## Training Options
     # It's the batch size

@@ -185,7 +185,7 @@ if __name__ == "__main__":
                                        gen_outputs[np.newaxis, i, ...]]),
                         labs_batch[i, ...],
                         config.data_set,
-                        seq_masks=mask_batch[np.newaxis, i, ...],
+                        seq_masks=mask_batch[i, ...],
                         extra_text='mask mode: %s' % mask_modes[mask_mode],
                         save_path=gif_name)
 

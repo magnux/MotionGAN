@@ -186,7 +186,7 @@ def plot_seq_gif(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pat
     if labs.shape[0] == seqs.shape[0]:
         labs_mode = "multi"
     else:
-        assert int(labs.shape[0]) == 1, \
+        assert labs.shape[0] == 4, \
             "seqs and labs len must match or be a single lab"
         labs_mode = "single"
 
@@ -194,7 +194,7 @@ def plot_seq_gif(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pat
         if seq_masks.shape[0] == seqs.shape[0]:
             mask_mode = "multi"
         else:
-            assert int(seq_masks.shape[0]) == njoints, \
+            assert seq_masks.shape[0] == njoints, \
                 "seqs and labs len must match or be a single lab"
             mask_mode = "single"
 

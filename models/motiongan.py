@@ -615,8 +615,8 @@ class MotionGANV3(_MotionGAN):
 
             x = Add(name='generator/block_%d/add' % i)([x, pi])
 
-        x = Dense((self.unfolded_joints * (self.seq_len // 2) * 3), name='generator/dense_out', activation='relu')(x)
-        x = Reshape((self.unfolded_joints, self.seq_len // 2, 3), name='generator/reshape_out')(x)
+        x = Dense((self.unfolded_joints * self.seq_len * 3), name='generator/dense_out', activation='relu')(x)
+        x = Reshape((self.unfolded_joints, self.seq_len, 3), name='generator/reshape_out')(x)
 
         return x
 

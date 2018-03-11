@@ -149,10 +149,10 @@ if __name__ == "__main__":
     elif FLAGS.test_mode == "write_data":
         data_split = 'Validate'
 
-        h5file = h5.File("%s_%d_%.1f_out.h5" %
+        h5file = h5.File("%s_data_out_%d_%.1f.h5" %
                          (config.save_path,
                           FLAGS.mask_mode, FLAGS.keep_prob), "w")
-
+        skipped = 0
         for _ in trange(val_batches):
 
             labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
@@ -165,24 +165,31 @@ if __name__ == "__main__":
 
             for j in range(config.batch_size):
                 seq_idx, subject, action, plen = labs_batch[j, ...]
+                if config.data_set != 'NTURGBD' or action < 50:
 
-                sub_array = np.array(subject)
-                act_array = np.array(action)
-                pose_array = gen_outputs[j, ...]
+                    sub_array = np.array(subject + 1)
+                    act_array = np.array(action + 1)
+                    pose_array = gen_outputs[j, ...]
+                    pose_array = np.transpose(pose_array, (0, 2, 1))
+                    if config.data_set == 'NTURGBD':
+                        pose_array = np.concatenate([pose_array, np.zeros_like(pose_array)])
 
-                data_path = '%s/%s/SEQ%d/' % (config.data_set, data_split, seq_idx)
-                h5file.create_dataset(
-                    data_path + 'Subject', np.shape(sub_array),
-                    dtype='int32', data=sub_array
-                )
-                h5file.create_dataset(
-                    data_path + 'Action', np.shape(act_array),
-                    dtype='int32', data=act_array
-                )
-                h5file.create_dataset(
-                    data_path + 'Pose', np.shape(pose_array),
-                    dtype='float32', data=pose_array
-                )
+                    data_path = '%s/%s/SEQ%d/' % (config.data_set, data_split, seq_idx)
+                    h5file.create_dataset(
+                        data_path + 'Subject', np.shape(sub_array),
+                        dtype='int32', data=sub_array
+                    )
+                    h5file.create_dataset(
+                        data_path + 'Action', np.shape(act_array),
+                        dtype='int32', data=act_array
+                    )
+                    h5file.create_dataset(
+                        data_path + 'Pose', np.shape(pose_array),
+                        dtype='float32', data=pose_array
+                    )
+                else:
+                    skipped += 1
+        print('skipped ', skipped)
 
         h5file.flush()
         h5file.close()

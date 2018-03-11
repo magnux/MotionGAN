@@ -7,6 +7,7 @@ import os
 from glob import glob
 from tqdm import trange
 from utils.threadsafe_iter import threadsafe_generator
+import re
 
 
 class DataInput(object):
@@ -28,9 +29,7 @@ class DataInput(object):
         self.val_keys = [self.data_set + '/Validate/' + k
                          for k in self.h5file.get(self.data_set + '/Validate').keys()]
 
-        # if self.data_source == 'ram':
-        #     self.train_keys = self.train_keys[0:int(len(self.train_keys)/4)]
-        #     self.val_keys = self.val_keys[0:int(len(self.val_keys)/4)]
+        self.key_pattern = re.compile(".*SEQ(\d+).*")
 
         self.len_train_keys = len(self.train_keys)
         self.len_val_keys = len(self.val_keys)
@@ -72,10 +71,10 @@ class DataInput(object):
         print('Loading "%s" data to ram...' % splitname)
         t = trange(len_keys, dynamic_ncols=True)
         for k in t:
-            key_idx, subject, action, pose, plen = self.read_h5_data(k, is_training)
+            seq_idx, subject, action, pose, plen = self.read_h5_data(k, is_training)
             pose = pose[:, :, :self.max_plen] if plen > self.max_plen else pose
             plen = self.max_plen if plen > self.max_plen else plen
-            labs[k, :] = [key_idx, subject, action, plen]
+            labs[k, :] = [seq_idx, subject, action, plen]
             poses[k, :, :plen, :] = pose
 
         if self.normalize_data:
@@ -113,7 +112,9 @@ class DataInput(object):
 
         pose, plen = self.process_pose(pose)
 
-        return key_idx, subject, action, pose, plen
+        seq_idx = np.int32(re.match(self.key_pattern, key).group(1))
+
+        return seq_idx, subject, action, pose, plen
 
     def process_pose(self, pose, plen=None):
         plen = np.int32(np.size(pose, 2)) if plen is None else plen

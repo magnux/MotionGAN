@@ -5,6 +5,7 @@ import numpy as np
 from config import get_config
 from data_input import DataInput
 from models.motiongan import MotionGANV1, MotionGANV2, MotionGANV3, MotionGANV4
+from models.dmnn import DMNNv1
 from utils.restore_keras_model import restore_keras_model
 from utils.viz import plot_seq_gif, plot_seq_pano
 import h5py as h5
@@ -17,7 +18,8 @@ flags = tf.flags
 flags.DEFINE_bool("verbose", False, "To talk or not to talk")
 flags.DEFINE_string("save_path", None, "Model output directory")
 flags.DEFINE_string("config_file", None, "Model config file")
-flags.DEFINE_string("test_mode", "show_images", "Test modes: show_images, write_images, write_data")
+flags.DEFINE_string("test_mode", "show_images", "Test modes: show_images, write_images, write_data, dmnn_score")
+flags.DEFINE_string("dmnn_save_path", None, "Path to trained DMNN model")
 flags.DEFINE_string("images_mode", "gif", "Image modes: gif, png")
 flags.DEFINE_integer("mask_mode", 0, "Mask modes: 0:%s, 1:%s, 2:%s, 3:%s" % MASK_MODES)
 flags.DEFINE_float("keep_prob", 0.5, "Probability of keeping input data. (1 == Keep All)")
@@ -193,3 +195,37 @@ if __name__ == "__main__":
 
         h5file.flush()
         h5file.close()
+
+    elif FLAGS.test_mode == "dmnn_score":
+        FLAGS.config_file = None
+        FLAGS.save_path = FLAGS.dmnn_save_path
+        config = get_config(FLAGS)
+
+        # Model building
+        if config.model_type == 'dmnn':
+            if config.model_version == 'v1':
+                model_wrap_dmnn = DMNNv1(config)
+
+        model_wrap_dmnn.model = restore_keras_model(model_wrap_dmnn.model, config.save_path + '_weights.hdf5')
+
+        real_eval_sum = 0
+        gen_eval_sum = 0
+
+        t = trange(val_batches)
+        for i in t:
+
+            labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
+
+            gen_outputs = model_wrap.gen_model.predict(gen_inputs, config.batch_size)
+
+            real_loss, real_acc = model_wrap_dmnn.model.evaluate(poses_batch, labs_batch[:, 2], batch_size=config.batch_size, verbose=2)
+            real_eval_sum += real_acc
+            gen_loss, gen_acc = model_wrap_dmnn.model.evaluate(gen_outputs, labs_batch[:, 2], batch_size=config.batch_size, verbose=2)
+            gen_eval_sum += gen_acc
+
+            t.set_postfix({'real_eval': real_eval_sum / (i + 1), 'gen_eval': gen_eval_sum / (i + 1) })
+
+
+
+
+

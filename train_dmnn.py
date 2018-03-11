@@ -37,7 +37,7 @@ if __name__ == "__main__":
         print(model_wrap.model.summary())
 
     if config.epoch > 0:
-        model_wrap.model = restore_keras_model(model_wrap.model, config)
+        model_wrap.model = restore_keras_model(model_wrap.model, config.save_path + '_weights.hdf5')
 
     # Callbacks
     def schedule(epoch):

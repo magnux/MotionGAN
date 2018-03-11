@@ -253,7 +253,7 @@ def plot_seq_gif(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pat
     return fig_size
 
 
-def plot_seq_pano(seqs, labs, data_set, seq_masks=None, extra_text=None, save_path=None, figwidth=768, figheight=384, dpi=80):
+def plot_seq_pano(seqs, labs, data_set, seq_masks=None, extra_text=None, save_path=None, figwidth=768, figheight=768, dpi=80):
     import matplotlib
     if save_path is not None:
         matplotlib.use('Agg')
@@ -271,7 +271,7 @@ def plot_seq_pano(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pa
     if labs.shape[0] == seqs.shape[0]:
         labs_mode = "multi"
     else:
-        assert labs.shape[0] == 1, \
+        assert labs.shape[0] == 4, \
             "seqs and labs len must match or be a single lab"
         labs_mode = "single"
 
@@ -287,7 +287,7 @@ def plot_seq_pano(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pa
     n_rows = np.int(np.ceil(np.sqrt(n_seqs) * figheight / figwidth))
     n_cols = np.int(np.ceil(n_seqs / n_rows))
 
-    fig = plt.figure(figsize=(figwidth / dpi, figheight / dpi), dpi=dpi)
+    fig = plt.figure(figsize=(figwidth / dpi, figheight / dpi), dpi=dpi, tight_layout={'pad':0, 'h_pad':0, 'w_pad':0})
 
     title = 'Plotting samples from %s dataset' % data_set
     if labs_mode == "single":
@@ -356,7 +356,7 @@ def plot_seq_pano(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pa
                                 visible=True if mask[j, f] == 0 else False)
 
     if save_path is not None:
-        fig.save(save_path, dpi=dpi)
+        fig.savefig(save_path, dpi=dpi)
     else:
         plt.show()
 

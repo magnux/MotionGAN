@@ -1,6 +1,6 @@
 {
     ## Data Options
-    'data_path': '../DMNN/data/',
+    'data_path': './data/',
     # Datasets: MSRC12, NTURGBD
     'data_set': 'NTURGBD',
     'data_set_version': 'v1',

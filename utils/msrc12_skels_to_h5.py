@@ -10,6 +10,7 @@ import time
 
 from multiprocessing import Process, Queue, current_process, freeze_support
 
+
 def worker(input, output):
     prog = re.compile('MicrosoftGestureDataset-RC/data/P(\d)_(\d)_(\d*).*_p(\d*).tagstream',re.IGNORECASE)
     for found_file in iter(input.get, 'STOP'):
@@ -25,38 +26,39 @@ def worker(input, output):
                 if r == 0:
                     assert(row[0] == 'XQPCTick')
                 else:
-                    tag = (int(row[0])*1000 + 49875/2)/49875
+                    tag = (int(row[0])*1000 + (49875/2))/49875
                     tags.append(tag)
 
-        framecount = 0
-        posearrays = []
+        frame_count = 0
+        pose_arrays = []
         data_file = found_file[:-10]+'.csv'
         with open(data_file) as csvfile:
             skelreader = csv.reader(csvfile, delimiter=' ')
             for tag in tags:
                 current_frame = 0
                 skels = []
-                while(current_frame < tag):
+                while current_frame < tag:
                     row = next(skelreader)
                     current_frame = int(row[0])
-                    skel = np.reshape(np.array(row[1:], dtype=np.float32),[20,4,1])
+                    skel = np.reshape(np.array(row[1:], dtype=np.float32), [20, 4, 1])
                     skels.append(skel)
-                posearrays.append(np.concatenate(skels,axis=2))
-                framecount = max(framecount, len(skels))
+                pose_arrays.append(np.concatenate(skels,axis=2))
+                frame_count = max(frame_count, len(skels))
 
-        output.put((subject, action, posearrays, framecount))
+        output.put((subject, action, pose_arrays, frame_count))
+
 
 if __name__ == '__main__':
 
     found_dirs = [file for file in glob('MicrosoftGestureDataset-RC/data/*.tagstream')]
     print('Processing %d files...' % (len(found_dirs)))
 
-    dataset = 'MSRC12'
-    h5file = h5.File(dataset+".h5", "w")
+    data_set = 'MSRC12'
+    h5file = h5.File(data_set+"v1.h5", "w")
 
     subjects = set()
     actions = set()
-    maxframecount = 0
+    max_frame_count = 0
 
     num_procs = 4
 
@@ -76,34 +78,34 @@ if __name__ == '__main__':
     # Get and print results
     print('Processed Files:')
     t = trange(len(found_dirs), dynamic_ncols=True)
-    seqnum = 0
+    seq_num = 0
     for _ in t:
-        subject, action, posearrays, framecount = done_queue.get()
+        subject, action, pose_arrays, frame_count = done_queue.get()
 
         subjects.add(subject)
         actions.add(action)
-        subarray = np.array(subject)
-        actarray = np.array(action)
-        maxframecount = max(framecount, maxframecount)
+        sub_array = np.array(subject)
+        act_array = np.array(action)
+        max_frame_count = max(frame_count, max_frame_count)
 
         # v1 split (cross subject protocol)
-        datasplit = 'Train' if (subject % 2) == 1 else 'Validate'
+        data_split = 'Train' if (subject % 2) == 1 else 'Validate'
 
-        for posearray in posearrays:
-            datapath = '{}/{}/SEQ{}/'.format(dataset,datasplit,seqnum)
+        for pose_array in pose_arrays:
+            data_path = '{}/{}/SEQ{}/'.format(data_set, data_split, seq_num)
             h5file.create_dataset(
-                datapath+'Subject', np.shape(subarray),
-                dtype='int32', data=subarray
+                data_path + 'Subject', np.shape(sub_array),
+                dtype='int32', data=sub_array
             )
             h5file.create_dataset(
-                datapath+'Action', np.shape(actarray),
-                dtype='int32', data=actarray
+                data_path + 'Action', np.shape(act_array),
+                dtype='int32', data=act_array
             )
             h5file.create_dataset(
-                datapath+'Pose', np.shape(posearray),
-                dtype='float32', data=posearray
+                data_path + 'Pose', np.shape(pose_array),
+                dtype='float32', data=pose_array
             )
-            seqnum += 1
+            seq_num += 1
 
     # Tell child processes to stop
     print('Stopping processes...')
@@ -117,4 +119,4 @@ if __name__ == '__main__':
     print("done.")
     print("Subjects: ", subjects)
     print("Actions: ", actions)
-    print("Max Frame Count:", maxframecount)
+    print("Max Frame Count:", max_frame_count)

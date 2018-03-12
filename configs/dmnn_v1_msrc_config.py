@@ -1,7 +1,7 @@
 {
     # Datasets: MSRC12, NTURGBD
     'data_set': 'MSRC12',
-    'data_set_version': '',
+    'data_set_version': 'v1',
     'model_type': 'dmnn',
     # Model version to train
     'model_version': 'v1',

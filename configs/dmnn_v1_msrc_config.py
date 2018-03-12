@@ -6,5 +6,5 @@
     # Model version to train
     'model_version': 'v1',
     # Multiplies length of epoch, useful for tiny datasets
-    'epoch_factor': 10,
+    'epoch_factor': 1,
 }

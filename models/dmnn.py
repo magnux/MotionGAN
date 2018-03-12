@@ -1,13 +1,14 @@
 from __future__ import absolute_import, division, print_function
 import numpy as np
 import tensorflow.contrib.keras.api.keras.backend as K
-
 from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import Conv2D, \
     Dense, Activation, Lambda, BatchNormalization, Reshape, Add
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
+from layers.edm import edm
+from layers.comb_matrix import CombMatrix
 
 CONV2D_ARGS = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
 
@@ -32,24 +33,22 @@ class _DMNN(object):
         self.model.compile(Adam(lr=config.learning_rate), 'sparse_categorical_crossentropy', ['accuracy'])
 
 
-def _edm(x):
-    x1 = K.expand_dims(x, axis=1)
-    x2 = K.expand_dims(x, axis=2)
-    # epsilon needed in sqrt to avoid numerical issues
-    return K.sqrt(K.sum(K.square(x1 - x2), axis=-1) + K.epsilon())
-
-
 class DMNNv1(_DMNN):
     # DM2DCNN
 
     def classifier(self, x):
         n_hidden = 32
 
-        x = Lambda(lambda args: K.expand_dims(_edm(args), axis=-1), name='classifier/edms')(x)
+        x = CombMatrix(self.njoints, name='classifier/comb_matrix')(x)
+
+        x = Lambda(lambda args: edm(args), name='classifier/edms')(x)
+
+        x = BatchNormalization(name='classifier/bn_in')(x)
 
         x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name='classifier/resh_in')(x)
 
-        x = Conv2D(n_hidden, 3, 1, name='classifier/conv_in', **CONV2D_ARGS)(x)
+        x = Conv2D(n_hidden, 3, 1, activation='relu',
+                   name='classifier/conv_in', **CONV2D_ARGS)(x)
         for i in range(4):
             n_filters = n_hidden * (2 ** i)
             x = BatchNormalization(name='classifier/block_%d/bn_in' % i)(x)

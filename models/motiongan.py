@@ -12,6 +12,7 @@ from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 from layers.joints import UnfoldJoints, FoldJoints
 from layers.normalization import InstanceNormalization
+from layers.edm import edm
 from collections import OrderedDict
 
 CONV1D_ARGS = {'padding': 'same', 'kernel_regularizer': l2(5e-4)}
@@ -37,13 +38,6 @@ def _conv_block(x, out_filters, bneck_factor, kernel_size, strides, i, j, net_na
     x = conv_func(filters=out_filters, kernel_size=kernel_size, strides=strides,
                   name='%s/block_%d/branch_%d/conv_out' % (net_name, i, j), **CONV2D_ARGS)(x)
     return x
-
-
-def _edm(x):
-    x1 = K.expand_dims(x, axis=1)
-    x2 = K.expand_dims(x, axis=2)
-    # epsilon needed in sqrt to avoid numerical issues
-    return K.sqrt(K.sum(K.square(x1 - x2), axis=-1) + K.epsilon())
 
 
 class _MotionGAN(object):
@@ -197,7 +191,7 @@ class _MotionGAN(object):
         gen_seq = self.gen_outputs[0]
         zero_sum = K.sum(real_seq, axis=(1, 3))
         zero_frames = K.cast(K.not_equal(zero_sum, K.zeros_like(zero_sum)), 'float32') + K.epsilon()
-        zero_frames_edm = K.reshape(zero_frames, (zero_frames.shape[0], 1, 1, zero_frames.shape[1]))
+        zero_framesedm = K.reshape(zero_frames, (zero_frames.shape[0], 1, 1, zero_frames.shape[1]))
 
         # WGAN Basic losses
         loss_real = K.mean(_get_tensor(self.real_outputs, 'score_out'), axis=-1)
@@ -239,8 +233,8 @@ class _MotionGAN(object):
         # Reconstruction loss
         loss_rec = K.sum(K.sum(K.mean(K.square(real_seq - gen_seq), axis=-1), axis=1) * zero_frames, axis=1)
         gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
-        loss_rec_edm = K.sum(K.mean(K.square(_edm(real_seq) - _edm(gen_seq)) * zero_frames_edm, axis=(1, 2)), axis=1)
-        gen_losses['gen_loss_rec_edm'] = 10.0 * self.rec_scale * K.mean(loss_rec_edm)
+        loss_recedm = K.sum(K.mean(K.square(edm(real_seq) - edm(gen_seq)) * zero_framesedm, axis=(1, 2)), axis=1)
+        gen_losses['gen_loss_recedm'] = 10.0 * self.rec_scale * K.mean(loss_recedm)
 
         if self.use_pose_fae:
             # fae_loss_rec = K.sum(K.mean(K.square(self.fae_z - self.fae_gen_z) * K.min(seq_mask, axis=1), axis=-1), axis=1)
@@ -282,16 +276,16 @@ class _MotionGAN(object):
             mask = np.ones((self.njoints, self.njoints), dtype='float32')
             mask = np.triu(mask, 1) - np.triu(mask, 2)
             mask = np.reshape(mask, (1, self.njoints, self.njoints, 1))
-            real_shape = K.sum(_edm(real_seq) * zero_frames_edm / K.sum(zero_frames_edm, axis=-1, keepdims=True), axis=-1, keepdims=True) * mask
-            gen_shape = _edm(gen_seq) * zero_frames_edm * mask
+            real_shape = K.sum(edm(real_seq) * zero_framesedm / K.sum(zero_framesedm, axis=-1, keepdims=True), axis=-1, keepdims=True) * mask
+            gen_shape = edm(gen_seq) * zero_framesedm * mask
             loss_shape = K.sum(K.mean(K.square(real_shape - gen_shape), axis=-1), axis=(1, 2))
             gen_losses['gen_loss_shape'] = self.shape_scale * K.mean(loss_shape)
-            joint_dists = _edm(real_seq) * zero_frames_edm
-            mean_dists = K.sum(_edm(real_seq) * zero_frames_edm / K.sum(zero_frames_edm, axis=-1, keepdims=True), axis=-1, keepdims=True)
+            joint_dists = edm(real_seq) * zero_framesedm
+            mean_dists = K.sum(edm(real_seq) * zero_framesedm / K.sum(zero_framesedm, axis=-1, keepdims=True), axis=-1, keepdims=True)
             fix_joints = K.cast(K.greater_equal(joint_dists, mean_dists - 1e-4), 'float32')
             fix_joints = fix_joints * K.cast(K.less_equal(joint_dists, mean_dists + 1e-4), 'float32')
             real_fix_shape = mean_dists * fix_joints
-            gen_fix_shape = _edm(gen_seq) * zero_frames_edm * fix_joints
+            gen_fix_shape = edm(gen_seq) * zero_framesedm * fix_joints
             loss_fix_shape = K.sum(K.mean(K.square(real_fix_shape - gen_fix_shape), axis=-1), axis=(1, 2))
             gen_losses['gen_loss_fix_shape'] = 10.0 * self.shape_scale * K.mean(loss_fix_shape)
         if self.smoothing_loss:
@@ -632,7 +626,7 @@ class MotionGANV4(_MotionGAN):
     def discriminator(self, x):
         n_hidden = 32
 
-        x = Lambda(lambda args: K.expand_dims(_edm(args), axis=-1), name='discriminator/edms')(x)
+        x = Lambda(lambda args: K.expand_dims(edm(args), axis=-1), name='discriminator/edms')(x)
 
         x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name='discriminator/resh_in')(x)
 

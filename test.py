@@ -11,7 +11,7 @@ from utils.viz import plot_seq_gif, plot_seq_pano
 import h5py as h5
 from tqdm import trange
 
-MASK_MODES = ('No mask', 'Future Prediction', 'Oclusion Simulation', 'Noisy Transmission')
+MASK_MODES = ('No mask', 'Future Prediction', 'Occlusion Simulation', 'Structured Occlusion', 'Noisy Transmission')
 
 logging = tf.logging
 flags = tf.flags
@@ -21,8 +21,8 @@ flags.DEFINE_string("config_file", None, "Model config file")
 flags.DEFINE_string("test_mode", "show_images", "Test modes: show_images, write_images, write_data, dmnn_score")
 flags.DEFINE_string("dmnn_save_path", None, "Path to trained DMNN model")
 flags.DEFINE_string("images_mode", "gif", "Image modes: gif, png")
-flags.DEFINE_integer("mask_mode", 0, "Mask modes: 0:%s, 1:%s, 2:%s, 3:%s" % MASK_MODES)
-flags.DEFINE_float("keep_prob", 0.5, "Probability of keeping input data. (1 == Keep All)")
+flags.DEFINE_integer("mask_mode", 3, "Mask modes: 0:%s, 1:%s, 2:%s, 3:%s, 4:%s" % MASK_MODES)
+flags.DEFINE_float("keep_prob", 0.8, "Probability of keeping input data. (1 == Keep All)")
 FLAGS = flags.FLAGS
 
 if __name__ == "__main__":
@@ -74,7 +74,16 @@ if __name__ == "__main__":
         elif mask_type == 2:  # Occlusion Simulation
             rand_joints = np.random.randint(config.njoints, size=np.int(config.njoints * (1.0 - keep_prob)))
             mask[:, rand_joints, :, :] = 0.0
-        elif mask_type == 3:  # Noisy transmission
+        elif mask_type == 3:  # Structured Occlusion Simulation
+            rand_joints = set()
+            while ((config.njoints - len(rand_joints)) >
+                   (config.njoints * keep_prob)):
+                joints_to_add = (config.body_members.values()[np.random.randint(len(config.body_members))])['joints']
+                for joint in joints_to_add:
+                    rand_joints.add(joint)
+            print(list(rand_joints))
+            mask[:, list(rand_joints), :, :] = 0.0
+        elif mask_type == 4:  # Noisy transmission
             mask = np.random.binomial(1, keep_prob, size=mask.shape)
 
         return mask
@@ -83,7 +92,7 @@ if __name__ == "__main__":
         labs_batch, poses_batch = val_generator.next()
 
         mask_batch = poses_batch[..., 3, np.newaxis]
-        mask_batch = ((mask_batch + gen_mask(FLAGS.mask_mode, FLAGS.keep_prob)) > 0).astype('float32')
+        mask_batch = mask_batch * gen_mask(FLAGS.mask_mode, FLAGS.keep_prob)
         poses_batch = poses_batch[..., :3]
 
         gen_inputs = [poses_batch, mask_batch]

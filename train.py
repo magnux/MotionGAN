@@ -72,7 +72,15 @@ if __name__ == "__main__":
         elif mask_type == 2:  # Occlusion Simulation
             rand_joints = np.random.randint(config.njoints, size=np.int(config.njoints * (1.0 - keep_prob)))
             mask[:, rand_joints, :, :] = 0.0
-        elif mask_type == 3:  # Noisy transmission
+        elif mask_type == 3:  # Structured Occlusion Simulation
+            rand_joints = set()
+            while ((config.njoints - len(rand_joints)) >
+                   (config.njoints * keep_prob)):
+                joints_to_add = (config.body_members.values()[np.random.randint(len(config.body_members))])['joints']
+                for joint in joints_to_add:
+                    rand_joints.add(joint)
+            mask[:, list(rand_joints), :, :] = 0.0
+        elif mask_type == 4:  # Noisy transmission
             mask = np.random.binomial(1, keep_prob, size=mask.shape)
 
         return mask
@@ -99,7 +107,7 @@ if __name__ == "__main__":
             t.set_description('| ep: %d | lr: %.2e |' % (epoch, learning_rate))
             disc_loss_sum = 0.0
             gen_loss_sum = 0.0
-            keep_prob = 0.5 - (0.4 * epoch / config.num_epochs)
+            keep_prob = 0.8 - (0.6 * epoch / config.num_epochs)
             for batch in t:
                 tensorboard.on_batch_begin(batch)
 
@@ -113,7 +121,7 @@ if __name__ == "__main__":
                     labs_batch, poses_batch = train_generator.next()
 
                     mask_batch = poses_batch[..., 3, np.newaxis]
-                    mask_batch = ((mask_batch + gen_mask(np.random.randint(4), keep_prob)) > 0).astype('float32')
+                    mask_batch = mask_batch * gen_mask(np.random.randint(5), keep_prob)
                     poses_batch = poses_batch[..., :3]
 
                     disc_inputs = [poses_batch]
@@ -138,7 +146,7 @@ if __name__ == "__main__":
                 labs_batch, poses_batch = train_generator.next()
 
                 mask_batch = poses_batch[..., 3, np.newaxis]
-                mask_batch = ((mask_batch + gen_mask(np.random.randint(4), keep_prob)) > 0).astype('float32')
+                mask_batch = mask_batch * gen_mask(np.random.randint(5), keep_prob)
                 poses_batch = poses_batch[..., :3]
 
                 gen_inputs = [poses_batch, mask_batch]
@@ -166,8 +174,8 @@ if __name__ == "__main__":
             labs_batch, poses_batch = val_generator.next()
 
             mask_batch = poses_batch[..., 3, np.newaxis]
-            mask_mode = np.random.randint(4)
-            mask_batch = ((mask_batch + gen_mask(mask_mode, keep_prob)) > 0).astype('float32')
+            mask_mode = np.random.randint(5)
+            mask_batch = mask_batch * gen_mask(mask_mode, keep_prob)
             poses_batch = poses_batch[..., :3]
 
             disc_inputs = [poses_batch]

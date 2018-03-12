@@ -53,10 +53,28 @@ def get_config(flags):
         config.num_subjects = 40
         config.njoints = 25  # *2, Note: only taking first skeleton
         config.max_plen = 300
+        config.body_members = {
+            'left_arm': {'joints': [20, 8, 9, 10, 11], 'side': 'left'},
+            # [21, 9, 10, 11, 12, 24, 25]
+            'right_arm': {'joints': [20, 4, 5, 6, 7], 'side': 'right'},
+            # [21, 5, 6, 7, 8, 22, 23]
+            'head': {'joints': [20, 2, 3], 'side': 'right'},
+            'torso': {'joints': [20, 1, 0], 'side': 'right'},
+            'left_leg': {'joints': [0, 16, 17, 18, 19], 'side': 'left'},
+            'right_leg': {'joints': [0, 12, 13, 14, 15], 'side': 'right'},
+        }
     elif config.data_set == 'MSRC12':
         config.num_actions = 12
         config.num_subjects = 30
         config.njoints = 20
         config.max_plen = 1320
+        config.body_members = {
+            'left_arm': {'joints': [2, 4, 5, 6, 7], 'side': 'left'},
+            'right_arm': {'joints': [2, 8, 9, 10, 11], 'side': 'right'},
+            'head': {'joints': [1, 2, 3], 'side': 'right'},
+            'torso': {'joints': [1, 0], 'side': 'right'},
+            'left_leg': {'joints': [0, 12, 13, 14, 15], 'side': 'left'},
+            'right_leg': {'joints': [0, 16, 17, 18, 19], 'side': 'right'},
+        }
 
     return config

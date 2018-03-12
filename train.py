@@ -62,7 +62,7 @@ if __name__ == "__main__":
                               write_graph=True)
     tensorboard.set_model(model_wrap.gan_model)
 
-    mask_modes = ['No mask', 'Future Prediction', 'Oclusion Simulation', 'Noisy Transmission']
+    mask_modes = ('No mask', 'Future Prediction', 'Occlusion Simulation', 'Structured Occlusion', 'Noisy Transmission')
 
     def gen_mask(mask_type=0, keep_prob=1.0):
         # Default mask, no mask

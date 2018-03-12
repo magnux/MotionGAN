@@ -48,7 +48,10 @@ if __name__ == "__main__":
         return learning_rate
     lr_scheduler = LearningRateScheduler(schedule)
     checkpointer = ModelCheckpoint(filepath=config.save_path + '_weights.hdf5')
-    tensorboard = TensorBoard(log_dir=config.save_path + '_logs')
+    tensorboard = TensorBoard(log_dir=config.save_path + '_logs',
+                              epoch=config.epoch,
+                              n_batches=train_batches,
+                              batch_size=config.batch_size)
 
 
     @threadsafe_generator

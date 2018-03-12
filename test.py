@@ -210,6 +210,7 @@ if __name__ == "__main__":
 
         real_eval_sum = 0
         gen_eval_sum = 0
+        bl_eval_sum = 0
 
         t = trange(val_batches)
         for i in t:
@@ -223,7 +224,16 @@ if __name__ == "__main__":
             gen_loss, gen_acc = model_wrap_dmnn.model.evaluate(gen_outputs, labs_batch[:, 2], batch_size=config.batch_size, verbose=2)
             gen_eval_sum += gen_acc
 
-            t.set_postfix({'real_eval': real_eval_sum / (i + 1), 'gen_eval': gen_eval_sum / (i + 1) })
+            bl_batch = np.empty_like(poses_batch)
+            for j in range(config.batch_size):
+                bl_batch[j, ...] = constant_baseline(poses_batch[j, ...], mask_batch[j, ...])
+
+            bl_loss, bl_acc = model_wrap_dmnn.model.evaluate(bl_batch, labs_batch[:, 2], batch_size=config.batch_size, verbose=2)
+            bl_eval_sum += bl_acc
+
+            t.set_postfix({'real_eval': real_eval_sum / (i + 1),
+                           'gen_eval': gen_eval_sum / (i + 1),
+                           'bl_eval': bl_eval_sum / (i + 1)})
 
 
 

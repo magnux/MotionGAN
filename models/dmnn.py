@@ -5,7 +5,7 @@ import tensorflow.contrib.keras.api.keras.backend as K
 from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import Conv2D, \
-    Dense, Activation, Lambda, BatchNormalization, Reshape
+    Dense, Activation, Lambda, BatchNormalization, Reshape, Add
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 
@@ -40,7 +40,7 @@ def _edm(x):
 
 
 class DMNNv1(_DMNN):
-    # Gated DM2DCNN
+    # DM2DCNN
 
     def classifier(self, x):
         n_hidden = 32
@@ -52,22 +52,15 @@ class DMNNv1(_DMNN):
         x = Conv2D(n_hidden, 3, 1, name='classifier/conv_in', **CONV2D_ARGS)(x)
         for i in range(4):
             n_filters = n_hidden * (2 ** i)
+            x = BatchNormalization(name='classifier/block_%d/bn_in' % i)(x)
             shortcut = Conv2D(n_filters, 2, 2,
                         name='classifier/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
-            shortcut = BatchNormalization(name='classifier/block_%d/sh_bn' % i)(shortcut)
             pi = Conv2D(n_filters // 2, 3, 1, activation='relu',
                         name='classifier/block_%d/pi_0' % i, **CONV2D_ARGS)(x)
-            pi = BatchNormalization(name='classifier/block_%d/pi_bn_0' % i)(pi)
+            pi = BatchNormalization(name='classifier/block_%d/pi_bn' % i)(pi)
             pi = Conv2D(n_filters, 3, 2, activation='relu',
                         name='classifier/block_%d/pi_1' % i, **CONV2D_ARGS)(pi)
-            pi = BatchNormalization(name='classifier/block_%d/pi_bn_1' % i)(pi)
-            tau = Conv2D(n_filters // 8, 3, 1, activation='relu',
-                         name='classifier/block_%d/tau_0' % i, **CONV2D_ARGS)(x)
-            tau = BatchNormalization(name='classifier/block_%d/tau_bn' % i)(tau)
-            tau = Conv2D(n_filters, 3, 2, activation='sigmoid',
-                         name='classifier/block_%d/tau_1' % i, **CONV2D_ARGS)(tau)
-            x = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
-                       name='classifier/block_%d/attention' % i)([shortcut, pi, tau])
+            x = Add(name='classifier/block_%d/add' % i)([shortcut, pi])
 
         x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name='classifier/mean_pool')(x)
         x = Dense(self.num_actions, activation='softmax')(x)

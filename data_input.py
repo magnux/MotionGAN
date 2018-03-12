@@ -31,13 +31,22 @@ class DataInput(object):
 
         self.key_pattern = re.compile(".*SEQ(\d+).*")
 
+        # Remove two skel seqs
+        if self.data_set == "NTURGBD":
+            self.train_keys = [
+                key for key in self.train_keys if np.int32(self.h5file[key + '/Action']) < 50
+            ]
+            self.val_keys = [
+                key for key in self.val_keys if np.int32(self.h5file[key + '/Action']) < 50
+            ]
+
         self.len_train_keys = len(self.train_keys)
         self.len_val_keys = len(self.val_keys)
 
         self.train_epoch_size = (self.len_train_keys // self.batch_size) #+ 1
         self.val_epoch_size = (self.len_val_keys // self.batch_size) #+ 1
 
-        self.pshape = [config.njoints, None, 3]
+        self.pshape = [config.njoints, None, 4]
         self.max_plen = config.max_plen
 
         self.pshape[1] = self.pick_num if self.pick_num > 0 else (self.crop_len if self.crop_len > 0 else None)
@@ -87,8 +96,8 @@ class DataInput(object):
                     self.poses_std = np.load(std_file_path)
                 else:
                     print('Computing mean and std of skels')
-                    self.poses_mean = np.mean(poses, axis=(0, 1, 2), keepdims=True)
-                    self.poses_std = np.std(poses, axis=(0, 1, 2), keepdims=True)
+                    self.poses_mean = np.mean(poses[..., :3], axis=(0, 1, 2), keepdims=True)
+                    self.poses_std = np.std(poses[..., :3], axis=(0, 1, 2), keepdims=True)
                     print(self.poses_mean, self.poses_std)
                     np.save(min_file_path, self.poses_mean)
                     np.save(std_file_path, self.poses_std)
@@ -96,7 +105,7 @@ class DataInput(object):
                 self.poses_mean = np.load(min_file_path)
                 self.poses_std = np.load(std_file_path)
 
-            poses = self.normalize_poses(poses)
+            poses[..., :3] = self.normalize_poses(poses[..., :3])
 
         return labs, poses
 
@@ -118,19 +127,14 @@ class DataInput(object):
 
     def process_pose(self, pose, plen=None):
         plen = np.int32(np.size(pose, 2)) if plen is None else plen
+
+        pose[:, 3, :] = (pose[:, 3, :] > 0).astype('float32')  # tracking state
+        pose[np.isnan(pose)] = 0
+
         if self.data_set == 'NTURGBD':
-            pose = pose[:, :3, :]
-            pose = pose[:25, :3, :]  # Warning: only taking first skeleton
-        elif self.data_set == 'SBU_inter':
-            pose[np.isnan(pose)] = 0
-            m_fact = np.reshape(np.array([1280, 960, 0]), [1, 3, 1])
-            p_fact = np.reshape(np.array([2560, 1920, 1280]), [1, 3, 1])
-            pose = m_fact - (pose * p_fact)
-            pose /= 1000
-            pose[pose == 0] = 1.0e-8
+            pose = pose[:25, :, :]  # Warning: only taking first skeleton
         elif self.data_set == 'MSRC12':
-            pose = pose[:, :3, :]
-            pose[np.isnan(pose)] = 0
+            pass
 
         pose = np.transpose(pose, (0, 2, 1))
 

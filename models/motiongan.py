@@ -497,8 +497,7 @@ class MotionGANV1(_MotionGAN):
                 strides = 1
             shortcut = Conv2DTranspose(n_filters, strides, strides,
                                        name='generator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
-            pi = _conv_block(x, n_filters, 1, 3, strides, i, 0,
-                             'generator', Conv2DTranspose)
+            pi = _conv_block(x, n_filters, 1, 3, strides, i, 0, 'generator', Conv2DTranspose)
 
             x = Add(name='generator/block_%d/add' % i)([shortcut, pi])
 
@@ -647,12 +646,7 @@ class MotionGANV4(_MotionGAN):
                         name='discriminator/block_%d/pi_0' % i, **CONV2D_ARGS)(x)
             pi = Conv2D(n_filters, 3, 2, activation='relu',
                         name='discriminator/block_%d/pi_1' % i, **CONV2D_ARGS)(pi)
-            tau = Conv2D(n_filters // 8, 3, 1, activation='relu',
-                         name='discriminator/block_%d/tau_0' % i, **CONV2D_ARGS)(x)
-            tau = Conv2D(n_filters, 3, 2, activation='sigmoid',
-                         name='discriminator/block_%d/tau_1' % i, **CONV2D_ARGS)(tau)
-            x = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
-                       name='discriminator/block_%d/attention' % i)([shortcut, pi, tau])
+            x = Add(name='discriminator/block_%d/add' % i)([shortcut, pi])
 
         x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name='discriminator/mean_pool')(x)
 
@@ -664,16 +658,8 @@ class MotionGANV4(_MotionGAN):
         block_strides = [2] * self.nblocks
 
         if not (self.time_pres_emb or self.use_pose_fae):
-            for i in range(2):
-                if i > 0:
-                    x = InstanceNormalization(axis=-1, name='generator/dense_block%d/bn' % i)(x)
-                    x = Activation('relu', name='generator/dense_block%d/relu' % i)(x)
-                x = Dense(n_hidden * 4, name='generator/dense_block%d/dense' % i)(x)
-
-            x = InstanceNormalization(axis=-1, name='generator/inorm_conv_in')(x)
-            x = Activation('relu', name='generator/relu_conv_in')(x)
-            x = Dense(4 * 4 * n_hidden * block_factors[0], name='generator/dense_conv_in')(x)
-            x = Reshape((4, 4, n_hidden * block_factors[0]), name='generator/reshape_conv_in')(x)
+            x = Dense(4 * 4 * n_hidden * block_factors[0], name='generator/dense_in')(x)
+            x = Reshape((4, 4, n_hidden * block_factors[0]), name='generator/reshape_in')(x)
 
         for i, factor in enumerate(block_factors):
             n_filters = n_hidden * factor
@@ -684,18 +670,9 @@ class MotionGANV4(_MotionGAN):
                 strides = 1
             shortcut = Conv2DTranspose(n_filters, strides, strides,
                                        name='generator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
-
             pi = _conv_block(x, n_filters, 1, 3, strides, i, 0, 'generator', Conv2DTranspose)
 
-            gamma = _conv_block(x, n_filters, 4, 3, strides, i, 1, 'generator', Conv2DTranspose)
-            gamma = Activation('sigmoid', name='generator/block_%d/gamma_sigmoid' % i)(gamma)
-
-            # tau = 1 - gamma
-            tau = Lambda(lambda arg: 1 - arg, name='generator/block_%d/tau' % i)(gamma)
-
-            # x = (pi * tau) + (shortcut * gamma)
-            x = Lambda(lambda args: (args[0] * args[1]) + (args[2] * args[3]),
-                       name='generator/block_%d/out_x' % i)([pi, tau, shortcut, gamma])
+            x = Add(name='generator/block_%d/add' % i)([shortcut, pi])
 
         x = InstanceNormalization(axis=-1, name='generator/inorm_out')(x)
         x = Activation('relu', name='generator/relu_out')(x)

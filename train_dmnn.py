@@ -59,7 +59,7 @@ if __name__ == "__main__":
         generator = data_input.batch_generator(is_training)
         while True:
             labs_batch, poses_batch = generator.next()
-            yield (poses_batch, labs_batch[:, 2])
+            yield (poses_batch[..., :3], labs_batch[:, 2])
 
 
     # Training call

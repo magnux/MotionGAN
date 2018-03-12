@@ -111,8 +111,13 @@ if __name__ == "__main__":
                 loss_fake = 0.0
                 for disc_batch in range(disc_batches):
                     labs_batch, poses_batch = train_generator.next()
+
+                    mask_batch = poses_batch[..., 3, np.newaxis]
+                    mask_batch = ((mask_batch + gen_mask(np.random.randint(4), keep_prob)) > 0).astype('float32')
+                    poses_batch = poses_batch[..., :3]
+
                     disc_inputs = [poses_batch]
-                    gen_inputs = [poses_batch, gen_mask(np.random.randint(4), keep_prob)]
+                    gen_inputs = [poses_batch, mask_batch]
                     place_holders = []
                     if config.action_cond:
                         place_holders.append(labs_batch[:, 2])
@@ -131,7 +136,12 @@ if __name__ == "__main__":
                     disc_losses[key] /= disc_batches
 
                 labs_batch, poses_batch = train_generator.next()
-                gen_inputs = [poses_batch, gen_mask(np.random.randint(4), keep_prob)]
+
+                mask_batch = poses_batch[..., 3, np.newaxis]
+                mask_batch = ((mask_batch + gen_mask(np.random.randint(4), keep_prob)) > 0).astype('float32')
+                poses_batch = poses_batch[..., :3]
+
+                gen_inputs = [poses_batch, mask_batch]
                 place_holders = []
                 if config.action_cond:
                     place_holders.append(labs_batch[:, 2])
@@ -154,9 +164,13 @@ if __name__ == "__main__":
                 config.batch = batch + 1
 
             labs_batch, poses_batch = val_generator.next()
+
+            mask_batch = poses_batch[..., 3, np.newaxis]
+            mask_mode = np.random.randint(4)
+            mask_batch = ((mask_batch + gen_mask(mask_mode, keep_prob)) > 0).astype('float32')
+            poses_batch = poses_batch[..., :3]
+
             disc_inputs = [poses_batch]
-            mask_mode = 1  # np.random.randint(4)
-            mask_batch = gen_mask(mask_mode, 0.5)
             gen_inputs = [poses_batch, mask_batch]
             place_holders = []
             if config.action_cond:

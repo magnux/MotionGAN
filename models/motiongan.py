@@ -234,8 +234,8 @@ class _MotionGAN(object):
         # Reconstruction loss
         loss_rec = K.sum(K.sum(K.mean(K.square(real_seq - gen_seq), axis=-1), axis=1) * zero_frames, axis=1)
         gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
-        loss_recedm = K.sum(K.mean(K.square(edm(real_seq) - edm(gen_seq)) * zero_framesedm, axis=(1, 2)), axis=1)
-        gen_losses['gen_loss_recedm'] = 10.0 * self.rec_scale * K.mean(loss_recedm)
+        loss_rec_edm = K.sum(K.mean(K.square(edm(real_seq) - edm(gen_seq)) * zero_framesedm, axis=(1, 2)), axis=1)
+        gen_losses['gen_loss_rec_edm'] = 10.0 * self.rec_scale * K.mean(loss_rec_edm)
 
         if self.use_pose_fae:
             # fae_loss_rec = K.sum(K.mean(K.square(self.fae_z - self.fae_gen_z) * K.min(seq_mask, axis=1), axis=-1), axis=1)

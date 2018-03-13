@@ -625,7 +625,7 @@ class MotionGANV4(_MotionGAN):
     # DM2DCNN Based discriminator
 
     def discriminator(self, x):
-        n_hidden = 16
+        n_hidden = 32
 
         x = CombMatrix(self.njoints, name='classifier/comb_matrix')(x)
 
@@ -635,7 +635,7 @@ class MotionGANV4(_MotionGAN):
 
         x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name='classifier/resh_in')(x)
 
-        x = Conv2D(n_hidden, 3, 1, activation='relu',
+        x = Conv2D(n_hidden // 2, 3, 2, activation='relu',
                    name='classifier/conv_in', **CONV2D_ARGS)(x)
         for i in range(4):
             n_filters = n_hidden * (2 ** i)

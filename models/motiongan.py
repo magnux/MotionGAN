@@ -625,7 +625,7 @@ class MotionGANV4(_MotionGAN):
     # DM2DCNN Based discriminator
 
     def discriminator(self, x):
-        n_hidden = 32
+        n_hidden = 16
 
         x = CombMatrix(self.njoints, name='classifier/comb_matrix')(x)
 

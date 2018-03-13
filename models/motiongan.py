@@ -13,6 +13,7 @@ from tensorflow.contrib.keras.api.keras.regularizers import l2
 from layers.joints import UnfoldJoints, FoldJoints
 from layers.normalization import InstanceNormalization
 from layers.edm import edm
+from layers.comb_matrix import CombMatrix
 from collections import OrderedDict
 
 CONV1D_ARGS = {'padding': 'same', 'kernel_regularizer': l2(5e-4)}
@@ -621,28 +622,35 @@ class MotionGANV3(_MotionGAN):
 
 
 class MotionGANV4(_MotionGAN):
-    # Distance Based discriminator
+    # DM2DCNN Based discriminator
 
     def discriminator(self, x):
         n_hidden = 32
 
-        x = Lambda(lambda args: K.expand_dims(edm(args), axis=-1), name='discriminator/edms')(x)
+        x = CombMatrix(self.njoints, name='classifier/comb_matrix')(x)
 
-        x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name='discriminator/resh_in')(x)
+        x = Lambda(lambda args: edm(args), name='classifier/edms')(x)
 
-        x = Conv2D(n_hidden, 3, 1,
-                   name='discriminator/conv_in', **CONV2D_ARGS)(x)
+        x = InstanceNormalization(name='classifier/bn_in')(x)
+
+        x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name='classifier/resh_in')(x)
+
+        x = Conv2D(n_hidden, 3, 1, activation='relu',
+                   name='classifier/conv_in', **CONV2D_ARGS)(x)
         for i in range(4):
             n_filters = n_hidden * (2 ** i)
+            x = InstanceNormalization(name='classifier/block_%d/bn_in' % i)(x)
             shortcut = Conv2D(n_filters, 2, 2,
-                        name='discriminator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
+                        name='classifier/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
             pi = Conv2D(n_filters // 2, 3, 1, activation='relu',
-                        name='discriminator/block_%d/pi_0' % i, **CONV2D_ARGS)(x)
+                        name='classifier/block_%d/pi_0' % i, **CONV2D_ARGS)(x)
+            pi = InstanceNormalization(name='classifier/block_%d/pi_bn' % i)(pi)
             pi = Conv2D(n_filters, 3, 2, activation='relu',
-                        name='discriminator/block_%d/pi_1' % i, **CONV2D_ARGS)(pi)
-            x = Add(name='discriminator/block_%d/add' % i)([shortcut, pi])
+                        name='classifier/block_%d/pi_1' % i, **CONV2D_ARGS)(pi)
+            x = Add(name='classifier/block_%d/add' % i)([shortcut, pi])
 
-        x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name='discriminator/mean_pool')(x)
+        x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name='classifier/mean_pool')(x)
+        x = Dense(self.num_actions, activation='softmax')(x)
 
         return x
 

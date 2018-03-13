@@ -169,7 +169,7 @@ if __name__ == '__main__':
         for key, val in meta_data.items():
             _create_data_set(h5file, data_path + key, val)
 
-        _create_data_set(h5file, data_path + 'Pose', pose_array)
+        _create_data_set(h5file, data_path + 'Pose', pose_array, dtype='float32')
 
 
     def _create_data_set(h5file, data_path, data_array, dtype='int32'):

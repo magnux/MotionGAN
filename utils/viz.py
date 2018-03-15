@@ -8,10 +8,8 @@ from PIL import Image
 
 
 NTU_BODY_MEMBERS = {
-    'left_arm': {'joints': [20, 8, 9, 10, 11], 'side': 'left'},
-    # [21, 9, 10, 11, 12, 24, 25]
-    'right_arm': {'joints': [20, 4, 5, 6, 7], 'side': 'right'},
-    # [21, 5, 6, 7, 8, 22, 23]
+    'left_arm': {'joints': [20, 8, 9, 10, 11, 23, 11, 24], 'side': 'left'},
+    'right_arm': {'joints': [20, 4, 5, 6, 7, 21, 7, 22], 'side': 'right'},
     'head': {'joints': [20, 2, 3], 'side': 'right'},
     'torso': {'joints': [20, 1, 0], 'side': 'right'},
     'left_leg': {'joints': [0, 16, 17, 18, 19], 'side': 'left'},

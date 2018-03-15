@@ -81,7 +81,6 @@ if __name__ == "__main__":
                 joints_to_add = (config.body_members.values()[np.random.randint(len(config.body_members))])['joints']
                 for joint in joints_to_add:
                     rand_joints.add(joint)
-            print(list(rand_joints))
             mask[:, list(rand_joints), :, :] = 0.0
         elif mask_type == 4:  # Noisy transmission
             mask = np.random.binomial(1, keep_prob, size=mask.shape)

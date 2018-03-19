@@ -26,6 +26,7 @@ class EDM(Layer):
         return edm(x)
 
     def compute_output_shape(self, input_shape):
+        input_shape[3] = input_shape[2]
         input_shape[2] = input_shape[1]
         return input_shape
 

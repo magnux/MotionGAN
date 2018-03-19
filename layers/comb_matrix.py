@@ -25,16 +25,11 @@ class CombMatrix(Layer):
     def call(self, x):
         perm_dims = range(len(self.shape))
         perm_dims[self.joints_dim], perm_dims[-1] = perm_dims[-1], perm_dims[self.joints_dim]
+        perm_shape = [int(self.shape[i]) for i in perm_dims]
         x = permute_dimensions(x, perm_dims)
-        # x = reshape(x, [np.prod([int(self.shape[i])
-        #                          for i in range(len(self.shape))
-        #                          if i != self.joints_dim]),
-        #                 int(self.shape[self.joints_dim])])
+        x = reshape(x, [np.prod(perm_shape[:-1]), perm_shape[-1]])
         x = dot(x, self.comb_matrix)
-        # x = reshape(x, [int(self.shape[i])
-        #                 for i in range(len(self.shape))
-        #                 if i != self.joints_dim] +
-        #                 [int(self.shape[self.joints_dim])])
+        x = reshape(x, perm_shape)
         x = permute_dimensions(x, perm_dims)
         return x
 

@@ -12,7 +12,7 @@ from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 from layers.joints import UnfoldJoints, FoldJoints
 from layers.normalization import InstanceNormalization
-from layers.edm import EDM
+from layers.edm import edm, EDM
 from layers.comb_matrix import CombMatrix
 from collections import OrderedDict
 

@@ -27,16 +27,16 @@ def _get_tensor(tensors, name):
         return tensors
 
 
-def _conv_block(x, out_filters, bneck_factor, kernel_size, strides, i, j, net_name, conv_func=Conv2D):
+def _conv_block(x, out_filters, bneck_factor, kernel_size, strides, i, j, net_name, conv_func=Conv2D, dilation_rate=(1, 1)):
     if 'generator' in net_name:
         x = InstanceNormalization(axis=-1, name='%s/block_%d/branch_%d/inorm_in' % (net_name, i, j))(x)
     x = Activation('relu', name='%s/block_%d/branch_%d/relu_in' % (net_name, i, j))(x)
-    x = conv_func(filters=out_filters // bneck_factor, kernel_size=kernel_size, strides=1,
+    x = conv_func(filters=out_filters // bneck_factor, kernel_size=kernel_size, strides=1, dilation_rate=dilation_rate,
                   name='%s/block_%d/branch_%d/conv_in' % (net_name, i, j), **CONV2D_ARGS)(x)
     if 'generator' in net_name:
         x = InstanceNormalization(axis=-1, name='%s/block_%d/branch_%d/inorm_out' % (net_name, i, j))(x)
     x = Activation('relu', name='%s/block_%d/branch_%d/relu_out' % (net_name, i, j))(x)
-    x = conv_func(filters=out_filters, kernel_size=kernel_size, strides=strides,
+    x = conv_func(filters=out_filters, kernel_size=kernel_size, strides=strides, dilation_rate=dilation_rate,
                   name='%s/block_%d/branch_%d/conv_out' % (net_name, i, j), **CONV2D_ARGS)(x)
     return x
 
@@ -622,42 +622,33 @@ class MotionGANV3(_MotionGAN):
 
 
 class MotionGANV4(_MotionGAN):
-    # DM2DCNN Based discriminator
+    # Dilated ResNet
 
     def discriminator(self, x):
-        n_hidden = 64
+        n_hidden = 16
+        block_factors = [1, 1, 2, 2]
+        block_strides = [2, 2, 1, 1]
 
-        x = CombMatrix(self.njoints, name='discriminator/comb_matrix')(x)
+        x = Conv2D(n_hidden * block_factors[0], 3, 1, name='discriminator/conv_in', **CONV2D_ARGS)(x)
+        for i, factor in enumerate(block_factors):
+            n_filters = n_hidden * factor
+            shortcut = Conv2D(n_filters, block_strides[i], block_strides[i],
+                              name='discriminator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
+            pis = []
+            for j in range(4):
+                pis.append(_conv_block(x, n_filters, 1, 3, block_strides[i], i, j, 'discriminator', dilation_rate=(1, 2 ** j)))
 
-        x = EDM(name='discriminator/edms')(x)
+            pi = Add(name='discriminator/block_%d/add_pi' % i)(pis)
 
-        x = InstanceNormalization(axis=-1, name='discriminator/inorm_in')(x)
-        x = Activation('relu', name='discriminator/relu_in')(x)
-
-        x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name='discriminator/resh_in')(x)
-
-        x = Conv2D(n_hidden // 2, 1, 1,
-                   name='discriminator/conv_in', **CONV2D_ARGS)(x)
-        for i in range(3):
-            n_filters = n_hidden * (2 ** i)
-            shortcut = Conv2D(n_filters, 2, 2,
-                        name='discriminator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
-            pi = InstanceNormalization(axis=-1, name='discriminator/block_%d/inorm_pi_0' % i)(x)
-            pi = Activation('relu', name='discriminator/block_%d/relu_pi_0' % i)(pi)
-            pi = Conv2D(n_filters // 2, 3, 1,
-                        name='discriminator/block_%d/pi_0' % i, **CONV2D_ARGS)(pi)
-            pi = InstanceNormalization(axis=-1, name='discriminator/block_%d/inorm_pi_1' % i)(pi)
-            pi = Activation('relu', name='discriminator/block_%d/relu_pi_1' % i)(pi)
-            pi = Conv2D(n_filters, 3, 2,
-                        name='discriminator/block_%d/pi_1' % i, **CONV2D_ARGS)(pi)
             x = Add(name='discriminator/block_%d/add' % i)([shortcut, pi])
 
-        x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name='discriminator/mean_pool')(x)
+        x = Activation('relu', name='discriminator/relu_out')(x)
+        x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name='discriminator/mean_pool')(x)
 
         return x
 
     def generator(self, x):
-        n_hidden = 32
+        n_hidden = 8
         block_factors = range(1, self.nblocks + 1)
         block_strides = [2] * self.nblocks
 
@@ -674,7 +665,12 @@ class MotionGANV4(_MotionGAN):
                 strides = 1
             shortcut = Conv2DTranspose(n_filters, strides, strides,
                                        name='generator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
-            pi = _conv_block(x, n_filters, 1, 3, strides, i, 0, 'generator', Conv2DTranspose)
+
+            pis = []
+            for j in range(4):
+                pis.append(_conv_block(x, n_filters, 1, 3, strides, i, j, 'generator', Conv2DTranspose, dilation_rate=(1, 2 ** j)))
+
+            pi = Add(name='generator/block_%d/add_pi' % i)(pis)
 
             x = Add(name='generator/block_%d/add' % i)([shortcut, pi])
 

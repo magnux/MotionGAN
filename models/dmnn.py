@@ -4,7 +4,7 @@ import tensorflow.contrib.keras.api.keras.backend as K
 from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import Conv2D, \
-    Dense, Activation, Lambda, Reshape, Add
+    Dense, Activation, Lambda, Reshape, Add, Concatenate
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 from layers.edm import EDM
@@ -34,38 +34,54 @@ class _DMNN(object):
         self.model.compile(Adam(lr=config.learning_rate), 'sparse_categorical_crossentropy', ['accuracy'])
 
 
+def _conv_block(x, out_filters, bneck_factor, kernel_size, strides, i, j, net_name, dilation_rate=(1, 1)):
+    x = InstanceNormalization(axis=-1, name='%s/block_%d/branch_%d/inorm_in' % (net_name, i, j))(x)
+    x = Activation('relu', name='%s/block_%d/branch_%d/relu_in' % (net_name, i, j))(x)
+    x = Conv2D(filters=out_filters // bneck_factor, kernel_size=kernel_size, strides=1, dilation_rate=dilation_rate,
+               name='%s/block_%d/branch_%d/conv_in' % (net_name, i, j), **CONV2D_ARGS)(x)
+    x = InstanceNormalization(axis=-1, name='%s/block_%d/branch_%d/inorm_out' % (net_name, i, j))(x)
+    x = Activation('relu', name='%s/block_%d/branch_%d/relu_out' % (net_name, i, j))(x)
+    x = Conv2D(filters=out_filters, kernel_size=kernel_size, strides=strides, dilation_rate=dilation_rate,
+               name='%s/block_%d/branch_%d/conv_out' % (net_name, i, j), **CONV2D_ARGS)(x)
+    return x
+
+
 class DMNNv1(_DMNN):
     # DM2DCNN
 
     def classifier(self, x):
-        n_hidden = 64
+        n_hidden = 128 if self.data_set == 'NTURGBD' else 64
+        n_blocks = 3 if self.data_set == 'NTURGBD' else 2
+        n_groups = 16 if self.data_set == 'NTURGBD' else 8
+        strides = 2 if self.data_set == 'NTURGBD' else 3
+        bneck_factor = 4 if self.data_set == 'NTURGBD' else 2
 
-        x = CombMatrix(self.njoints, name='discriminator/comb_matrix')(x)
+        x = CombMatrix(self.njoints, name='classifier/comb_matrix')(x)
 
-        x = EDM(name='discriminator/edms')(x)
+        x = EDM(name='classifier/edms')(x)
 
-        x = InstanceNormalization(axis=-1, name='discriminator/inorm_in')(x)
-        x = Activation('relu', name='discriminator/relu_in')(x)
+        x = InstanceNormalization(axis=-1, name='classifier/inorm_in')(x)
+        x = Activation('relu', name='classifier/relu_in')(x)
 
-        x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name='discriminator/resh_in')(x)
+        x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name='classifier/resh_in')(x)
 
         x = Conv2D(n_hidden // 2, 1, 1,
-                   name='discriminator/conv_in', **CONV2D_ARGS)(x)
-        for i in range(3):
+                   name='classifier/conv_in', **CONV2D_ARGS)(x)
+        for i in range(n_blocks):
             n_filters = n_hidden * (2 ** i)
-            shortcut = Conv2D(n_filters, 2, 2,
-                        name='discriminator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
-            pi = InstanceNormalization(axis=-1, name='discriminator/block_%d/inorm_pi_0' % i)(x)
-            pi = Activation('relu', name='discriminator/block_%d/relu_pi_0' % i)(pi)
-            pi = Conv2D(n_filters // 2, 3, 1,
-                        name='discriminator/block_%d/pi_0' % i, **CONV2D_ARGS)(pi)
-            pi = InstanceNormalization(axis=-1, name='discriminator/block_%d/inorm_pi_1' % i)(pi)
-            pi = Activation('relu', name='discriminator/block_%d/relu_pi_1' % i)(pi)
-            pi = Conv2D(n_filters, 3, 2,
-                        name='discriminator/block_%d/pi_1' % i, **CONV2D_ARGS)(pi)
-            x = Add(name='discriminator/block_%d/add' % i)([shortcut, pi])
+            shortcut = Conv2D(n_filters, strides, strides,
+                        name='classifier/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
+            pis = []
+            group_size = int(x.shape[-1]) // n_groups
+            for j in range(n_groups):
+                x_group = Lambda(lambda arg: arg[:, :, :, j * group_size: (j + 1) * group_size])(x)
+                pis.append(_conv_block(x_group, n_filters // n_groups, bneck_factor, 3, strides, i, j,'classifier'))
 
-        x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name='discriminator/mean_pool')(x)
-        x = Dense(self.num_actions, activation='softmax', name='discriminator/label_out')(x)
+            pi = Concatenate(name='classifier/block_%d/cat_pi' % i)(pis)
+
+            x = Add(name='classifier/block_%d/add' % i)([shortcut, pi])
+
+        x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name='classifier/mean_pool')(x)
+        x = Dense(self.num_actions, activation='softmax', name='classifier/label_out')(x)
 
         return x

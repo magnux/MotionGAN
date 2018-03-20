@@ -625,25 +625,25 @@ class MotionGANV4(_MotionGAN):
     # Dilated ResNet
 
     def discriminator(self, x):
-        n_hidden = 16
+        n_hidden = 64
         block_factors = [1, 1, 2, 2]
         block_strides = [2, 2, 1, 1]
 
         x = Conv2D(n_hidden * block_factors[0], 3, 1, name='discriminator/conv_in', **CONV2D_ARGS)(x)
         for i, factor in enumerate(block_factors):
             n_filters = n_hidden * factor
-            shortcut = Conv2D(n_filters, 1, 1,
+            shortcut = Conv2D(n_filters, block_strides[i], block_strides[i],
                               name='discriminator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
             pis = []
             for j in range(4):
-                pis.append(_conv_block(x, n_filters, 1, 3, 1, i, j, 'discriminator', dilation_rate=(1, 2 ** j)))
+                pis.append(_conv_block(x, n_filters // 4, 1, 3, 1, i, j,
+                                       'discriminator', dilation_rate=(1, 2 ** j)))
 
-            pi = Add(name='discriminator/block_%d/add_pi' % i)(pis)
+            pi = Concatenate(name='discriminator/block_%d/cat_pi' % i)(pis)
+            pi = Conv2D(n_filters, block_strides[i], block_strides[i],
+                        name='discriminator/block_%d/reduce_pi' % i, **CONV2D_ARGS)(pi)
 
             x = Add(name='discriminator/block_%d/add' % i)([shortcut, pi])
-
-            x = Conv2D(n_filters, block_strides[i], block_strides[i],
-                       name='discriminator/block_%d/reduce_out' % i, **CONV2D_ARGS)(x)
 
         x = Activation('relu', name='discriminator/relu_out')(x)
         x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name='discriminator/mean_pool')(x)
@@ -651,7 +651,7 @@ class MotionGANV4(_MotionGAN):
         return x
 
     def generator(self, x):
-        n_hidden = 8
+        n_hidden = 32
         block_factors = range(1, self.nblocks + 1)
         block_strides = [2] * self.nblocks
 
@@ -666,19 +666,19 @@ class MotionGANV4(_MotionGAN):
                 strides = (block_strides[i], 1)
             elif self.use_pose_fae:
                 strides = 1
-            shortcut = Conv2DTranspose(n_filters, 1, 1,
+            shortcut = Conv2DTranspose(n_filters, strides, strides,
                                        name='generator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
 
             pis = []
             for j in range(4):
-                pis.append(_conv_block(x, n_filters, 1, 3, 1, i, j, 'generator', Conv2DTranspose, dilation_rate=(1, 2 ** j)))
+                pis.append(_conv_block(x, n_filters // 4, 1, 3, 1, i, j,
+                                       'generator', Conv2DTranspose, dilation_rate=(1, 2 ** j)))
 
-            pi = Add(name='generator/block_%d/add_pi' % i)(pis)
+            pi = Concatenate(name='generator/block_%d/cat_pi' % i)(pis)
+            pi = Conv2DTranspose(n_filters, strides, strides,
+                                 name='generator/block_%d/reduce_pi' % i, **CONV2D_ARGS)(pi)
 
             x = Add(name='generator/block_%d/add' % i)([shortcut, pi])
-
-            x = Conv2DTranspose(n_filters, strides, strides,
-                                name='generator/block_%d/reduce_out' % i, **CONV2D_ARGS)(x)
 
         x = InstanceNormalization(axis=-1, name='generator/inorm_out')(x)
         x = Activation('relu', name='generator/relu_out')(x)

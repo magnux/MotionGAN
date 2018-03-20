@@ -74,7 +74,8 @@ class DMNNv1(_DMNN):
             pis = []
             group_size = int(x.shape[-1]) // n_groups
             for j in range(n_groups):
-                x_group = Lambda(lambda arg: arg[:, :, :, j * group_size: (j + 1) * group_size])(x)
+                x_group = Lambda(lambda arg: arg[:, :, :, j * group_size: (j + 1) * group_size],
+                                 name='classifier/block_%d/branch_%d/split_in' % (i, j) )(x)
                 pis.append(_conv_block(x_group, n_filters // n_groups, bneck_factor, 3, strides, i, j,'classifier'))
 
             pi = Concatenate(name='classifier/block_%d/cat_pi' % i)(pis)

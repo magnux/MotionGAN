@@ -207,7 +207,7 @@ if __name__ == "__main__":
                 model_wrap.gen_model = restore_keras_model(
                     model_wrap.gen_model, config.save_path + '_gen_weights.hdf5', False)
                 config.batch = 0
-                break
+                continue
 
             # Generating images
             if (config.epoch % (config.num_epochs // 10)) == 0 or config.epoch == (config.num_epochs - 1):

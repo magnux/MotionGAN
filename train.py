@@ -174,10 +174,6 @@ if __name__ == "__main__":
                 if (np.isnan(logs['train/disc_loss_reg']) or
                     np.isnan(logs['train/gen_loss_reg'])):
                     print('uh oh, nans found in losses, restarting epoch')
-                    model_wrap.disc_model = restore_keras_model(
-                        model_wrap.disc_model, config.save_path + '_disc_weights.hdf5', False)
-                    model_wrap.gen_model = restore_keras_model(
-                        model_wrap.gen_model, config.save_path + '_gen_weights.hdf5', False)
                     break
 
                 tensorboard.on_batch_end(batch, logs)
@@ -186,6 +182,10 @@ if __name__ == "__main__":
 
             # Restarting epoch after sudden break
             if config.batch < config.train_batches:
+                model_wrap.disc_model = restore_keras_model(
+                    model_wrap.disc_model, config.save_path + '_disc_weights.hdf5', False)
+                model_wrap.gen_model = restore_keras_model(
+                    model_wrap.gen_model, config.save_path + '_gen_weights.hdf5', False)
                 config.batch = 0
                 continue
 

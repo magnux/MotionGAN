@@ -49,11 +49,20 @@ if __name__ == "__main__":
         print('GAN model:')
         print(model_wrap.gan_model.summary())
 
+    def save_models():
+        # logging.set_verbosity(50)  # Avoid warinings when saving
+        model_wrap.disc_model.save(config.save_path + '_disc_weights.hdf5')
+        model_wrap.gen_model.save(config.save_path + '_gen_weights.hdf5')
+        # logging.set_verbosity(30)
+
     if config.epoch > 0:
         model_wrap.disc_model = restore_keras_model(
             model_wrap.disc_model, config.save_path + '_disc_weights.hdf5', False)
         model_wrap.gen_model = restore_keras_model(
             model_wrap.gen_model, config.save_path + '_gen_weights.hdf5', False)
+    else:
+        save_models()
+        config.save()
 
     tensorboard = TensorBoard(log_dir=config.save_path + '_logs',
                               epoch=config.epoch,
@@ -88,16 +97,7 @@ if __name__ == "__main__":
     def gen_latent_noise():
         return np.random.uniform(size=(config.batch_size, config.latent_cond_dim))
 
-    def save_models():
-        # logging.set_verbosity(50)  # Avoid warinings when saving
-        model_wrap.disc_model.save(config.save_path + '_disc_weights.hdf5')
-        model_wrap.gen_model.save(config.save_path + '_gen_weights.hdf5')
-        # logging.set_verbosity(30)
-
     try:
-        save_models()
-        config.save()
-
         while config.epoch < config.num_epochs:
             tensorboard.on_epoch_begin(config.epoch)
 
@@ -170,9 +170,24 @@ if __name__ == "__main__":
                 logs = disc_losses.copy()
                 logs.update(gen_losses)
 
+                # Check for a bad minima, leading to nan weights
+                if (np.isnan(logs['train/disc_loss_reg']) or
+                    np.isnan(logs['train/gen_loss_reg'])):
+                    print('uh oh, nans found in losses, restarting epoch')
+                    model_wrap.disc_model = restore_keras_model(
+                        model_wrap.disc_model, config.save_path + '_disc_weights.hdf5', False)
+                    model_wrap.gen_model = restore_keras_model(
+                        model_wrap.gen_model, config.save_path + '_gen_weights.hdf5', False)
+                    break
+
                 tensorboard.on_batch_end(batch, logs)
 
                 config.batch = batch + 1
+
+            # Restarting epoch after sudden break
+            if config.batch < config.train_batches:
+                config.batch = 0
+                continue
 
             labs_batch, poses_batch = val_generator.next()
 
@@ -197,17 +212,6 @@ if __name__ == "__main__":
 
             logs = disc_losses.copy()
             logs.update(gen_losses)
-
-            # Check for a bad minima, leading to nan weights
-            if (np.isnan(logs['val/disc_loss_reg']) or
-                np.isnan(logs['val/gen_loss_reg'])):
-                print('uh oh, nans found in losses, restarting epoch')
-                model_wrap.disc_model = restore_keras_model(
-                    model_wrap.disc_model, config.save_path + '_disc_weights.hdf5', False)
-                model_wrap.gen_model = restore_keras_model(
-                    model_wrap.gen_model, config.save_path + '_gen_weights.hdf5', False)
-                config.batch = 0
-                continue
 
             # Generating images
             if (config.epoch % (config.num_epochs // 10)) == 0 or config.epoch == (config.num_epochs - 1):

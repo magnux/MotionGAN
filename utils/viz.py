@@ -181,7 +181,7 @@ def plot_seq_gif(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pat
         actions_l = MSRC_ACTIONS
         njoints = MSRC_NJOINTS
 
-    if labs.shape[0] == seqs.shape[0]:
+    if len(labs.shape) > 1 and labs.shape[0] == seqs.shape[0]:
         labs_mode = "multi"
     else:
         assert labs.shape[0] == 4, \
@@ -189,7 +189,7 @@ def plot_seq_gif(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pat
         labs_mode = "single"
 
     if seq_masks is not None:
-        if seq_masks.shape[0] == seqs.shape[0]:
+        if len(seq_masks.shape) > 3 and seq_masks.shape[0] == seqs.shape[0]:
             mask_mode = "multi"
         else:
             assert seq_masks.shape[0] == njoints, \
@@ -243,7 +243,10 @@ def plot_seq_gif(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pat
     if save_path is not None:
         anim.save(save_path, dpi=dpi, writer='imagemagick')
     else:
-        plt.show()
+        try:
+            plt.show()
+        except (KeyboardInterrupt, AttributeError):
+            pass
 
     fig_size = (int(fig.get_figheight()), int(fig.get_figwidth()))
     plt.close(fig)
@@ -356,7 +359,10 @@ def plot_seq_pano(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pa
     if save_path is not None:
         fig.savefig(save_path, dpi=dpi)
     else:
-        plt.show()
+        try:
+            plt.show()
+        except (KeyboardInterrupt, AttributeError):
+            pass
 
     fig_size = (int(fig.get_figheight()), int(fig.get_figwidth()))
     plt.close(fig)

@@ -181,7 +181,7 @@ if __name__ == "__main__":
                 config.batch = batch + 1
 
             # Restarting epoch after sudden break
-            if config.batch < config.train_batches:
+            if config.batch < train_batches:
                 model_wrap.disc_model = restore_keras_model(
                     model_wrap.disc_model, config.save_path + '_disc_weights.hdf5', False)
                 model_wrap.gen_model = restore_keras_model(

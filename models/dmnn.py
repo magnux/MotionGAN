@@ -50,11 +50,11 @@ class DMNNv1(_DMNN):
     # DM2DCNN
 
     def classifier(self, x):
-        n_hidden = 128 if self.data_set == 'NTURGBD' else 64
-        n_blocks = 3 if self.data_set == 'NTURGBD' else 2
-        n_groups = 16 if self.data_set == 'NTURGBD' else 8
-        strides = 2 if self.data_set == 'NTURGBD' else 3
-        bneck_factor = 4 if self.data_set == 'NTURGBD' else 2
+        n_hidden = 128
+        n_blocks = 3
+        n_groups = 16
+        strides = 2
+        bneck_factor = 4
 
         x = CombMatrix(self.njoints, name='classifier/comb_matrix')(x)
 

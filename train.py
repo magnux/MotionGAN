@@ -95,24 +95,27 @@ if __name__ == "__main__":
         # logging.set_verbosity(30)
 
     try:
-        for epoch in range(config.epoch, config.num_epochs):
-            tensorboard.on_epoch_begin(epoch)
+        save_models()
+        config.save()
+
+        while config.epoch < config.num_epochs:
+            tensorboard.on_epoch_begin(config.epoch)
 
             if config.lr_decay:
-                learning_rate = config.learning_rate * (0.1 ** (epoch // (config.num_epochs // 3)))
-                # learning_rate = config.learning_rate * (1.0 - (epoch / config.num_epochs))
+                learning_rate = config.learning_rate * (0.1 ** (config.epoch // (config.num_epochs // 3)))
+                # learning_rate = config.learning_rate * (1.0 - (config.epoch / config.num_epochs))
                 model_wrap.update_lr(learning_rate)
 
             t = trange(config.batch, train_batches)
-            t.set_description('| ep: %d | lr: %.2e |' % (epoch, learning_rate))
+            t.set_description('| ep: %d | lr: %.2e |' % (config.epoch, learning_rate))
             disc_loss_sum = 0.0
             gen_loss_sum = 0.0
-            keep_prob = 0.8 - (0.6 * epoch / config.num_epochs)
+            keep_prob = 0.8 - (0.6 * config.epoch / config.num_epochs)
             for batch in t:
                 tensorboard.on_batch_begin(batch)
 
                 disc_batches = 5
-                # disc_batches = 55 if ((epoch < 1 and batch < train_batches // 10)
+                # disc_batches = 55 if ((config.epoch < 1 and batch < train_batches // 10)
                 #                           or (batch % 10 == 0)) else 5
                 disc_loss = 0.0
                 loss_real = 0.0
@@ -195,8 +198,19 @@ if __name__ == "__main__":
             logs = disc_losses.copy()
             logs.update(gen_losses)
 
+            # Check for a bad minima, leading to nan weights
+            if (np.isnan(logs['val/disc_loss_reg']) or
+                np.isnan(logs['val/gen_loss_reg'])):
+                print('uh oh, nans found in losses, restarting epoch')
+                model_wrap.disc_model = restore_keras_model(
+                    model_wrap.disc_model, config.save_path + '_disc_weights.hdf5', False)
+                model_wrap.gen_model = restore_keras_model(
+                    model_wrap.gen_model, config.save_path + '_gen_weights.hdf5', False)
+                config.batch = 0
+                break
+
             # Generating images
-            if (epoch % (config.num_epochs // 10)) == 0 or epoch == (config.num_epochs - 1):
+            if (config.epoch % (config.num_epochs // 10)) == 0 or config.epoch == (config.num_epochs - 1):
                 if config.normalize_data:
                     poses_batch = data_input.denormalize_poses(poses_batch)
                     gen_outputs = data_input.denormalize_poses(gen_outputs)
@@ -229,9 +243,9 @@ if __name__ == "__main__":
                                                          'width': int(fae_z.shape[2]),
                                                          'enc_string': encoded_image_string}
 
-            tensorboard.on_epoch_end(epoch, logs)
+            tensorboard.on_epoch_end(config.epoch, logs)
 
-            config.epoch = epoch + 1
+            config.epoch += 1
             config.batch = 0
 
             save_models()

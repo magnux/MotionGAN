@@ -185,11 +185,14 @@ if __name__ == "__main__":
 
             labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
 
-            gen_outputs = model_wrap.gen_model.predict(gen_inputs, batch_size)
+            gen_outputs = []
+            for model_wrap in model_wraps:
+                gen_outputs.append(model_wrap.gen_model.predict(gen_inputs, batch_size))
 
-            if config.normalize_data:
+            if configs[0].normalize_data:
                 poses_batch = data_input.denormalize_poses(poses_batch)
-                gen_outputs = data_input.denormalize_poses(gen_outputs)
+                for j in range(len(gen_outputs)):
+                    gen_outputs[j] = data_input.denormalize_poses(gen_outputs[j])
 
             for j in range(batch_size):
                 seq_idx, subject, action, plen = labs_batch[j, ...]
@@ -238,10 +241,13 @@ if __name__ == "__main__":
 
             labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
 
-            gen_outputs = model_wrap.gen_model.predict(gen_inputs, batch_size)
+            gen_outputs = []
+            for model_wrap in model_wraps:
+                gen_outputs.append(model_wrap.gen_model.predict(gen_inputs, batch_size))
 
             real_loss, real_acc = model_wrap_dmnn.model.evaluate(poses_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
             real_eval_sum += real_acc
+
             gen_loss, gen_acc = model_wrap_dmnn.model.evaluate(gen_outputs, labs_batch[:, 2], batch_size=batch_size, verbose=2)
             gen_eval_sum += gen_acc
 

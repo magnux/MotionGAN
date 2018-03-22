@@ -1,5 +1,4 @@
 from __future__ import absolute_import, division, print_function
-import numpy as np
 import tensorflow.contrib.keras.api.keras.backend as K
 from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
@@ -53,7 +52,8 @@ def _conv_block(x, out_filters, bneck_factor, n_groups, kernel_size, strides, i)
     for j in range(n_groups):
         pi_group = Lambda(lambda arg: arg[:, :, :, j * group_size: (j + 1) * group_size],
                           name='classifier/block_%d/branch_%d/split_in' % (i, j))(pi)
-        pis.append(_preact_conv(pi_group, (out_filters // bneck_factor) // n_groups, kernel_size, strides, i, j, 'neck'))
+        pis.append(_preact_conv(pi_group, (out_filters // bneck_factor) // n_groups,
+                                kernel_size, strides, i, j, 'neck'))
 
     pi = Concatenate(name='classifier/block_%d/cat_pi' % i)(pis)
 
@@ -81,8 +81,7 @@ class DMNNv1(_DMNN):
         x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name='classifier/resh_in')(x)
 
         x = BatchNormalization(axis=-1, name='classifier/bn_in')(x)
-        x = Conv2D(n_hidden // 2, 1, 1,
-                   name='classifier/conv_in', **CONV2D_ARGS)(x)
+        x = Conv2D(n_hidden // 2, 1, 1, name='classifier/conv_in', **CONV2D_ARGS)(x)
         for i in range(n_blocks):
             n_filters = n_hidden * (2 ** i)
             x = _conv_block(x, n_filters, bneck_factor, n_groups, kernel_size, strides, i)

@@ -178,48 +178,48 @@ if __name__ == "__main__":
     elif FLAGS.test_mode == "write_data":
         data_split = 'Validate'
 
-        h5file = h5.File("%s_data_out_%d_%.1f.h5" %
-                         (config.save_path,
-                          FLAGS.mask_mode, FLAGS.keep_prob), "w")
+        h5files = []
+        for config in configs:
+            h5files.append(h5.File("%s_data_out_%d_%.1f.h5" %
+                                   (config.save_path, FLAGS.mask_mode, FLAGS.keep_prob), "w"))
+
         for _ in trange(val_batches):
 
             labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
 
-            gen_outputs = []
-            for model_wrap in model_wraps:
-                gen_outputs.append(model_wrap.gen_model.predict(gen_inputs, batch_size))
+            for m, model_wrap in enumerate(model_wraps):
+                gen_outputs = model_wrap.gen_model.predict(gen_inputs, batch_size)
 
-            if configs[0].normalize_data:
-                poses_batch = data_input.denormalize_poses(poses_batch)
-                for j in range(len(gen_outputs)):
-                    gen_outputs[j] = data_input.denormalize_poses(gen_outputs[j])
+                if configs[m].normalize_data:
+                    gen_outputs = data_input.denormalize_poses(gen_outputs)
 
-            for j in range(batch_size):
-                seq_idx, subject, action, plen = labs_batch[j, ...]
+                for j in range(batch_size):
+                    seq_idx, subject, action, plen = labs_batch[j, ...]
 
-                sub_array = np.array(subject + 1)
-                act_array = np.array(action + 1)
-                pose_array = gen_outputs[j, ...]
-                pose_array = np.transpose(pose_array, (0, 2, 1))
-                if config.data_set == 'NTURGBD':
-                    pose_array = np.concatenate([pose_array, np.zeros_like(pose_array)])
+                    sub_array = np.array(subject + 1)
+                    act_array = np.array(action + 1)
+                    pose_array = gen_outputs[j, ...]
+                    pose_array = np.transpose(pose_array, (0, 2, 1))
+                    if config.data_set == 'NTURGBD':
+                        pose_array = np.concatenate([pose_array, np.zeros_like(pose_array)])
 
-                data_path = '%s/%s/SEQ%d/' % (config.data_set, data_split, seq_idx)
-                h5file.create_dataset(
-                    data_path + 'Subject', np.shape(sub_array),
-                    dtype='int32', data=sub_array
-                )
-                h5file.create_dataset(
-                    data_path + 'Action', np.shape(act_array),
-                    dtype='int32', data=act_array
-                )
-                h5file.create_dataset(
-                    data_path + 'Pose', np.shape(pose_array),
-                    dtype='float32', data=pose_array
-                )
+                    data_path = '%s/%s/SEQ%d/' % (model_wrap.data_set, data_split, seq_idx)
+                    h5files[m].create_dataset(
+                        data_path + 'Subject', np.shape(sub_array),
+                        dtype='int32', data=sub_array
+                    )
+                    h5files[m].create_dataset(
+                        data_path + 'Action', np.shape(act_array),
+                        dtype='int32', data=act_array
+                    )
+                    h5files[m].create_dataset(
+                        data_path + 'Pose', np.shape(pose_array),
+                        dtype='float32', data=pose_array
+                    )
 
-        h5file.flush()
-        h5file.close()
+        for h5file in h5files:
+            h5file.flush()
+            h5file.close()
 
     elif FLAGS.test_mode == "dmnn_score":
         FLAGS.save_path = FLAGS.dmnn_path
@@ -232,35 +232,36 @@ if __name__ == "__main__":
 
         model_wrap_dmnn.model = restore_keras_model(model_wrap_dmnn.model, config.save_path + '_weights.hdf5')
 
-        real_eval_sum = 0
-        gen_eval_sum = 0
-        bl_eval_sum = 0
+        accs = {'real_acc': 0, 'bl_acc': 0}
+
+        for model_wrap in model_wraps:
+            accs[model_wrap.name + '_acc'] = 0
 
         t = trange(val_batches)
         for i in t:
 
             labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
 
-            gen_outputs = []
-            for model_wrap in model_wraps:
-                gen_outputs.append(model_wrap.gen_model.predict(gen_inputs, batch_size))
-
             real_loss, real_acc = model_wrap_dmnn.model.evaluate(poses_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
-            real_eval_sum += real_acc
-
-            gen_loss, gen_acc = model_wrap_dmnn.model.evaluate(gen_outputs, labs_batch[:, 2], batch_size=batch_size, verbose=2)
-            gen_eval_sum += gen_acc
+            accs['real_acc'] += real_acc
 
             bl_batch = np.empty_like(poses_batch)
             for j in range(batch_size):
                 bl_batch[j, ...] = constant_baseline(poses_batch[j, ...], mask_batch[j, ...])
 
             bl_loss, bl_acc = model_wrap_dmnn.model.evaluate(bl_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
-            bl_eval_sum += bl_acc
+            accs['bl_acc'] += bl_acc
 
-            t.set_postfix({'real_eval': real_eval_sum / (i + 1),
-                           'gen_eval': gen_eval_sum / (i + 1),
-                           'bl_eval': bl_eval_sum / (i + 1)})
+            for model_wrap in model_wraps:
+                gen_outputs = model_wrap.gen_model.predict(gen_inputs, batch_size)
+                gen_loss, gen_acc = model_wrap_dmnn.model.evaluate(gen_outputs, labs_batch[:, 2], batch_size=batch_size, verbose=2)
+                accs[model_wrap.name + '_acc'] += gen_acc
+
+            mean_accs = {}
+            for key, value in accs.items():
+                mean_accs[key] = value / (i + 1)
+
+            t.set_postfix(mean_accs)
 
 
 

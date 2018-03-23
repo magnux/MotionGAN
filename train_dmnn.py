@@ -122,17 +122,17 @@ if __name__ == "__main__":
 
         tensorboard.on_epoch_end(config.epoch)
 
-    for epoch in range(config.epoch, config.num_epochs):
+    while config.epoch < config.num_epochs:
 
         if config.lr_decay:
-            learning_rate = config.learning_rate * (0.1 ** (epoch // (config.num_epochs // 3)))
+            learning_rate = config.learning_rate * (0.1 ** (config.epoch // (config.num_epochs // 3)))
             model_wrap.update_lr(learning_rate)
 
         run_epoch(True, learning_rate)
         run_epoch(False, learning_rate)
 
         save_models()
-        config.epoch = epoch
+        config.epoch += 1
         config.save()
 
     tensorboard.on_train_end()

@@ -125,7 +125,7 @@ if __name__ == "__main__":
     while config.epoch < config.num_epochs:
 
         if config.lr_decay:
-            learning_rate = config.learning_rate * (0.1 ** (config.epoch // (config.num_epochs // 3)))
+            learning_rate = config.learning_rate * (0.1 ** ((config.epoch + (config.num_epochs // 3) -1) // (config.num_epochs // 3)))
             model_wrap.update_lr(learning_rate)
 
         run_epoch(True, learning_rate)

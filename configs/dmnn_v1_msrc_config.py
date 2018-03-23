@@ -11,7 +11,7 @@
     # Final epoch
     'num_epochs': 100,
     # Multiplies length of epoch, useful for tiny datasets
-    'epoch_factor': 3,
+    'epoch_factor': 1,
     # How fast should we learn?
     'learning_rate': 1.0e-3,
 }

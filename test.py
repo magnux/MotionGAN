@@ -224,6 +224,7 @@ if __name__ == "__main__":
     elif FLAGS.test_mode == "dmnn_score":
         FLAGS.save_path = FLAGS.dmnn_path
         config = get_config(FLAGS)
+        config.batch_size = batch_size
 
         # Model building
         if config.model_type == 'dmnn':

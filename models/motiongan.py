@@ -467,6 +467,21 @@ class _MotionGAN(object):
         return dec_x
 
 
+#with K.name_scope('%s/block_%d/branch_%d' % (net_name, i, j))
+# def _conv_block(x, out_filters, bneck_factor, kernel_size, strides, conv_func=Conv2D, dilation_rate=(1, 1), use_norm=False):
+#     if use_norm:
+#         x = InstanceNormalization(axis=-1, name='inorm_in')(x)
+#     x = Activation('relu', name='relu_in')(x)
+#     x = conv_func(filters=out_filters // bneck_factor,
+#                   kernel_size=kernel_size, strides=1,
+#                   dilation_rate=dilation_rate, name='conv_in', **CONV2D_ARGS)(x)
+#     if use_norm:
+#         x = InstanceNormalization(axis=-1, name='inorm_out')(x)
+#     x = Activation('relu', name='relu_out')(x)
+#     x = conv_func(filters=out_filters, kernel_size=kernel_size, strides=strides,
+#                   dilation_rate=dilation_rate, name='conv_out', **CONV2D_ARGS)(x)
+#     return x
+
 
 class MotionGANV1(_MotionGAN):
     # ResNet

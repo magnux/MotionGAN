@@ -9,6 +9,7 @@ from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 from layers.edm import EDM
 from layers.comb_matrix import CombMatrix
+from utils.scoping import Scoping
 
 CONV2D_ARGS = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
 
@@ -33,33 +34,37 @@ class _DMNN(object):
         self.model.compile(Adam(lr=config.learning_rate), 'sparse_categorical_crossentropy', ['accuracy'])
 
 
-def _preact_conv(x, out_filters, kernel_size, strides, i, j, suffix):
-    x = BatchNormalization(axis=-1, name='classifier/block_%d/branch_%d/bn_%s' % (i, j, suffix))(x)
-    x = Activation('relu', name='classifier/block_%d/branch_%d/relu_%s' % (i, j, suffix))(x)
-    x = Conv2D(filters=out_filters, kernel_size=kernel_size, strides=strides,
-               name='classifier/block_%d/branch_%d/conv_%s' % (i, j, suffix), **CONV2D_ARGS)(x)
+def _preact_conv(x, out_filters, kernel_size, strides, groups=1):
+    scope = Scoping.get_global_scope()
+    x = BatchNormalization(axis=-1, name=scope+'bn')(x)
+    x = Activation('relu', name=scope+'relu')(x)
+    if groups > 1:
+        branches = []
+        group_size = int(x.shape[-1]) // groups
+        for j in range(groups):
+            with scope.name_scope('branch_%d' % j):
+                x_group = Lambda(lambda arg: arg[:, :, :, j * group_size: (j + 1) * group_size], name=scope+'split')(x)
+                branches.append(Conv2D(filters=out_filters // groups, kernel_size=kernel_size, strides=strides, name=scope+'conv', **CONV2D_ARGS)(x_group))
+        x = Concatenate(name=scope+'cat')(branches)
+    else:
+        x = Conv2D(filters=out_filters, kernel_size=kernel_size, strides=strides, name=scope+'conv', **CONV2D_ARGS)(x)
     return x
 
 
-def _conv_block(x, out_filters, bneck_factor, n_groups, kernel_size, strides, i):
-    shortcut = Conv2D(out_filters, strides, strides,
-                      name='classifier/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
+def _conv_block(x, out_filters, bneck_filters, groups, kernel_size, strides):
+    scope = Scoping.get_global_scope()
+    shortcut = Conv2D(out_filters, strides, strides, name=scope+'shortcut', **CONV2D_ARGS)(x)
 
-    pi = _preact_conv(x, out_filters // bneck_factor, 1, 1, i, 0, 'in')
+    with scope.name_scope('in'):
+        pi = _preact_conv(x, bneck_filters, 1, 1)
 
-    pis = []
-    group_size = int(pi.shape[-1]) // n_groups
-    for j in range(n_groups):
-        pi_group = Lambda(lambda arg: arg[:, :, :, j * group_size: (j + 1) * group_size],
-                          name='classifier/block_%d/branch_%d/split_in' % (i, j))(pi)
-        pis.append(_preact_conv(pi_group, (out_filters // bneck_factor) // n_groups,
-                                kernel_size, strides, i, j, 'neck'))
+    with scope.name_scope('bneck'):
+        pi = _preact_conv(pi, bneck_filters, kernel_size, strides, groups)
 
-    pi = Concatenate(name='classifier/block_%d/cat_pi' % i)(pis)
+    with scope.name_scope('out'):
+        pi = _preact_conv(pi, out_filters, 1, 1)
 
-    pi = _preact_conv(pi, out_filters, 1, 1, i, 0, 'out')
-
-    x = Add(name='classifier/block_%d/add' % i)([shortcut, pi])
+    x = Add(name=scope+'add_shortcut')([shortcut, pi])
     return x
 
 
@@ -67,27 +72,31 @@ class DMNNv1(_DMNN):
     # DM2DCNN (ResNext based)
 
     def classifier(self, x):
-        n_hidden = 128
-        n_blocks = 3
-        n_groups = 16
-        kernel_size = 3
-        strides = 2
-        bneck_factor = 4
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('classifier'):
+            if self.data_set == 'NTURGBD':
+                blocks = [{'size': 128, 'bneck': 32, 'groups': 16, 'strides': 1},
+                          {'size': 256, 'bneck': 64, 'groups': 16, 'strides': 2},
+                          {'size': 512, 'bneck': 128, 'groups': 16, 'strides': 2}]
+            else:
+                blocks = [{'size': 64, 'bneck': 32, 'groups': 8, 'strides': 3},
+                          {'size': 128, 'bneck': 64, 'groups': 8, 'strides': 3}]
 
-        x = CombMatrix(self.njoints, name='classifier/comb_matrix')(x)
+            x = CombMatrix(self.njoints, name=scope+'comb_matrix')(x)
 
-        x = EDM(name='classifier/edms')(x)
+            x = EDM(name=scope+'edms')(x)
 
-        x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name='classifier/resh_in')(x)
+            x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name=scope+'resh_in')(x)
 
-        x = BatchNormalization(axis=-1, name='classifier/bn_in')(x)
-        x = Conv2D(n_hidden // 2, 1, 1, name='classifier/conv_in', **CONV2D_ARGS)(x)
-        for i in range(n_blocks):
-            n_filters = n_hidden * (2 ** i)
-            x = _conv_block(x, n_filters, bneck_factor, n_groups, kernel_size, strides, i)
+            x = BatchNormalization(axis=-1, name=scope+'bn_in')(x)
+            x = Conv2D(blocks[0]['bneck'], 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+            for i in range(len(blocks)):
+                with scope.name_scope('block_%d' % i):
+                    x = _conv_block(x, blocks[i]['size'], blocks[i]['bneck'],
+                                    blocks[i]['groups'], 3, blocks[i]['strides'])
 
-        x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name='classifier/mean_pool')(x)
-        x = Dropout(0.5, name='classifier/dropout')(x)
-        x = Dense(self.num_actions, activation='softmax', name='classifier/label_out')(x)
+            x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name=scope+'mean_pool')(x)
+            x = Dropout(0.5, name=scope+'dropout')(x)
+            x = Dense(self.num_actions, activation='softmax', name=scope+'label')(x)
 
         return x

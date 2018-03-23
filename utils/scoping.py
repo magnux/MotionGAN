@@ -40,20 +40,23 @@ class Scoping:
 
 
 if __name__ == "__main__":
-    my_scope = Scoping.get_global_scope()
+    scope = Scoping.get_global_scope()
 
     def _test_global():
         my_scopex = Scoping.get_global_scope()
         print('global test:', my_scopex)
 
-    with my_scope.name_scope('foo') as scope:
+    with scope.name_scope('foo') as foo_scope:
         print(scope)
-        print(my_scope)
-        with my_scope.name_scope('bar'):
+        print(foo_scope)
+        with scope.name_scope('bar'):
             print(scope)
-            print(my_scope)
-            with my_scope.name_scope('baz'):
+            print(foo_scope)
+            with scope.name_scope('baz'):
                 print(scope)
-                print(my_scope)
                 _test_global()
-                print(my_scope + 123)
+                print(scope + 123)
+
+            print(scope)
+        print(scope)
+    print(scope)

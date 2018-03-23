@@ -63,7 +63,8 @@ if __name__ == "__main__":
 
 
     # Training call
-    model_wrap.model.fit_generator(generator=batch_generator(True), steps_per_epoch=train_batches,
-                                   validation_data=batch_generator(False), epochs=config.num_epochs,
-                                   validation_steps=val_batches, max_q_size=config.batch_size * 8, workers=2,
+    model_wrap.model.fit_generator(generator=batch_generator(True),
+                                   steps_per_epoch=train_batches, epochs=config.num_epochs, initial_epoch=config.epoch,
+                                   validation_data=batch_generator(False), validation_steps=val_batches,
+                                   max_q_size=config.batch_size * 8, workers=2,
                                    verbose=1 if FLAGS.verbose else 2, callbacks=[lr_scheduler, checkpointer, tensorboard])

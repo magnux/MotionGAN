@@ -79,11 +79,11 @@ class DMNNv1(_DMNN):
         with scope.name_scope('classifier'):
             if self.data_set == 'NTURGBD':
                 blocks = [{'size': 128, 'bneck': 32, 'groups': 16, 'strides': 1},
-                          {'size': 256, 'bneck': 64, 'groups': 16, 'strides': 2},
-                          {'size': 512, 'bneck': 128, 'groups': 16, 'strides': 2}]
+                          {'size': 256, 'bneck': 64, 'groups': 16, 'strides': 3},
+                          {'size': 512, 'bneck': 128, 'groups': 16, 'strides': 3}]
             else:
-                blocks = [{'size': 64, 'bneck': 32, 'groups': 8, 'strides': 3},
-                          {'size': 128, 'bneck': 64, 'groups': 8, 'strides': 3}]
+                blocks = [{'size': 128, 'bneck': 32, 'groups': 8, 'strides': 3},
+                          {'size': 256, 'bneck': 64, 'groups': 8, 'strides': 3}]
 
             x = CombMatrix(self.njoints, name=scope+'comb_matrix')(x)
 

@@ -3,7 +3,6 @@ import numpy as np
 from tensorflow.contrib.keras.api.keras.layers import Layer
 from tensorflow.contrib.keras.api.keras.backend import dot, \
     permute_dimensions, reshape
-from tensorflow.contrib.keras.api.keras.regularizers import l2
 from tensorflow.contrib.keras.api.keras.initializers import Constant
 
 class CombMatrix(Layer):
@@ -18,7 +17,6 @@ class CombMatrix(Layer):
         self.comb_matrix = self.add_weight(name='comb_matrix',
                                            shape=(self.njoints, self.njoints),
                                            initializer=Constant(init_mat),
-                                           regularizer=l2(5e-4),
                                            trainable=True)
         super(CombMatrix, self).build(input_shape)
 

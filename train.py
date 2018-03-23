@@ -259,4 +259,4 @@ if __name__ == "__main__":
         save_models()
         config.save()
 
-    tensorboard.on_train_end(None)
+    tensorboard.on_train_end()

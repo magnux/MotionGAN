@@ -1,19 +1,20 @@
 from __future__ import division
 import tensorflow as tf
+import numpy as np
 from config import get_config
 from data_input import DataInput
-from tensorflow.contrib.keras.api.keras.optimizers import Adam
-from tensorflow.contrib.keras.api.keras.callbacks import LearningRateScheduler, ModelCheckpoint
 from utils.callbacks import TensorBoard
 from models.dmnn import DMNNv1
+from models.motiongan import MotionGANV1, MotionGANV2, MotionGANV3, MotionGANV4
 from utils.restore_keras_model import restore_keras_model
-from utils.threadsafe_iter import threadsafe_generator
+from tqdm import trange
 
 logging = tf.logging
 flags = tf.flags
 flags.DEFINE_bool("verbose", False, "To talk or not to talk")
 flags.DEFINE_string("save_path", None, "Model output directory")
 flags.DEFINE_string("config_file", None, "Model config file")
+flags.DEFINE_string("motiongan_save_path", None, "Motion gan to use" )
 FLAGS = flags.FLAGS
 
 if __name__ == "__main__":
@@ -39,32 +40,101 @@ if __name__ == "__main__":
     if config.epoch > 0:
         model_wrap.model = restore_keras_model(model_wrap.model, config.save_path + '_weights.hdf5')
 
-    # Callbacks
-    def schedule(epoch):
-        config.epoch = epoch
-        config.save()
-        learning_rate = config.learning_rate * (0.1 ** (epoch // (config.num_epochs // 3)))
-        print('LR: %.2e' % learning_rate)
-        return learning_rate
-    lr_scheduler = LearningRateScheduler(schedule)
-    checkpointer = ModelCheckpoint(filepath=config.save_path + '_weights.hdf5')
+    if FLAGS.motiongan_save_path is not None:
+        FLAGS.save_path = FLAGS.motiongan_save_path
+        FLAGS.config_file = None
+
+        motiongan_config = get_config(FLAGS)
+        motiongan_config.batch_size = config.batch_size
+
+        # Model building
+        if motiongan_config.model_type == 'motiongan':
+            if motiongan_config.model_version == 'v1':
+                motiongan_model_wrap = MotionGANV1(motiongan_config)
+            if motiongan_config.model_version == 'v2':
+                motiongan_model_wrap = MotionGANV2(motiongan_config)
+            if motiongan_config.model_version == 'v3':
+                motiongan_model_wrap = MotionGANV3(motiongan_config)
+            if motiongan_config.model_version == 'v4':
+                motiongan_model_wrap = MotionGANV4(motiongan_config)
+
+        if FLAGS.verbose:
+            print('Generator model:')
+            print(motiongan_model_wrap.gen_model.summary())
+
+        assert motiongan_config.epoch > 0, 'untrained model'
+
+        motiongan_model_wrap.gen_model = restore_keras_model(
+            motiongan_model_wrap.gen_model, motiongan_config.save_path + '_gen_weights.hdf5', False)
+
+        gen_model = motiongan_model_wrap.gen_model
+        model_wrap.model
+
     tensorboard = TensorBoard(log_dir=config.save_path + '_logs',
                               epoch=config.epoch,
                               n_batches=train_batches,
                               batch_size=config.batch_size)
+    tensorboard.set_model(model_wrap.model)
 
+    train_generator = data_input.batch_generator(True)
+    val_generator = data_input.batch_generator(False)
 
-    @threadsafe_generator
-    def batch_generator(is_training):
-        generator = data_input.batch_generator(is_training)
-        while True:
+    def save_models():
+        model_wrap.model.save(config.save_path + '_weights.hdf5')
+
+    def run_epoch(training, learning_rate):
+        batches = train_batches if training else val_batches
+        generator = train_generator if training else val_generator
+
+        tensorboard.on_epoch_begin(config.epoch)
+
+        t = trange(batches)
+        t.set_description('%s| ep: %d | lr: %.2e |' %
+                          ('| train ' if training else '|  val  ',
+                           config.epoch, learning_rate))
+        loss_sum = 0
+        acc_sum = 0
+        for batch in t:
+            tensorboard.on_batch_begin(batch)
             labs_batch, poses_batch = generator.next()
-            yield (poses_batch[..., :3], labs_batch[:, 2])
+            labs_batch = labs_batch[:, 2]
+            mask_batch = poses_batch[..., 3, np.newaxis]
+            poses_batch = poses_batch[..., :3]
 
+            run_on_batch = model_wrap.model.train_on_batch if training else\
+                           model_wrap.model.test_on_batch
+            loss, acc = run_on_batch(poses_batch, labs_batch)
+            loss_sum += loss
+            acc_sum += acc
 
-    # Training call
-    model_wrap.model.fit_generator(generator=batch_generator(True),
-                                   steps_per_epoch=train_batches, epochs=config.num_epochs, initial_epoch=config.epoch,
-                                   validation_data=batch_generator(False), validation_steps=val_batches,
-                                   max_q_size=config.batch_size * 8, workers=2,
-                                   verbose=1 if FLAGS.verbose else 2, callbacks=[lr_scheduler, checkpointer, tensorboard])
+            if FLAGS.motiongan_save_path is not None and training:
+                gen_inputs = [poses_batch, mask_batch]
+                gen_batch = gen_model.predict_on_batch(gen_inputs)
+
+                model_wrap.model.train_on_batch(gen_batch, labs_batch)
+
+            logs = {'loss':'%.2e' % (loss_sum / (batch + 1)),
+                    'acc':'%.2f' % (acc_sum * 100 / (batch + 1))}
+            t.set_postfix(logs)
+
+            prefix = 'train' if training else 'val'
+            logs = {prefix + '/loss': loss_sum / (batch + 1),
+                    prefix + '/acc': acc_sum * 100 / (batch + 1)}
+            tensorboard.on_batch_end(batch, logs)
+
+        tensorboard.on_epoch_end(config.epoch)
+
+    for epoch in range(config.epoch, config.num_epochs):
+
+        if config.lr_decay:
+            learning_rate = config.learning_rate * (0.1 ** (epoch // (config.num_epochs // 3)))
+            model_wrap.update_lr(learning_rate)
+
+        run_epoch(True, learning_rate)
+        run_epoch(False, learning_rate)
+
+        save_models()
+        config.epoch = epoch
+        config.save()
+
+    tensorboard.on_train_end()

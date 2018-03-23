@@ -33,6 +33,9 @@ class _DMNN(object):
         self.model = Model(real_seq, pred_action, name=self.name)
         self.model.compile(Adam(lr=config.learning_rate), 'sparse_categorical_crossentropy', ['accuracy'])
 
+    def update_lr(self, lr):
+        K.set_value(self.model.optimizer.lr, lr)
+
 
 def _preact_conv(x, out_filters, kernel_size, strides, groups=1):
     scope = Scoping.get_global_scope()

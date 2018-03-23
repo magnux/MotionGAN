@@ -55,7 +55,7 @@ if __name__ == "__main__":
             with scope.name_scope('baz'):
                 print(scope)
                 _test_global()
-                print(scope + 123)
+                print('str add test:', scope + 123)
 
             print(scope)
         print(scope)

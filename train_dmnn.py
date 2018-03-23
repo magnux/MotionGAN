@@ -113,13 +113,11 @@ if __name__ == "__main__":
 
                 model_wrap.model.train_on_batch(gen_batch, labs_batch)
 
-            logs = {'loss':'%.2e' % (loss_sum / (batch + 1)),
-                    'acc':'%.2f' % (acc_sum * 100 / (batch + 1))}
-            t.set_postfix(logs)
+            t.set_postfix(loss='%.2e' % (loss_sum / (batch + 1)),
+                          acc='%.2f' % (acc_sum * 100 / (batch + 1)))
 
             prefix = 'train' if training else 'val'
-            logs = {prefix + '/loss': loss_sum / (batch + 1),
-                    prefix + '/acc': acc_sum * 100 / (batch + 1)}
+            logs = {prefix + '/loss': loss, prefix + '/acc': acc}
             tensorboard.on_batch_end(batch, logs)
 
         tensorboard.on_epoch_end(config.epoch)

@@ -12,9 +12,9 @@ from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 from layers.joints import UnfoldJoints, FoldJoints
 from layers.normalization import InstanceNormalization
-from layers.edm import edm, EDM
-from layers.comb_matrix import CombMatrix
+from layers.edm import edm
 from collections import OrderedDict
+from utils.scoping import Scoping
 
 CONV1D_ARGS = {'padding': 'same', 'kernel_regularizer': l2(5e-4)}
 CONV2D_ARGS = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
@@ -25,20 +25,6 @@ def _get_tensor(tensors, name):
         return next(obj for obj in tensors if name in obj.name)
     else:
         return tensors
-
-
-def _conv_block(x, out_filters, bneck_factor, kernel_size, strides, i, j, net_name, conv_func=Conv2D, dilation_rate=(1, 1)):
-    if 'generator' in net_name:
-        x = InstanceNormalization(axis=-1, name='%s/block_%d/branch_%d/inorm_in' % (net_name, i, j))(x)
-    x = Activation('relu', name='%s/block_%d/branch_%d/relu_in' % (net_name, i, j))(x)
-    x = conv_func(filters=out_filters // bneck_factor, kernel_size=kernel_size, strides=1, dilation_rate=dilation_rate,
-                  name='%s/block_%d/branch_%d/conv_in' % (net_name, i, j), **CONV2D_ARGS)(x)
-    if 'generator' in net_name:
-        x = InstanceNormalization(axis=-1, name='%s/block_%d/branch_%d/inorm_out' % (net_name, i, j))(x)
-    x = Activation('relu', name='%s/block_%d/branch_%d/relu_out' % (net_name, i, j))(x)
-    x = conv_func(filters=out_filters, kernel_size=kernel_size, strides=strides, dilation_rate=dilation_rate,
-                  name='%s/block_%d/branch_%d/conv_out' % (net_name, i, j), **CONV2D_ARGS)(x)
-    return x
 
 
 class _MotionGAN(object):
@@ -217,7 +203,7 @@ class _MotionGAN(object):
 
                 # Gradient Penalty
                 inter_outputs = self.disc_model(interpolates)
-                inter_score = _get_tensor(inter_outputs, 'discriminator/score_out')
+                inter_score = _get_tensor(inter_outputs, 'score_out')
                 grad_mixed = K.gradients(inter_score, [interpolates])[0]
                 norm_grad_mixed = K.sqrt(K.sum(K.square(grad_mixed), axis=(1, 2, 3)))
                 grad_penalty = K.mean(K.square(norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
@@ -257,7 +243,7 @@ class _MotionGAN(object):
                     wgan_losses['frame_loss_real'] = K.mean(frame_loss_real)
                     wgan_losses['frame_loss_fake'] = K.mean(frame_loss_fake)
 
-                    frame_inter_score = _get_tensor(inter_outputs, 'discriminator/frame_score_out')
+                    frame_inter_score = _get_tensor(inter_outputs, 'frame_score_out')
                     frame_grad_mixed = K.gradients(frame_inter_score, [interpolates])[0]
                     frame_norm_grad_mixed = K.sqrt(K.sum(K.sum(K.square(frame_grad_mixed), axis=(1, 3)) * zero_frames, axis=1))
                     frame_grad_penalty = K.mean(K.square(frame_norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
@@ -327,208 +313,232 @@ class _MotionGAN(object):
         return model
 
     def _proc_disc_outputs(self, x):
-        score_out = Dense(1, name='discriminator/score_out')(x)
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('discriminator'):
+            score_out = Dense(1, name=scope+'score_out')(x)
 
-        output_tensors = [score_out]
-        if self.action_cond:
-            label_out = Dense(self.num_actions, name='discriminator/label_out')(x)
-            output_tensors.append(label_out)
-        if self.latent_cond_dim > 0:
-            latent_cond_out = Dense(self.latent_cond_dim, name='discriminator/latent_cond_out')(x)
-            output_tensors.append(latent_cond_out)
+            output_tensors = [score_out]
+            if self.action_cond:
+                label_out = Dense(self.num_actions, name=scope+'label_out')(x)
+                output_tensors.append(label_out)
+            if self.latent_cond_dim > 0:
+                latent_cond_out = Dense(self.latent_cond_dim, name=scope+'latent_cond_out')(x)
+                output_tensors.append(latent_cond_out)
 
-        if self.use_pose_fae:
-            seq = self.disc_inputs[0]
+            if self.use_pose_fae:
+                seq = self.disc_inputs[0]
 
-            z = self._pose_encoder(seq, 'discriminator')
+                z = self._pose_encoder(seq)
 
-            frame_score_out = Conv1D(1, 1, 1, name='discriminator/frame_score_out', **CONV1D_ARGS)(z)
-            output_tensors.append(frame_score_out)
+                frame_score_out = Conv1D(1, 1, 1, name=scope+'frame_score_out', **CONV1D_ARGS)(z)
+                output_tensors.append(frame_score_out)
 
         return output_tensors
 
     def _proc_gen_inputs(self, input_tensors):
-        n_hidden = 32 if self.time_pres_emb else 128
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('generator'):
+            n_hidden = 32 if self.time_pres_emb else 128
 
-        x = _get_tensor(input_tensors, 'real_seq')
-        x_mask = _get_tensor(input_tensors, 'seq_mask')
-        x = Multiply(name='generator/mask_mult')([x, x_mask])
+            x = _get_tensor(input_tensors, 'real_seq')
+            x_mask = _get_tensor(input_tensors, 'seq_mask')
+            x = Multiply(name=scope+'mask_mult')([x, x_mask])
 
-        x_occ = Lambda(lambda arg: 1 - arg, name='generator/mask_occ')(x_mask)
-        x = Concatenate(axis=-1, name='generator/cat_occ')([x, x_occ])
+            x_occ = Lambda(lambda arg: 1 - arg, name=scope+'mask_occ')(x_mask)
+            x = Concatenate(axis=-1, name=scope+'cat_occ')([x, x_occ])
 
-        if self.unfold:
-            x = UnfoldJoints(self.data_set)(x)
-            self.unfolded_joints = int(x.shape[1])
+            if self.unfold:
+                x = UnfoldJoints(self.data_set)(x)
+                self.unfolded_joints = int(x.shape[1])
 
-        if self.use_pose_fae:
+            if self.use_pose_fae:
 
-            self.fae_z = self._pose_encoder(x, 'generator')
-            x = Reshape((self.seq_len, self.fae_latent_dim, 1), name='generator/gen_reshape_in')(self.fae_z)
+                self.fae_z = self._pose_encoder(x)
+                x = Reshape((self.seq_len, self.fae_latent_dim, 1), name=scope+'gen_reshape_in')(self.fae_z)
 
-            self.nblocks = 4
+                self.nblocks = 4
 
-        else:
-            strides = (2, 1) if self.time_pres_emb else 2
-            i = 0
-            while (x.shape[1] > 1 and self.time_pres_emb) or (i < 3):
-                num_block = n_hidden * (((i + 1) // 2) + 1)
-                shortcut = Conv2D(num_block, 1, strides,
-                                  name='generator/seq_fex/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
-                pi = _conv_block(x, num_block, 8, 3, strides, i, 0, 'generator/seq_fex')
-                x = Add(name='generator/seq_fex/block_%d/add' % i)([shortcut, pi])
-                x = Activation('relu', name='generator/seq_fex/block_%d/relu_out' % i)(x)
-                i += 1
+            else:
+                with scope.name_scope('seq_fex'):
+                    strides = (2, 1) if self.time_pres_emb else 2
+                    i = 0
+                    while (x.shape[1] > 1 and self.time_pres_emb) or (i < 3):
+                        with scope.name_scope('block_%d' % i):
+                            num_block = n_hidden * (((i + 1) // 2) + 1)
+                            shortcut = Conv2D(num_block, 1, strides,
+                                              name=scope+'shortcut', **CONV2D_ARGS)(x)
+                            with scope.name_scope('branch_0'): # scope for backward compat
+                                pi = _conv_block(x, num_block, 8, 3, strides)
+                            x = Add(name=scope+'add')([shortcut, pi])
+                            x = Activation('relu', name=scope+'relu_out')(x)
+                            i += 1
 
-            self.nblocks = i
+                    self.nblocks = i
 
-            if not self.time_pres_emb:
-                x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name='generator/seq_fex/mean_pool')(x)
+                    if not self.time_pres_emb:
+                        x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
 
-        x = [x]
-        if self.latent_cond_dim > 0:
-            x_lat = _get_tensor(input_tensors, 'latent_cond_input')
-            x.append(x_lat)
+            x = [x]
+            if self.latent_cond_dim > 0:
+                x_lat = _get_tensor(input_tensors, 'latent_cond_input')
+                x.append(x_lat)
 
-        if len(x) > 1:
-            x = Concatenate(name='generator/cat_in')(x)
-        else:
-            x = x[0]
+            if len(x) > 1:
+                x = Concatenate(name=scope+'cat_in')(x)
+            else:
+                x = x[0]
 
         return x
 
     def _proc_gen_outputs(self, x):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('generator'):
 
-        if self.use_pose_fae:
-            x = Conv2D(1, 3, 1, name='generator/fae_merge', **CONV2D_ARGS)(x)
-            self.fae_gen_z = Reshape((self.seq_len, self.fae_latent_dim), name='generator/fae_reshape')(x)
+            if self.use_pose_fae:
+                x = Conv2D(1, 3, 1, name=scope+'fae_merge', **CONV2D_ARGS)(x)
+                self.fae_gen_z = Reshape((self.seq_len, self.fae_latent_dim), name=scope+'fae_reshape')(x)
 
-            x = self._pose_decoder(self.fae_gen_z, 'generator')
+                x = self._pose_decoder(self.fae_gen_z)
 
-        else:
-            x = Permute((3, 2, 1), name='generator/joint_permute')(x)  # filters, time, joints
-            x = Conv2D(self.unfolded_joints, 3, 1, name='generator/joint_reshape', **CONV2D_ARGS)(x)
-            x = Permute((1, 3, 2), name='generator/time_permute')(x)  # filters, joints, time
-            x = Conv2D(self.seq_len, 3, 1, name='generator/time_reshape', **CONV2D_ARGS)(x)
-            x = Permute((2, 3, 1), name='generator/coords_permute')(x)  # joints, time, filters
-            x = Conv2D(3, 3, 1, name='generator/coords_reshape', **CONV2D_ARGS)(x)
+            else:
+                x = Permute((3, 2, 1), name=scope+'joint_permute')(x)  # filters, time, joints
+                x = Conv2D(self.unfolded_joints, 3, 1, name=scope+'joint_reshape', **CONV2D_ARGS)(x)
+                x = Permute((1, 3, 2), name=scope+'time_permute')(x)  # filters, joints, time
+                x = Conv2D(self.seq_len, 3, 1, name=scope+'time_reshape', **CONV2D_ARGS)(x)
+                x = Permute((2, 3, 1), name=scope+'coords_permute')(x)  # joints, time, filters
+                x = Conv2D(3, 3, 1, name=scope+'coords_reshape', **CONV2D_ARGS)(x)
 
-        if self.unfold:
-            x = FoldJoints(self.data_set)(x)
+            if self.unfold:
+                x = FoldJoints(self.data_set)(x)
 
-        output_tensors = [x]
+            output_tensors = [x]
 
         return output_tensors
 
-    def _pose_encoder(self, seq, net_name):
-        h = Permute((2, 1, 3), name='%s/encoder/perm_in' % net_name)(seq)
-        h = Reshape((self.seq_len, int(seq.shape[1] * seq.shape[3])), name='%s/encoder/resh_in' % net_name)(h)
+    def _pose_encoder(self, seq):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('encoder'):
 
-        h = Conv1D(self.fae_intermediate_dim, 1, 1,
-                   name='%s/encoder/conv_in' % net_name, **CONV1D_ARGS)(h)
-        for i in range(3):
-            pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
-                        name='%s/encoder/block_%d/pi_0' % (net_name, i), **CONV1D_ARGS)(h)
-            pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
-                        name='%s/encoder/block_%d/pi_1' % (net_name, i), **CONV1D_ARGS)(pi)
-            tau = Conv1D(self.fae_intermediate_dim, 1, 1, activation='sigmoid',
-                         name='%s/encoder/block_%d/tau_0' % (net_name, i), **CONV1D_ARGS)(h)
-            h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
-                       name='%s/encoder/block_%d/attention' % (net_name, i))([h, pi, tau])
+            h = Permute((2, 1, 3), name=scope+'perm_in')(seq)
+            h = Reshape((self.seq_len, int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
 
-        z = Conv1D(self.fae_latent_dim, 1, 1, name='%s/encoder/z_mean' % net_name, **CONV1D_ARGS)(h)
-        z_attention = Conv1D(self.fae_latent_dim, 1, 1, activation='sigmoid',
-                             name='%s/encoder/attention_mask' % net_name, **CONV1D_ARGS)(h)
+            h = Conv1D(self.fae_intermediate_dim, 1, 1,
+                       name=scope+'conv_in', **CONV1D_ARGS)(h)
+            for i in range(3):
+                with scope.name_scope('block_%d' % i):
+                    pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
+                                name=scope+'pi_0', **CONV1D_ARGS)(h)
+                    pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
+                                name=scope+'pi_1', **CONV1D_ARGS)(pi)
+                    tau = Conv1D(self.fae_intermediate_dim, 1, 1, activation='sigmoid',
+                                 name=scope+'tau_0', **CONV1D_ARGS)(h)
+                    h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
+                               name=scope+'attention')([h, pi, tau])
 
-        # We are only expecting half of the latent features to be activated
-        z = Multiply(name='%s/encoder/z_attention' % net_name)([z, z_attention])
+            z = Conv1D(self.fae_latent_dim, 1, 1, name=scope+'z_mean', **CONV1D_ARGS)(h)
+            z_attention = Conv1D(self.fae_latent_dim, 1, 1, activation='sigmoid',
+                                 name=scope+'attention_mask', **CONV1D_ARGS)(h)
+
+            # We are only expecting half of the latent features to be activated
+            z = Multiply(name=scope+'z_attention')([z, z_attention])
 
         return z
 
-    def _pose_decoder(self, gen_z, net_name):
+    def _pose_decoder(self, gen_z):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('decoder'):
 
-        dec_h = Conv1D(self.fae_intermediate_dim, 1, 1,
-                       name='%s/decoder/conv_in' % net_name, **CONV1D_ARGS)(gen_z)
-        for i in range(3):
-            pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
-                        name='%s/decoder/block_%d/pi_0' % (net_name, i), **CONV1D_ARGS)(dec_h)
-            pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
-                        name='%s/decoder/block_%d/pi_1' % (net_name, i), **CONV1D_ARGS)(pi)
-            tau = Conv1D(self.fae_intermediate_dim, 1, 1, activation='sigmoid',
-                         name='%s/decoder/block_%d/tau_0' % (net_name, i), **CONV1D_ARGS)(dec_h)
-            dec_h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
-                           name='%s/decoder/block_%d/attention' % (net_name, i))([dec_h, pi, tau])
+            dec_h = Conv1D(self.fae_intermediate_dim, 1, 1,
+                           name=scope+'conv_in', **CONV1D_ARGS)(gen_z)
+            for i in range(3):
+                with scope.name_scope('block_%d' % i):
+                    pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
+                                name=scope+'pi_0', **CONV1D_ARGS)(dec_h)
+                    pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
+                                name=scope+'pi_1', **CONV1D_ARGS)(pi)
+                    tau = Conv1D(self.fae_intermediate_dim, 1, 1, activation='sigmoid',
+                                 name=scope+'tau_0', **CONV1D_ARGS)(dec_h)
+                    dec_h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
+                                   name=scope+'attention')([dec_h, pi, tau])
 
-        dec_x = Conv1D(self.fae_original_dim, 1, 1, name='%s/decoder/conv_out' % net_name, **CONV1D_ARGS)(dec_h)
+            dec_x = Conv1D(self.fae_original_dim, 1, 1, name=scope+'conv_out', **CONV1D_ARGS)(dec_h)
 
-        dec_x = Reshape((self.seq_len, self.njoints, 3), name='%s/decoder/resh_out'% net_name)(dec_x)
-        dec_x = Permute((2, 1, 3), name='%s/decoder/perm_out' % net_name)(dec_x)
+            dec_x = Reshape((self.seq_len, self.njoints, 3), name=scope+'resh_out')(dec_x)
+            dec_x = Permute((2, 1, 3), name=scope+'perm_out')(dec_x)
 
         return dec_x
 
 
-#with K.name_scope('%s/block_%d/branch_%d' % (net_name, i, j))
-# def _conv_block(x, out_filters, bneck_factor, kernel_size, strides, conv_func=Conv2D, dilation_rate=(1, 1), use_norm=False):
-#     if use_norm:
-#         x = InstanceNormalization(axis=-1, name='inorm_in')(x)
-#     x = Activation('relu', name='relu_in')(x)
-#     x = conv_func(filters=out_filters // bneck_factor,
-#                   kernel_size=kernel_size, strides=1,
-#                   dilation_rate=dilation_rate, name='conv_in', **CONV2D_ARGS)(x)
-#     if use_norm:
-#         x = InstanceNormalization(axis=-1, name='inorm_out')(x)
-#     x = Activation('relu', name='relu_out')(x)
-#     x = conv_func(filters=out_filters, kernel_size=kernel_size, strides=strides,
-#                   dilation_rate=dilation_rate, name='conv_out', **CONV2D_ARGS)(x)
-#     return x
+def _conv_block(x, out_filters, bneck_factor, kernel_size, strides, conv_func=Conv2D, dilation_rate=(1, 1)):
+    scope = Scoping.get_global_scope()
+    if 'generator' in str(scope):
+        x = InstanceNormalization(axis=-1, name=scope+'inorm_in')(x)
+    x = Activation('relu', name=scope+'relu_in')(x)
+    x = conv_func(filters=out_filters // bneck_factor,
+                  kernel_size=kernel_size, strides=1,
+                  dilation_rate=dilation_rate, name=scope+'conv_in', **CONV2D_ARGS)(x)
+    if 'generator' in str(scope):
+        x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
+    x = Activation('relu', name=scope+'relu_out')(x)
+    x = conv_func(filters=out_filters, kernel_size=kernel_size, strides=strides,
+                  dilation_rate=dilation_rate, name=scope+'conv_out', **CONV2D_ARGS)(x)
+    return x
 
 
 class MotionGANV1(_MotionGAN):
     # ResNet
 
     def discriminator(self, x):
-        n_hidden = 64
-        block_factors = [1, 1, 2, 2]
-        block_strides = [2, 2, 1, 1]
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('discriminator'):
+            n_hidden = 64
+            block_factors = [1, 1, 2, 2]
+            block_strides = [2, 2, 1, 1]
 
-        x = Conv2D(n_hidden * block_factors[0], 3, 1, name='discriminator/conv_in', **CONV2D_ARGS)(x)
-        for i, factor in enumerate(block_factors):
-            n_filters = n_hidden * factor
-            shortcut = Conv2D(n_filters, block_strides[i], block_strides[i],
-                              name='discriminator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
-            pi = _conv_block(x, n_filters, 1, 3, block_strides[i], i, 0, 'discriminator')
+            x = Conv2D(n_hidden * block_factors[0], 3, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+            for i, factor in enumerate(block_factors):
+                with scope.name_scope('block_%d' % i):
+                    n_filters = n_hidden * factor
+                    shortcut = Conv2D(n_filters, block_strides[i], block_strides[i],
+                                      name=scope+'shortcut', **CONV2D_ARGS)(x)
+                    with scope.name_scope('branch_0'): # scope for backward compat
+                        pi = _conv_block(x, n_filters, 1, 3, block_strides[i])
 
-            x = Add(name='discriminator/block_%d/add' % i)([shortcut, pi])
+                    x = Add(name=scope+'add')([shortcut, pi])
 
-        x = Activation('relu', name='discriminator/relu_out')(x)
-        x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name='discriminator/mean_pool')(x)
+            x = Activation('relu', name=scope+'relu_out')(x)
+            x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
 
         return x
 
     def generator(self, x):
-        n_hidden = 32
-        block_factors = range(1, self.nblocks + 1)
-        block_strides = [2] * self.nblocks
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('generator'):
+            n_hidden = 32
+            block_factors = range(1, self.nblocks + 1)
+            block_strides = [2] * self.nblocks
 
-        if not (self.time_pres_emb or self.use_pose_fae):
-            x = Dense(4 * 4 * n_hidden * block_factors[0], name='generator/dense_in')(x)
-            x = Reshape((4, 4, n_hidden * block_factors[0]), name='generator/reshape_in')(x)
+            if not (self.time_pres_emb or self.use_pose_fae):
+                x = Dense(4 * 4 * n_hidden * block_factors[0], name=scope+'dense_in')(x)
+                x = Reshape((4, 4, n_hidden * block_factors[0]), name=scope+'reshape_in')(x)
 
-        for i, factor in enumerate(block_factors):
-            n_filters = n_hidden * factor
-            strides = block_strides[i]
-            if self.time_pres_emb:
-                strides = (block_strides[i], 1)
-            elif self.use_pose_fae:
-                strides = 1
-            shortcut = Conv2DTranspose(n_filters, strides, strides,
-                                       name='generator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
-            pi = _conv_block(x, n_filters, 1, 3, strides, i, 0, 'generator', Conv2DTranspose)
+            for i, factor in enumerate(block_factors):
+                with scope.name_scope('block_%d' % i):
+                    n_filters = n_hidden * factor
+                    strides = block_strides[i]
+                    if self.time_pres_emb:
+                        strides = (block_strides[i], 1)
+                    elif self.use_pose_fae:
+                        strides = 1
+                    shortcut = Conv2DTranspose(n_filters, strides, strides,
+                                               name=scope+'shortcut', **CONV2D_ARGS)(x)
+                    with scope.name_scope('branch_0'): # scope for backward compat
+                        pi = _conv_block(x, n_filters, 1, 3, strides, Conv2DTranspose)
 
-            x = Add(name='generator/block_%d/add' % i)([shortcut, pi])
+                    x = Add(name=scope+'add')([shortcut, pi])
 
-        x = InstanceNormalization(axis=-1, name='generator/inorm_out')(x)
-        x = Activation('relu', name='generator/relu_out')(x)
+            x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
+            x = Activation('relu', name=scope+'relu_out')(x)
 
         return x
 
@@ -537,81 +547,91 @@ class MotionGANV2(_MotionGAN):
     # Gated ResNet
 
     def discriminator(self, x):
-        n_hidden = 64
-        block_factors = [1, 1, 2, 2]
-        block_strides = [2, 2, 1, 1]
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('discriminator'):
+            n_hidden = 64
+            block_factors = [1, 1, 2, 2]
+            block_strides = [2, 2, 1, 1]
 
-        x = Conv2D(n_hidden * block_factors[0], 3, 1, name='discriminator/conv_in', **CONV2D_ARGS)(x)
-        for i, factor in enumerate(block_factors):
-            n_filters = n_hidden * factor
-            shortcut = Conv2D(n_filters, block_strides[i], block_strides[i],
-                              name='discriminator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
+            x = Conv2D(n_hidden * block_factors[0], 3, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+            for i, factor in enumerate(block_factors):
+                with scope.name_scope('block_%d' % i):
+                    n_filters = n_hidden * factor
+                    shortcut = Conv2D(n_filters, block_strides[i], block_strides[i],
+                                      name=scope+'shortcut', **CONV2D_ARGS)(x)
 
-            pi = _conv_block(x, n_filters, 1, 3, block_strides[i], i, 0, 'discriminator')
-            gamma = _conv_block(x, n_filters, 4, 3, block_strides[i], i, 1, 'discriminator')
-            gamma = Activation('sigmoid', name='discriminator/block_%d/sigmoid' % i)(gamma)
+                    with scope.name_scope('branch_0'):
+                        pi = _conv_block(x, n_filters, 1, 3, block_strides[i])
+                    with scope.name_scope('branch_1'):
+                        gamma = _conv_block(x, n_filters, 4, 3, block_strides[i])
+                        gamma = Activation('sigmoid', name=scope+'sigmoid')(gamma)
 
-            # tau = 1 - gamma
-            tau = Lambda(lambda arg: 1 - arg, name='discriminator/block_%d/tau' % i)(gamma)
+                    # tau = 1 - gamma
+                    tau = Lambda(lambda arg: 1 - arg, name=scope+'tau')(gamma)
 
-            # x = (pi * tau) + (shortcut * gamma)
-            x = Lambda(lambda args: (args[0] * args[1]) + (args[2] * args[3]),
-                       name='discriminator/block_%d/out_x' % i)([pi, tau, shortcut, gamma])
+                    # x = (pi * tau) + (shortcut * gamma)
+                    x = Lambda(lambda args: (args[0] * args[1]) + (args[2] * args[3]),
+                               name=scope+'out_x')([pi, tau, shortcut, gamma])
 
-        x = Activation('relu', name='discriminator/relu_out')(x)
-        x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name='discriminator/mean_pool')(x)
+            x = Activation('relu', name=scope+'relu_out')(x)
+            x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
 
         return x
 
     def generator(self, x):
-        n_hidden = 32
-        block_factors = range(1, self.nblocks + 1)
-        block_strides = [2] * self.nblocks
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('generator'):
+            n_hidden = 32
+            block_factors = range(1, self.nblocks + 1)
+            block_strides = [2] * self.nblocks
 
-        if not (self.time_pres_emb or self.use_pose_fae):
-            for i in range(2):
-                if i > 0:
-                    x = InstanceNormalization(axis=-1, name='generator/dense_block%d/bn' % i)(x)
-                    x = Activation('relu', name='generator/dense_block%d/relu' % i)(x)
-                x = Dense(n_hidden * 4, name='generator/dense_block%d/dense' % i)(x)
+            if not (self.time_pres_emb or self.use_pose_fae):
+                for i in range(2):
+                    with scope.name_scope('dense_block_%d' % i):
+                        if i > 0:
+                            x = InstanceNormalization(axis=-1, name=scope+'bn')(x)
+                            x = Activation('relu', name=scope+'relu')(x)
+                        x = Dense(n_hidden * 4, name=scope+'dense')(x)
 
-            x = InstanceNormalization(axis=-1, name='generator/inorm_conv_in')(x)
-            x = Activation('relu', name='generator/relu_conv_in')(x)
-            x = Dense(4 * 4 * n_hidden * block_factors[0], name='generator/dense_conv_in')(x)
-            x = Reshape((4, 4, n_hidden * block_factors[0]), name='generator/reshape_conv_in')(x)
+                x = InstanceNormalization(axis=-1, name=scope+'inorm_conv_in')(x)
+                x = Activation('relu', name=scope+'relu_conv_in')(x)
+                x = Dense(4 * 4 * n_hidden * block_factors[0], name=scope+'dense_conv_in')(x)
+                x = Reshape((4, 4, n_hidden * block_factors[0]), name=scope+'reshape_conv_in')(x)
 
-        for i, factor in enumerate(block_factors):
-            n_filters = n_hidden * factor
-            strides = block_strides[i]
-            if self.time_pres_emb:
-                strides = (block_strides[i], 1)
-            elif self.use_pose_fae:
-                strides = 1
-            shortcut = Conv2DTranspose(n_filters, strides, strides,
-                                       name='generator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
+            for i, factor in enumerate(block_factors):
+                with scope.name_scope('block_%d' % i):
+                    n_filters = n_hidden * factor
+                    strides = block_strides[i]
+                    if self.time_pres_emb:
+                        strides = (block_strides[i], 1)
+                    elif self.use_pose_fae:
+                        strides = 1
+                    shortcut = Conv2DTranspose(n_filters, strides, strides,
+                                               name=scope+'shortcut', **CONV2D_ARGS)(x)
+                    with scope.name_scope('branch_0'):
+                        pi = _conv_block(x, n_filters, 1, 3, strides, Conv2DTranspose)
+                    with scope.name_scope('branch_1'):
+                        gamma = _conv_block(x, n_filters, 4, 3, strides, Conv2DTranspose)
+                        gamma = Activation('sigmoid', name=scope+'gamma_sigmoid')(gamma)
 
-            pi = _conv_block(x, n_filters, 1, 3, strides, i, 0, 'generator', Conv2DTranspose)
+                    # tau = 1 - gamma
+                    tau = Lambda(lambda arg: 1 - arg, name=scope+'tau')(gamma)
 
-            gamma = _conv_block(x, n_filters, 4, 3, strides, i, 1, 'generator', Conv2DTranspose)
-            gamma = Activation('sigmoid', name='generator/block_%d/gamma_sigmoid' % i)(gamma)
+                    # x = (pi * tau) + (shortcut * gamma)
+                    x = Lambda(lambda args: (args[0] * args[1]) + (args[2] * args[3]),
+                               name=scope+'out_x')([pi, tau, shortcut, gamma])
 
-            # tau = 1 - gamma
-            tau = Lambda(lambda arg: 1 - arg, name='generator/block_%d/tau' % i)(gamma)
-
-            # x = (pi * tau) + (shortcut * gamma)
-            x = Lambda(lambda args: (args[0] * args[1]) + (args[2] * args[3]),
-                       name='generator/block_%d/out_x' % i)([pi, tau, shortcut, gamma])
-
-        x = InstanceNormalization(axis=-1, name='generator/inorm_out')(x)
-        x = Activation('relu', name='generator/relu_out')(x)
+            x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
+            x = Activation('relu', name=scope+'relu_out')(x)
 
         return x
 
 
-def _preact_dense(x, n_units, i, j):
-    x = InstanceNormalization(name='generator/block_%d/inorm_%d' % (i, j))(x)
-    x = Activation('relu', name='generator/block_%d/relu_%d' % (i, j))(x)
-    x = Dense(n_units, name='generator/block_%d/dense_%d' % (i, j), activation='relu')(x)
+def _preact_dense(x, n_units):
+    scope = Scoping.get_global_scope()
+    x = InstanceNormalization(name=scope+'inorm')(x)
+    x = Activation('relu', name=scope+'relu')(x)
+    x = Dense(n_units, name=scope+'dense', activation='relu')(x)
     return x
 
 
@@ -619,35 +639,47 @@ class MotionGANV3(_MotionGAN):
     # Simple dense ResNet
 
     def discriminator(self, x):
-        n_hidden = 512
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('discriminator'):
+            n_hidden = 512
 
-        x = Reshape((self.njoints * self.seq_len * 3, ), name='discriminator/reshape_in')(x)
-        x = Dense(n_hidden, name='discriminator/block_0/dense_0', activation='relu')(x)
-        for i in range(1, 5):
-            pi = Dense(n_hidden, name='discriminator/block_%d/dense_0' % i, activation='relu')(x)
-            pi = Dense(n_hidden, name='discriminator/block_%d/dense_1' % i, activation='relu')(pi)
+            x = Reshape((self.njoints * self.seq_len * 3, ), name=scope+'reshape_in')(x)
+            x = Dense(n_hidden, name=scope+'dense_0', activation='relu')(x)
+            for i in range(4):
+                with scope.name_scope('block_%d' % i):
+                    pi = Dense(n_hidden, name=scope+'dense_0', activation='relu')(x)
+                    pi = Dense(n_hidden, name=scope+'dense_1', activation='relu')(pi)
 
-            x = Add(name='discriminator/block_%d/add' % i)([x, pi])
+                    x = Add(name=scope+'add')([x, pi])
 
         return x
 
     def generator(self, x):
-        n_hidden = 512
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('generator'):
+            n_hidden = 512
 
-        x = Flatten(name='generator/flatten_in')(x)
-        x = _preact_dense(x, n_hidden, 0, 0)
-        for i in range(1, 5):
-            pi = _preact_dense(x, n_hidden, i, 0)
-            pi = _preact_dense(pi, n_hidden, i, 1)
+            x = Flatten(name=scope+'flatten_in')(x)
+            x = _preact_dense(x, n_hidden)
+            for i in range(4):
+                with scope.name_scope('block_%d' % i):
+                    with scope.name_scope('pi_0'):
+                        pi = _preact_dense(x, n_hidden)
+                    with scope.name_scope('pi_1'):
+                        pi = _preact_dense(pi, n_hidden)
 
-            x = Add(name='generator/block_%d/add' % i)([x, pi])
+                    x = Add(name=scope+'add')([x, pi])
 
-        if self.use_pose_fae:
-            x = Dense((self.seq_len * self.fae_latent_dim), name='generator/dense_out', activation='relu')(x)
-            x = Reshape((self.seq_len, self.fae_latent_dim, 1), name='generator/reshape_out')(x)
-        else:
-            x = Dense((self.unfolded_joints * self.seq_len * 3), name='generator/dense_out', activation='relu')(x)
-            x = Reshape((self.unfolded_joints, self.seq_len, 3), name='generator/reshape_out')(x)
+            if self.use_pose_fae:
+                x = Dense((self.seq_len * self.fae_latent_dim),
+                          name=scope+'dense_out', activation='relu')(x)
+                x = Reshape((self.seq_len, self.fae_latent_dim, 1),
+                            name=scope+'reshape_out')(x)
+            else:
+                x = Dense((self.unfolded_joints * self.seq_len * 3),
+                          name=scope+'dense_out', activation='relu')(x)
+                x = Reshape((self.unfolded_joints, self.seq_len, 3),
+                            name=scope+'reshape_out')(x)
 
         return x
 
@@ -656,62 +688,69 @@ class MotionGANV4(_MotionGAN):
     # Dilated ResNet
 
     def discriminator(self, x):
-        n_hidden = 64
-        block_factors = [1, 1, 2, 2]
-        block_strides = [2, 2, 1, 1]
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('discriminator'):
+            n_hidden = 64
+            block_factors = [1, 1, 2, 2]
+            block_strides = [2, 2, 1, 1]
 
-        x = Conv2D(n_hidden * block_factors[0], 3, 1, name='discriminator/conv_in', **CONV2D_ARGS)(x)
-        for i, factor in enumerate(block_factors):
-            n_filters = n_hidden * factor
-            shortcut = Conv2D(n_filters, block_strides[i], block_strides[i],
-                              name='discriminator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
-            pis = []
-            for j in range(4):
-                pis.append(_conv_block(x, n_filters // 4, 1, 3, 1, i, j,
-                                       'discriminator', dilation_rate=(1, 2 ** j)))
+            x = Conv2D(n_hidden * block_factors[0], 3, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+            for i, factor in enumerate(block_factors):
+                with scope.name_scope('block_%d' % i):
+                    n_filters = n_hidden * factor
+                    shortcut = Conv2D(n_filters, block_strides[i], block_strides[i],
+                                      name=scope+'shortcut', **CONV2D_ARGS)(x)
+                    pis = []
+                    for j in range(4):
+                        with scope.name_scope('branch_%d' % j):
+                            pis.append(_conv_block(x, n_filters // 4, 1, 3, 1, dilation_rate=(1, 2 ** j)))
 
-            pi = Concatenate(name='discriminator/block_%d/cat_pi' % i)(pis)
-            pi = Conv2D(n_filters, block_strides[i], block_strides[i],
-                        name='discriminator/block_%d/reduce_pi' % i, **CONV2D_ARGS)(pi)
+                    pi = Concatenate(name=scope+'cat_pi')(pis)
+                    pi = Conv2D(n_filters, block_strides[i], block_strides[i],
+                                name=scope+'reduce_pi', **CONV2D_ARGS)(pi)
 
-            x = Add(name='discriminator/block_%d/add' % i)([shortcut, pi])
+                    x = Add(name=scope+'add')([shortcut, pi])
 
-        x = Activation('relu', name='discriminator/relu_out')(x)
-        x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name='discriminator/mean_pool')(x)
+            x = Activation('relu', name=scope+'relu_out')(x)
+            x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
 
         return x
 
     def generator(self, x):
-        n_hidden = 32
-        block_factors = range(1, self.nblocks + 1)
-        block_strides = [2] * self.nblocks
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('generator'):
+            n_hidden = 32
+            block_factors = range(1, self.nblocks + 1)
+            block_strides = [2] * self.nblocks
 
-        if not (self.time_pres_emb or self.use_pose_fae):
-            x = Dense(4 * 4 * n_hidden * block_factors[0], name='generator/dense_in')(x)
-            x = Reshape((4, 4, n_hidden * block_factors[0]), name='generator/reshape_in')(x)
+            if not (self.time_pres_emb or self.use_pose_fae):
+                x = Dense(4 * 4 * n_hidden * block_factors[0], name=scope+'dense_in')(x)
+                x = Reshape((4, 4, n_hidden * block_factors[0]), name=scope+'reshape_in')(x)
 
-        for i, factor in enumerate(block_factors):
-            n_filters = n_hidden * factor
-            strides = block_strides[i]
-            if self.time_pres_emb:
-                strides = (block_strides[i], 1)
-            elif self.use_pose_fae:
-                strides = 1
-            shortcut = Conv2DTranspose(n_filters, strides, strides,
-                                       name='generator/block_%d/shortcut' % i, **CONV2D_ARGS)(x)
+            for i, factor in enumerate(block_factors):
+                with scope.name_scope('block_%d' % i):
+                    n_filters = n_hidden * factor
+                    strides = block_strides[i]
+                    if self.time_pres_emb:
+                        strides = (block_strides[i], 1)
+                    elif self.use_pose_fae:
+                        strides = 1
+                    shortcut = Conv2DTranspose(n_filters, strides, strides,
+                                               name=scope+'shortcut', **CONV2D_ARGS)(x)
 
-            pis = []
-            for j in range(4):
-                pis.append(_conv_block(x, n_filters // 4, 1, 3, 1, i, j,
-                                       'generator', Conv2DTranspose, dilation_rate=(1, 2 ** j)))
+                    pis = []
+                    for j in range(4):
+                        with scope.name_scope('branch_%d' % j):
+                            pis.append(_conv_block(x, n_filters // 4, 1, 3, 1,
+                                                   Conv2DTranspose, (1, 2 ** j)))
 
-            pi = Concatenate(name='generator/block_%d/cat_pi' % i)(pis)
-            pi = Conv2DTranspose(n_filters, strides, strides,
-                                 name='generator/block_%d/reduce_pi' % i, **CONV2D_ARGS)(pi)
+                    pi = Concatenate(name=scope+'cat_pi')(pis)
+                    pi = Conv2DTranspose(n_filters, strides, strides,
+                                         name=scope+'reduce_pi', **CONV2D_ARGS)(pi)
 
-            x = Add(name='generator/block_%d/add' % i)([shortcut, pi])
+                    x = Add(name=scope+'add')([shortcut, pi])
 
-        x = InstanceNormalization(axis=-1, name='generator/inorm_out')(x)
-        x = Activation('relu', name='generator/relu_out')(x)
+            x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
+            x = Activation('relu', name=scope+'relu_out')(x)
 
         return x

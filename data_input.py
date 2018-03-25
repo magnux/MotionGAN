@@ -86,25 +86,21 @@ class DataInput(object):
             labs[k, :] = [seq_idx, subject, action, plen]
             poses[k, :, :plen, :] = pose
 
+        min_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '_poses_mean.npy')
+        std_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '_poses_std.npy')
+
+        if tf.gfile.Exists(min_file_path) and tf.gfile.Exists(std_file_path):
+            self.poses_mean = np.load(min_file_path)
+            self.poses_std = np.load(std_file_path)
+        else:
+            print('Computing mean and std of skels')
+            self.poses_mean = np.mean(poses[..., :3], axis=(0, 1, 2), keepdims=True)
+            self.poses_std = np.std(poses[..., :3], axis=(0, 1, 2), keepdims=True)
+            print(self.poses_mean, self.poses_std)
+            np.save(min_file_path, self.poses_mean)
+            np.save(std_file_path, self.poses_std)
+
         if self.normalize_data:
-            min_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '_poses_mean.npy')
-            std_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '_poses_std.npy')
-
-            if is_training:
-                if tf.gfile.Exists(min_file_path) and tf.gfile.Exists(std_file_path):
-                    self.poses_mean = np.load(min_file_path)
-                    self.poses_std = np.load(std_file_path)
-                else:
-                    print('Computing mean and std of skels')
-                    self.poses_mean = np.mean(poses[..., :3], axis=(0, 1, 2), keepdims=True)
-                    self.poses_std = np.std(poses[..., :3], axis=(0, 1, 2), keepdims=True)
-                    print(self.poses_mean, self.poses_std)
-                    np.save(min_file_path, self.poses_mean)
-                    np.save(std_file_path, self.poses_std)
-            elif self.only_val:
-                self.poses_mean = np.load(min_file_path)
-                self.poses_std = np.load(std_file_path)
-
             poses[..., :3] = self.normalize_poses(poses[..., :3])
 
         return labs, poses

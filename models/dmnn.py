@@ -3,7 +3,7 @@ import tensorflow.contrib.keras.api.keras.backend as K
 from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import Conv2D, \
-    Dense, Activation, Lambda, Reshape, Add, Concatenate, \
+    Dense, Activation, Lambda, Reshape, Permute, Add, Concatenate, \
     BatchNormalization, Dropout
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
@@ -23,6 +23,7 @@ class _DMNN(object):
         self.seq_len = config.pick_num if config.pick_num > 0 else (
                        config.crop_len if config.crop_len > 0 else None)
         self.njoints = config.njoints
+        self.dropout = config.dropout
 
         real_seq = Input(
             batch_shape=(self.batch_size, self.njoints, self.seq_len, 3),
@@ -79,11 +80,12 @@ class DMNNv1(_DMNN):
         with scope.name_scope('classifier'):
             if self.data_set == 'NTURGBD':
                 blocks = [{'size': 128, 'bneck': 32, 'groups': 16, 'strides': 1},
-                          {'size': 256, 'bneck': 64, 'groups': 16, 'strides': 3},
-                          {'size': 512, 'bneck': 128, 'groups': 16, 'strides': 3}]
+                          {'size': 256, 'bneck': 64, 'groups': 16, 'strides': 2},
+                          {'size': 512, 'bneck': 128, 'groups': 16, 'strides': 2}]
             else:
-                blocks = [{'size': 128, 'bneck': 32, 'groups': 8, 'strides': 3},
-                          {'size': 256, 'bneck': 64, 'groups': 8, 'strides': 3}]
+                blocks = [{'size': 64, 'bneck': 16, 'groups': 16, 'strides': 1},
+                          {'size': 128, 'bneck': 32, 'groups': 16, 'strides': 2},
+                          {'size': 256, 'bneck': 64, 'groups': 16, 'strides': 2}]
 
             x = CombMatrix(self.njoints, name=scope+'comb_matrix')(x)
 
@@ -99,7 +101,7 @@ class DMNNv1(_DMNN):
                                     blocks[i]['groups'], 3, blocks[i]['strides'])
 
             x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name=scope+'mean_pool')(x)
-            x = Dropout(0.5, name=scope+'dropout')(x)
+            x = Dropout(self.dropout, name=scope+'dropout')(x)
             x = Dense(self.num_actions, activation='softmax', name=scope+'label')(x)
 
         return x

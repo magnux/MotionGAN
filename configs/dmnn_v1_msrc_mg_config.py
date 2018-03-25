@@ -20,4 +20,8 @@
     'learning_rate': 1.0e-3,
     # Dropout Rate
     'dropout': 0.5,
+
+    ## DMNN Model Options
+    'motiongan_save_path': 'save/motiongan_v1_tpe_msrc',
+
 }

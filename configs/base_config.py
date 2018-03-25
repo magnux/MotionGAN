@@ -31,6 +31,9 @@
     # Use pose FAE
     'use_pose_fae': False,
 
+    ## DMNN Model Options
+    'motiongan_save_path': None,
+
     ## Training Options
     # It's the batch size
     'batch_size': 256,

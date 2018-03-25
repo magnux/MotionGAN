@@ -1,8 +1,4 @@
 {
-    # Datasets: MSRC12, NTURGBD
-    'data_set': 'MSRC12',
-    'data_set_version': 'v1',
-
     # Normalize skeletons offline
     'normalize_data': False,
 
@@ -15,9 +11,12 @@
     # Final epoch
     'num_epochs': 100,
     # Multiplies length of epoch, useful for tiny datasets
-    'epoch_factor': 3,
+    'epoch_factor': 1,
     # How fast should we learn?
     'learning_rate': 1.0e-3,
     # Dropout Rate
     'dropout': 0.5,
+
+    ## DMNN Model Options
+    'motiongan_save_path': 'save/motiongan_v1_tpe',
 }

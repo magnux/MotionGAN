@@ -14,7 +14,6 @@ flags = tf.flags
 flags.DEFINE_bool("verbose", False, "To talk or not to talk")
 flags.DEFINE_string("save_path", None, "Model output directory")
 flags.DEFINE_string("config_file", None, "Model config file")
-flags.DEFINE_string("motiongan_save_path", None, "Motion gan to use" )
 FLAGS = flags.FLAGS
 
 if __name__ == "__main__":
@@ -40,8 +39,8 @@ if __name__ == "__main__":
     if config.epoch > 0:
         model_wrap.model = restore_keras_model(model_wrap.model, config.save_path + '_weights.hdf5')
 
-    if FLAGS.motiongan_save_path is not None:
-        FLAGS.save_path = FLAGS.motiongan_save_path
+    if config.motiongan_save_path is not None:
+        FLAGS.save_path = config.motiongan_save_path
         FLAGS.config_file = None
 
         motiongan_config = get_config(FLAGS)
@@ -107,9 +106,15 @@ if __name__ == "__main__":
             loss_sum += loss
             acc_sum += acc
 
-            if FLAGS.motiongan_save_path is not None and training:
+            if config.motiongan_save_path is not None and training:
+                if motiongan_config.normalize_data:
+                    poses_batch = data_input.normalize_poses(poses_batch)
+
                 gen_inputs = [poses_batch, mask_batch]
                 gen_batch = gen_model.predict_on_batch(gen_inputs)
+
+                if motiongan_config.normalize_data:
+                    gen_batch = data_input.denormalize_poses(gen_batch)
 
                 model_wrap.model.train_on_batch(gen_batch, labs_batch)
 

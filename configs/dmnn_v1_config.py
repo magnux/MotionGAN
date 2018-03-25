@@ -1,4 +1,7 @@
 {
+    # Normalize skeletons offline
+    'normalize_data': False,
+
     'model_type': 'dmnn',
     # Model version to train
     'model_version': 'v1',
@@ -11,4 +14,6 @@
     'epoch_factor': 1,
     # How fast should we learn?
     'learning_rate': 1.0e-3,
+    # Dropout Rate
+    'dropout': 0.5,
 }

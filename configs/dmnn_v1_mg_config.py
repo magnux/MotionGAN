@@ -13,7 +13,7 @@
     # Multiplies length of epoch, useful for tiny datasets
     'epoch_factor': 3,
     # How fast should we learn?
-    'learning_rate': 0.5e-4,
+    'learning_rate': 5.0e-4,
     # Dropout Rate
     'dropout': 0.5,
 

@@ -1,4 +1,5 @@
 from __future__ import absolute_import, division, print_function
+import numpy as np
 import tensorflow.contrib.keras.api.keras.backend as K
 from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
@@ -23,6 +24,7 @@ class _DMNN(object):
         self.seq_len = config.pick_num if config.pick_num > 0 else (
                        config.crop_len if config.crop_len > 0 else None)
         self.njoints = config.njoints
+        self.body_members = config.body_members
         self.dropout = config.dropout
 
         real_seq = Input(
@@ -72,6 +74,24 @@ def _conv_block(x, out_filters, bneck_filters, groups, kernel_size, strides):
     return x
 
 
+def _jitter_height(poses):
+    with K.name_scope('jitter_height'):
+        select_mask = np.zeros(poses.shape)
+        select_mask[..., 1] = 1.0
+        select_mask = K.constant(select_mask, dtype='float32')
+        jitter_y = poses * K.random_uniform([int(poses.shape[0]), 1, 1, 1], minval=0.7, maxval=1.3)
+        new_poses = (poses * (1 - select_mask)) + (jitter_y * select_mask)
+        return new_poses
+
+
+def _sim_occlusions(poses):
+    with K.name_scope('sim_occlusions'):
+        jitter_coords = poses * K.random_uniform(poses.shape, minval=0.8, maxval=1.2)
+        select_mask = K.random_binomial([int(poses.shape[0]), 1, 1, 1], 0.5)
+        new_poses = (poses * (1 - select_mask)) + (jitter_coords * select_mask)
+        return new_poses
+
+
 class DMNNv1(_DMNN):
     # DM2DCNN (ResNext based)
 
@@ -86,6 +106,11 @@ class DMNNv1(_DMNN):
                 blocks = [{'size': 64, 'bneck': 16, 'groups': 16, 'strides': 1},
                           {'size': 128, 'bneck': 32, 'groups': 16, 'strides': 2},
                           {'size': 256, 'bneck': 64, 'groups': 16, 'strides': 2}]
+
+            def _data_augmentation(x):
+                return K.in_train_phase(_sim_occlusions(_jitter_height(x)), x)
+
+            x = Lambda(_data_augmentation, name=scope+"data_augmentation")(x)
 
             x = CombMatrix(self.njoints, name=scope+'comb_matrix')(x)
 

@@ -15,7 +15,7 @@
     # Final epoch
     'num_epochs': 100,
     # Multiplies length of epoch, useful for tiny datasets
-    'epoch_factor': 9,
+    'epoch_factor': 3,
     # How fast should we learn?
     'learning_rate': 5.0e-4,
     # Dropout Rate

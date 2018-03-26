@@ -67,7 +67,11 @@ if __name__ == "__main__":
             motiongan_model_wrap.gen_model, motiongan_config.save_path + '_gen_weights.hdf5', False)
 
         gen_model = motiongan_model_wrap.gen_model
-        model_wrap.model
+        
+        del motiongan_model_wrap.disc_model
+        del motiongan_model_wrap.gan_model
+        del motiongan_model_wrap
+
 
     tensorboard = TensorBoard(log_dir=config.save_path + '_logs',
                               epoch=config.epoch,

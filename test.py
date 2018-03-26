@@ -243,6 +243,16 @@ if __name__ == "__main__":
 
             labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
 
+            for model_wrap in model_wraps:
+                gen_outputs = model_wrap.gen_model.predict(gen_inputs, batch_size)
+                if configs[0].normalize_data:
+                    gen_outputs = data_input.denormalize_poses(gen_outputs)
+                gen_loss, gen_acc = model_wrap_dmnn.model.evaluate(gen_outputs, labs_batch[:, 2], batch_size=batch_size, verbose=2)
+                accs[model_wrap.name + '_acc'] += gen_acc
+
+            if configs[0].normalize_data:
+                poses_batch = data_input.denormalize_poses(poses_batch)
+
             real_loss, real_acc = model_wrap_dmnn.model.evaluate(poses_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
             accs['real_acc'] += real_acc
 
@@ -252,11 +262,6 @@ if __name__ == "__main__":
 
             bl_loss, bl_acc = model_wrap_dmnn.model.evaluate(bl_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
             accs['bl_acc'] += bl_acc
-
-            for model_wrap in model_wraps:
-                gen_outputs = model_wrap.gen_model.predict(gen_inputs, batch_size)
-                gen_loss, gen_acc = model_wrap_dmnn.model.evaluate(gen_outputs, labs_batch[:, 2], batch_size=batch_size, verbose=2)
-                accs[model_wrap.name + '_acc'] += gen_acc
 
             mean_accs = {}
             for key, value in accs.items():

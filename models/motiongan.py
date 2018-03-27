@@ -233,8 +233,8 @@ class _MotionGAN(object):
             with K.name_scope('reconstruction_loss'):
                 loss_rec = K.sum(K.sum(K.mean(K.square(real_seq - gen_seq), axis=-1), axis=1) * zero_frames, axis=1)
                 gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
-                loss_rec_edm = K.sum(K.mean(K.square(edm(real_seq) - edm(gen_seq)) * zero_frames_edm, axis=(1, 2)), axis=1)
-                gen_losses['gen_loss_rec_edm'] = 10.0 * self.rec_scale * K.mean(loss_rec_edm)
+                # loss_rec_edm = K.sum(K.mean(K.square(edm(real_seq) - edm(gen_seq)) * zero_frames_edm, axis=(1, 2)), axis=1)
+                # gen_losses['gen_loss_rec_edm'] = 10.0 * self.rec_scale * K.mean(loss_rec_edm)
 
             if self.use_pose_fae:
                 with K.name_scope('frame_wgan_loss'):
@@ -282,14 +282,14 @@ class _MotionGAN(object):
                     gen_shape = edm(gen_seq) * zero_frames_edm * mask
                     loss_shape = K.sum(K.mean(K.square(real_shape - gen_shape), axis=-1), axis=(1, 2))
                     gen_losses['gen_loss_shape'] = self.shape_scale * K.mean(loss_shape)
-                    joint_dists = edm(real_seq) * zero_frames_edm
-                    mean_dists = K.sum(edm(real_seq) * zero_frames_edm / K.sum(zero_frames_edm, axis=-1, keepdims=True), axis=-1, keepdims=True)
-                    fix_joints = K.cast(K.greater_equal(joint_dists, mean_dists - 1e-4), 'float32')
-                    fix_joints = fix_joints * K.cast(K.less_equal(joint_dists, mean_dists + 1e-4), 'float32')
-                    real_fix_shape = mean_dists * fix_joints
-                    gen_fix_shape = edm(gen_seq) * zero_frames_edm * fix_joints
-                    loss_fix_shape = K.sum(K.mean(K.square(real_fix_shape - gen_fix_shape), axis=-1), axis=(1, 2))
-                    gen_losses['gen_loss_fix_shape'] = 10.0 * self.shape_scale * K.mean(loss_fix_shape)
+                    # joint_dists = edm(real_seq) * zero_frames_edm
+                    # mean_dists = K.sum(edm(real_seq) * zero_frames_edm / K.sum(zero_frames_edm, axis=-1, keepdims=True), axis=-1, keepdims=True)
+                    # fix_joints = K.cast(K.greater_equal(joint_dists, mean_dists - 1e-4), 'float32')
+                    # fix_joints = fix_joints * K.cast(K.less_equal(joint_dists, mean_dists + 1e-4), 'float32')
+                    # real_fix_shape = mean_dists * fix_joints
+                    # gen_fix_shape = edm(gen_seq) * zero_frames_edm * fix_joints
+                    # loss_fix_shape = K.sum(K.mean(K.square(real_fix_shape - gen_fix_shape), axis=-1), axis=(1, 2))
+                    # gen_losses['gen_loss_fix_shape'] = 10.0 * self.shape_scale * K.mean(loss_fix_shape)
             if self.smoothing_loss:
                 with K.name_scope('smoothing_loss'):
                     Q = idct(np.eye(self.seq_len))[:self.smoothing_basis, :]

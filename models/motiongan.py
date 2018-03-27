@@ -279,8 +279,10 @@ class _MotionGAN(object):
                         for j in range(len(member['joints']) - 1):
                             mask[member['joints'][j], member['joints'][j + 1]] = 1.0
                             mask[member['joints'][j + 1], member['joints'][j]] = 1.0
+                    mask = np.reshape(mask, (1, self.njoints, self.njoints, 1))
                     mask = K.constant(mask, dtype='float32')
-                    real_shape = K.sum(edm(real_seq) * zero_frames_edm / K.sum(zero_frames_edm, axis=-1, keepdims=True), axis=-1, keepdims=True) * mask
+                    real_shape = K.sum(edm(real_seq) * zero_frames_edm, axis=-1, keepdims=True) \
+                                 / K.sum(zero_frames_edm, axis=-1, keepdims=True) * mask
                     gen_shape = edm(gen_seq) * zero_frames_edm * mask
                     loss_shape = K.sum(K.mean(K.square(real_shape - gen_shape), axis=-1), axis=(1, 2))
                     gen_losses['gen_loss_shape'] = self.shape_scale * K.mean(loss_shape)

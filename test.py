@@ -8,6 +8,7 @@ from models.motiongan import MotionGANV1, MotionGANV2, MotionGANV3, MotionGANV4
 from models.dmnn import DMNNv1
 from utils.restore_keras_model import restore_keras_model
 from utils.viz import plot_seq_gif, plot_seq_pano
+from utils.baselines import constant_baseline, burke_baseline
 import h5py as h5
 from tqdm import trange
 
@@ -102,6 +103,8 @@ if __name__ == "__main__":
         elif mask_type == 4:  # Noisy transmission
             mask = np.random.binomial(1, keep_prob, size=mask.shape)
 
+        # This unmasks first frame for all sequences
+        mask[:, :, 0, :] = 1.0
         return mask
 
     def get_inputs():
@@ -119,15 +122,6 @@ if __name__ == "__main__":
             gen_inputs.append(latent_noise)
 
         return labs_batch, poses_batch, mask_batch, gen_inputs
-
-    def constant_baseline(seq, mask):
-        new_seq = seq * mask
-        new_seq[:, 0, :] = seq[:, 0, :]
-        for j in range(seq.shape[0]):
-            for f in range(1, seq.shape[1]):
-                if mask[j, f, 0] == 0:
-                    new_seq[j, f, :] = new_seq[j, f - 1, :]
-        return new_seq
 
     if "images" in FLAGS.test_mode:
 
@@ -165,10 +159,12 @@ if __name__ == "__main__":
                 constant_seq =\
                     constant_baseline(poses_batch[seq_idx, ...], mask_batch[seq_idx, ...])
                 constant_seq = np.expand_dims(constant_seq, 0)
+                # burke_seq = \
+                #     burke_baseline(poses_batch[seq_idx, ...], mask_batch[seq_idx, ...])
+                # burke_seq = np.expand_dims(burke_seq, 0)
 
-                plot_func(np.concatenate([poses_batch[np.newaxis, seq_idx, ...]] +
-                                         [gen_output[np.newaxis, seq_idx, ...] for gen_output in gen_outputs] +
-                                         [constant_seq]),
+                plot_func(np.concatenate([poses_batch[np.newaxis, seq_idx, ...], constant_seq] +
+                                         [gen_output[np.newaxis, seq_idx, ...] for gen_output in gen_outputs]),
                           labs_batch[seq_idx, ...],
                           configs[0].data_set,
                           seq_masks=mask_batch[seq_idx, ...],

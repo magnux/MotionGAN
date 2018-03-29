@@ -159,11 +159,11 @@ if __name__ == "__main__":
                 constant_seq =\
                     constant_baseline(poses_batch[seq_idx, ...], mask_batch[seq_idx, ...])
                 constant_seq = np.expand_dims(constant_seq, 0)
-                # burke_seq = \
-                #     burke_baseline(poses_batch[seq_idx, ...], mask_batch[seq_idx, ...])
-                # burke_seq = np.expand_dims(burke_seq, 0)
+                burke_seq = \
+                    burke_baseline(poses_batch[seq_idx, ...], mask_batch[seq_idx, ...])
+                burke_seq = np.expand_dims(burke_seq, 0)
 
-                plot_func(np.concatenate([poses_batch[np.newaxis, seq_idx, ...], constant_seq] +
+                plot_func(np.concatenate([poses_batch[np.newaxis, seq_idx, ...], constant_seq, burke_seq] +
                                          [gen_output[np.newaxis, seq_idx, ...] for gen_output in gen_outputs]),
                           labs_batch[seq_idx, ...],
                           configs[0].data_set,
@@ -229,7 +229,7 @@ if __name__ == "__main__":
 
         model_wrap_dmnn.model = restore_keras_model(model_wrap_dmnn.model, config.save_path + '_weights.hdf5')
 
-        accs = {'real_acc': 0, 'bl_acc': 0}
+        accs = {'real_acc': 0, 'const_acc': 0, 'burke_acc': 0}
 
         for model_wrap in model_wraps:
             accs[model_wrap.name + '_acc'] = 0
@@ -252,12 +252,17 @@ if __name__ == "__main__":
             real_loss, real_acc = model_wrap_dmnn.model.evaluate(poses_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
             accs['real_acc'] += real_acc
 
-            bl_batch = np.empty_like(poses_batch)
+            constant_batch = np.empty_like(poses_batch)
+            burke_batch = np.empty_like(poses_batch)
             for j in range(batch_size):
-                bl_batch[j, ...] = constant_baseline(poses_batch[j, ...], mask_batch[j, ...])
+                constant_batch[j, ...] = constant_baseline(poses_batch[j, ...], mask_batch[j, ...])
+                burke_batch[j, ...] = burke_baseline(poses_batch[j, ...], mask_batch[j, ...])
 
-            bl_loss, bl_acc = model_wrap_dmnn.model.evaluate(bl_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
-            accs['bl_acc'] += bl_acc
+            const_loss, const_acc = model_wrap_dmnn.model.evaluate(constant_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
+            accs['const_acc'] += const_acc
+
+            burke_loss, burke_acc = model_wrap_dmnn.model.evaluate(burke_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
+            accs['burke_acc'] += burke_acc
 
             mean_accs = {}
             for key, value in accs.items():

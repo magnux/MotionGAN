@@ -11,77 +11,64 @@ def constant_baseline(X, mask):
     return new_X
 
 
-def burke_baseline(X, mask, gamma=0.99):
+def burke_baseline(rawdata, mask, tol=0.0025, sigR=1e-3, keepOriginal=True):
     """Low-Rank smoothed Kalman filter, based in Burke et. al"""
-    X = np.transpose(X, (1, 0, 2))
+    rawdata = np.transpose(rawdata.copy(), (1, 0, 2))
+    raw_shape = [int(dim) for dim in rawdata.shape]
+    rawdata = np.reshape(rawdata, (raw_shape[0], raw_shape[1] * raw_shape[2]))
+
+    mask = np.tile(mask.copy(), (1, 1, raw_shape[2]))
     mask = np.transpose(mask, (1, 0, 2))
-    m0 = np.mean(X[0, ...], -1, keepdims=True)
-    U, s, V = np.linalg.svd(X[0, ...] - m0, full_matrices=True)
-    d = np.searchsorted(np.cumsum(np.diag(s)), gamma) + 1
-    print(U.shape, s.shape, V.shape, d)
-    V = V[:, d]
+    mask = np.reshape(mask, (raw_shape[0], raw_shape[1] * raw_shape[2]))
 
-    n_joints = int(X.shape[1])
-    n_frames = int(X.shape[0])
-    Z = X * mask
-    masked = np.sum(mask, -1) == 0
-    H = np.zeros((n_frames, n_joints, n_joints))
-    for t in range(1, n_frames):
-        H[t, ...] = np.eye(n_joints)
-        for j in range(n_joints):
-            if masked[t, j]:
-                H[t, j, j] = 0
-    H_hat = np.zeros((n_frames, n_joints, d))
-    # Note this operation could be sped up if needed by removing the for loop
-    for t in range(1, n_frames):
-        H_hat[t, ...] = np.dot(H[t, ...], V)
+    X = rawdata[(mask != 0).any(axis=1)]
 
-    m_hat = np.random.uniform(size=(n_frames, d, 1))
-    m = np.zeros_like(m_hat)
-    P_hat = np.random.uniform(size=(n_frames, d, d))
-    P = np.zeros_like(P_hat)
-    K = np.zeros((n_frames, d, n_joints))
-    # Q is obtained by determining the standard
-    # deviation of the rate of change of marker positions
-    # and projecting this into the low rank space.
-    Q = 0
-    # Noise covariance matrix R is diagonal,
-    # with elements selected empirically
-    R = np.zeros((n_joints, n_joints))
-    I = np.eye(d)
-    for t in range(1, n_frames):
-        m_hat[t, ...] = m_hat[t - 1, ...]
-        P_hat[t, ...] = P_hat[t - 1, ...] + Q
-        K[t, ...] = np.dot(P_hat[t, ...],
-                           np.dot(H_hat[t, ...].transpose(),
-                                  np.linalg.pinv(
-                                      np.dot(H_hat[t, ...],
-                                             np.dot(P_hat[t, ...],
-                                                    H_hat[t, ...].transpose())) + R)))
-        m[t, ...] = m_hat[t, ...] + np.dot(K[t, ...], Z[t, ...] -
-                                           np.dot(H_hat[t, ...], m_hat[t, ...]) +
-                                           np.dot(H[t, ...], m0))
-        P[t, ...] = np.dot((I - np.dot(K[t, ...], H_hat[t, ...])), P_hat[t, ...])
+    m = np.mean(X, axis=0)
 
-    m_tilde = np.zeros_like(m)
-    m_tilde[-1, ...] = m[-1, ...]
-    P_tilde = np.zeros_like(P)
-    P_tilde[-1, ...] = P[-1, ...]
-    y = np.zeros_like(Z)
-    for t in range(n_frames -1, 1):
-        m_tilde[t, ...] = m[t, ...] + np.dot(P[t, ...],
-                                             np.dot(np.linalg.pinv(P_tilde[t, ...]),
-                                                    m_tilde[t+1] - m_hat[t+1]))
-        P_tilde = P[t, ...] + np.dot(P[t, ...],
-                                     np.dot(np.linalg.pinv(P_tilde[t, ...]),
-                                            np.dot(P_tilde[t + 1, ...] - P_hat[t + 1, ...],
-                                                   np.dot(np.linalg.pinv(P_tilde[t, ...]).transpose(),
-                                                          P[t, ...].transpose()))))
-        y[t, ...] = np.dot(V, m_tilde[t, ...]) + m0
+    U, S, V = np.linalg.svd(X - m)
+
+    d = np.nonzero(np.cumsum(S) / np.sum(S) > (1 - tol))[0][0]
+
+    Q = np.dot(np.dot(V[0:d, :], np.diag(np.std(np.diff(X, axis=0), axis=0))), V[0:d, :].T)
+
+    state = []
+    state_pred = []
+    cov_pred = []
+    cov = []
+    cov.insert(0, 1e12 * np.eye(d))
+    state.insert(0, np.random.normal(0.0, 1.0, d))
+    cov_pred.insert(0, 1e12 * np.eye(d))
+    state_pred.insert(0, np.random.normal(0.0, 1.0, d))
+    for i in range(1, rawdata.shape[0] + 1):
+        z = rawdata[i - 1, (mask[i - 1, :] != 0)]
+        H = np.diag((mask[i - 1, :] != 0))
+        H = H[~np.all(H == 0, axis=1)]
+        Ht = np.dot(H, V[0:d, :].T)
+
+        R = sigR * np.eye(H.shape[0])
+
+        state_pred.insert(i, state[i - 1])
+        cov_pred.insert(i, cov[i - 1] + Q)
+
+        K = np.dot(np.dot(cov_pred[i], Ht.T), np.linalg.inv(np.dot(np.dot(Ht, cov_pred[i]), Ht.T) + R))
+
+        state.insert(i, state_pred[i] + np.dot(K, (z - (np.dot(Ht, state_pred[i]) + np.dot(H, m)))))
+        cov.insert(i, np.dot(np.eye(d) - np.dot(K, Ht), cov_pred[i]))
+
+    y = np.zeros(rawdata.shape)
+    y[-1, :] = np.dot(V[0:d, :].T, state[-1]) + m
+    for i in range(len(state) - 2, 0, -1):
+        state[i] = state[i] + np.dot(np.dot(cov[i], np.linalg.inv(cov_pred[i])),
+                                     (state[i + 1] - state_pred[i + 1]))
+        cov[i] = cov[i] + np.dot(np.dot(np.dot(cov[i], np.linalg.inv(cov_pred[i])),
+                                        (cov[i + 1] - cov_pred[i + 1])), cov[i])
+
+        y[i - 1, :] = np.dot(V[0:d, :].T, state[i]) + m
+
+    if (keepOriginal):
+        y[(mask != 0)] = rawdata[(mask != 0)]
+
+    y = np.reshape(y, (raw_shape[0], raw_shape[1], raw_shape[2]))
+    y = np.transpose(y, (1, 0, 2))
 
     return y
-
-
-
-
-

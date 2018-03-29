@@ -59,7 +59,10 @@ def _preact_conv(x, out_filters, kernel_size, strides, groups=1):
 
 def _conv_block(x, out_filters, bneck_filters, groups, kernel_size, strides):
     scope = Scoping.get_global_scope()
-    shortcut = Conv2D(out_filters, strides, strides, name=scope+'shortcut', **CONV2D_ARGS)(x)
+    if int(x.shape[-1]) != out_filters or strides > 1:
+        shortcut = Conv2D(out_filters, strides, strides, name=scope+'shortcut', **CONV2D_ARGS)(x)
+    else:
+        shortcut = x
 
     with scope.name_scope('in'):
         pi = _preact_conv(x, bneck_filters, 1, 1)

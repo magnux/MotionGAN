@@ -99,13 +99,14 @@ class DMNNv1(_DMNN):
         scope = Scoping.get_global_scope()
         with scope.name_scope('classifier'):
             if self.data_set == 'NTURGBD':
-                blocks = [{'size': 128, 'bneck': 32, 'groups': 16, 'strides': 1},
-                          {'size': 256, 'bneck': 64, 'groups': 16, 'strides': 2},
+                blocks = [{'size': 128, 'bneck': 32,  'groups': 16, 'strides': 1},
+                          {'size': 256, 'bneck': 64,  'groups': 16, 'strides': 2},
                           {'size': 512, 'bneck': 128, 'groups': 16, 'strides': 2}]
+                n_reps = 3
             else:
-                blocks = [{'size': 64, 'bneck': 16, 'groups': 16, 'strides': 1},
-                          {'size': 128, 'bneck': 32, 'groups': 16, 'strides': 2},
-                          {'size': 256, 'bneck': 64, 'groups': 16, 'strides': 2}]
+                blocks = [{'size': 64,  'bneck': 32, 'groups': 8, 'strides': 3},
+                          {'size': 128, 'bneck': 64, 'groups': 8, 'strides': 3}]
+                n_reps = 3
 
             def _data_augmentation(x):
                 return K.in_train_phase(_sim_occlusions(_jitter_height(x)), x)
@@ -121,9 +122,10 @@ class DMNNv1(_DMNN):
             x = BatchNormalization(axis=-1, name=scope+'bn_in')(x)
             x = Conv2D(blocks[0]['bneck'], 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
             for i in range(len(blocks)):
-                with scope.name_scope('block_%d' % i):
-                    x = _conv_block(x, blocks[i]['size'], blocks[i]['bneck'],
-                                    blocks[i]['groups'], 3, blocks[i]['strides'])
+                for j in range(n_reps):
+                    with scope.name_scope('block_%d_%d' % (i, j)):
+                        x = _conv_block(x, blocks[i]['size'], blocks[i]['bneck'],
+                                        blocks[i]['groups'], 3, blocks[i]['strides'] if j == 0 else 1)
 
             x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name=scope+'mean_pool')(x)
             x = Dropout(self.dropout, name=scope+'dropout')(x)

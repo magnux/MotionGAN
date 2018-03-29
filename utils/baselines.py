@@ -4,6 +4,7 @@ import numpy as np
 
 def constant_baseline(X, mask):
     new_X = X * mask
+    new_X[:, 0, :] = X[:, 0, :]
     for j in range(X.shape[0]):
         for f in range(1, X.shape[1]):
             if mask[j, f, 0] == 0:
@@ -22,6 +23,8 @@ def burke_baseline(rawdata, mask, tol=0.0025, sigR=1e-3, keepOriginal=True):
     mask = np.reshape(mask, (raw_shape[0], raw_shape[1] * raw_shape[2]))
 
     X = rawdata[(mask != 0).any(axis=1)]
+    if X.size == 0 or np.product(X.shape[-2:]) == 0:
+        return np.zeros((raw_shape[1], raw_shape[0], raw_shape[2]))
 
     m = np.mean(X, axis=0)
 

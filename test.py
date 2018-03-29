@@ -103,6 +103,8 @@ if __name__ == "__main__":
         elif mask_type == 4:  # Noisy transmission
             mask = np.random.binomial(1, keep_prob, size=mask.shape)
 
+        # This unmasks first frame for all sequences
+        mask[:, :, range(0, 20, 5), :] = 1.0
         return mask
 
     def get_inputs():

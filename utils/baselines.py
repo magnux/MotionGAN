@@ -4,7 +4,6 @@ import numpy as np
 
 def constant_baseline(X, mask):
     new_X = X * mask
-    new_X[:, 0, :] = X[:, 0, :]
     for j in range(X.shape[0]):
         for f in range(1, X.shape[1]):
             if mask[j, f, 0] == 0:
@@ -22,7 +21,9 @@ def burke_baseline(rawdata, mask, tol=0.0025, sigR=1e-3, keepOriginal=True):
     mask = np.transpose(mask, (1, 0, 2))
     mask = np.reshape(mask, (raw_shape[0], raw_shape[1] * raw_shape[2]))
 
-    X = rawdata[(mask != 0).any(axis=1)]
+    rawdata[mask == 0] = np.nan
+
+    X = rawdata[~np.isnan(rawdata).any(axis=1)]
     if X.size == 0 or np.product(X.shape[-2:]) == 0:
         return np.zeros((raw_shape[1], raw_shape[0], raw_shape[2]))
 
@@ -30,7 +31,10 @@ def burke_baseline(rawdata, mask, tol=0.0025, sigR=1e-3, keepOriginal=True):
 
     U, S, V = np.linalg.svd(X - m)
 
-    d = np.nonzero(np.cumsum(S) / np.sum(S) > (1 - tol))[0][0]
+    d = np.nonzero(np.cumsum(S) / np.sum(S) > (1 - tol))
+    if len(d[0]) == 0:
+        return np.zeros((raw_shape[1], raw_shape[0], raw_shape[2]))
+    d = d[0][0]
 
     Q = np.dot(np.dot(V[0:d, :], np.diag(np.std(np.diff(X, axis=0), axis=0))), V[0:d, :].T)
 
@@ -43,8 +47,8 @@ def burke_baseline(rawdata, mask, tol=0.0025, sigR=1e-3, keepOriginal=True):
     cov_pred.insert(0, 1e12 * np.eye(d))
     state_pred.insert(0, np.random.normal(0.0, 1.0, d))
     for i in range(1, rawdata.shape[0] + 1):
-        z = rawdata[i - 1, (mask[i - 1, :] != 0)]
-        H = np.diag((mask[i - 1, :] != 0))
+        z = rawdata[i - 1, ~np.isnan(rawdata[i - 1, :])]
+        H = np.diag(~np.isnan(rawdata[i - 1, :]))
         H = H[~np.all(H == 0, axis=1)]
         Ht = np.dot(H, V[0:d, :].T)
 
@@ -69,7 +73,7 @@ def burke_baseline(rawdata, mask, tol=0.0025, sigR=1e-3, keepOriginal=True):
         y[i - 1, :] = np.dot(V[0:d, :].T, state[i]) + m
 
     if (keepOriginal):
-        y[(mask != 0)] = rawdata[(mask != 0)]
+        y[~np.isnan(rawdata)] = rawdata[~np.isnan(rawdata)]
 
     y = np.reshape(y, (raw_shape[0], raw_shape[1], raw_shape[2]))
     y = np.transpose(y, (1, 0, 2))

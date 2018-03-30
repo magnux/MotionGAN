@@ -117,9 +117,6 @@ if __name__ == "__main__":
                 gen_inputs = [poses_batch, mask_batch]
                 gen_batch = gen_model.predict_on_batch(gen_inputs)
 
-                if motiongan_config.normalize_data:
-                    gen_batch = data_input.denormalize_poses(gen_batch)
-
                 model_wrap.model.train_on_batch(gen_batch, labs_batch)
 
             t.set_postfix(loss='%.2e' % (loss_sum / (batch + 1)),

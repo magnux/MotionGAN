@@ -102,7 +102,7 @@ class DMNNv1(_DMNN):
         scope = Scoping.get_global_scope()
         with scope.name_scope('classifier'):
             if self.data_set == 'NTURGBD':
-                blocks = [{'size': 128, 'bneck': 32,  'groups': 16, 'strides': 1},
+                blocks = [{'size': 128, 'bneck': 32,  'groups': 16, 'strides': 2},
                           {'size': 256, 'bneck': 64,  'groups': 16, 'strides': 2},
                           {'size': 512, 'bneck': 128, 'groups': 16, 'strides': 2}]
                 n_reps = 3
@@ -119,7 +119,6 @@ class DMNNv1(_DMNN):
             x = CombMatrix(self.njoints, name=scope+'comb_matrix')(x)
 
             x = EDM(name=scope+'edms')(x)
-
             x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name=scope+'resh_in')(x)
 
             x = BatchNormalization(axis=-1, name=scope+'bn_in')(x)
@@ -131,6 +130,9 @@ class DMNNv1(_DMNN):
                                         blocks[i]['groups'], 3, blocks[i]['strides'] if j == 0 else 1)
 
             x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name=scope+'mean_pool')(x)
+            x = BatchNormalization(axis=-1, name=scope + 'bn_out')(x)
+            x = Activation('relu', name=scope + 'relu_out')(x)
+
             x = Dropout(self.dropout, name=scope+'dropout')(x)
             x = Dense(self.num_actions, activation='softmax', name=scope+'label')(x)
 

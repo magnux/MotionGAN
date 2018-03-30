@@ -3,9 +3,6 @@
     'data_set': 'MSRC12',
     'data_set_version': 'v1',
 
-    # Normalize skeletons offline
-    'normalize_data': False,
-
     'model_type': 'dmnn',
     # Model version to train
     'model_version': 'v1',

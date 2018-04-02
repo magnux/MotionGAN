@@ -40,8 +40,10 @@ class _DMNN(object):
         K.set_value(self.model.optimizer.lr, lr)
 
 
-def _conv_bn(x, out_filters, kernel_size, strides, groups=1):
+def _preact_conv(x, out_filters, kernel_size, strides, groups=1):
     scope = Scoping.get_global_scope()
+    x = BatchNormalization(axis=-1, name=scope + 'bn')(x)
+    x = Activation('relu', name=scope + 'relu')(x)
     if groups > 1:
         branches = []
         group_size = int(x.shape[-1]) // groups
@@ -52,27 +54,25 @@ def _conv_bn(x, out_filters, kernel_size, strides, groups=1):
         x = Concatenate(name=scope+'cat')(branches)
     else:
         x = Conv2D(filters=out_filters, kernel_size=kernel_size, strides=strides, name=scope+'conv', **CONV2D_ARGS)(x)
-    x = Activation('relu', name=scope + 'relu')(x)
-    x = BatchNormalization(axis=-1, name=scope + 'bn')(x)
     return x
 
 
 def _conv_block(x, out_filters, bneck_filters, groups, kernel_size, strides):
     scope = Scoping.get_global_scope()
     if int(x.shape[-1]) != out_filters or strides > 1:
-        shortcut = Conv2D(out_filters, strides, strides, name=scope+'shortcut', **CONV2D_ARGS)(x)
-        shortcut = BatchNormalization(axis=-1, name=scope + 'shortcut_bn')(shortcut)
+        with scope.name_scope('shortcut'):
+            shortcut = _preact_conv(x, out_filters, 1, strides)
     else:
         shortcut = x
 
     with scope.name_scope('in'):
-        pi = _conv_bn(x, bneck_filters, 1, 1)
+        pi = _preact_conv(x, bneck_filters, 1, 1)
 
     with scope.name_scope('bneck'):
-        pi = _conv_bn(pi, bneck_filters, kernel_size, strides, groups)
+        pi = _preact_conv(pi, bneck_filters, kernel_size, strides, groups)
 
     with scope.name_scope('out'):
-        pi = _conv_bn(pi, out_filters, 1, 1)
+        pi = _preact_conv(pi, out_filters, 1, 1)
 
     x = Add(name=scope+'add_shortcut')([shortcut, pi])
     return x
@@ -104,7 +104,7 @@ class DMNNv1(_DMNN):
         with scope.name_scope('classifier'):
             if self.data_set == 'NTURGBD':
                 blocks = [{'size': 128, 'bneck': 32,  'groups': 8, 'strides': 3},
-                          {'size': 256, 'bneck': 64,  'groups': 8, 'strides': 3}]
+                          {'size': 512, 'bneck': 128,  'groups': 8, 'strides': 3}]
                 n_reps = 3
             else:
                 blocks = [{'size': 64,  'bneck': 32, 'groups': 8, 'strides': 3},
@@ -130,8 +130,8 @@ class DMNNv1(_DMNN):
                                         blocks[i]['groups'], 3, blocks[i]['strides'] if j == 0 else 1)
 
             x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name=scope+'mean_pool')(x)
-            x = Activation('relu', name=scope + 'relu_out')(x)
             x = BatchNormalization(axis=-1, name=scope + 'bn_out')(x)
+            x = Activation('relu', name=scope + 'relu_out')(x)
 
             x = Dropout(self.dropout, name=scope+'dropout')(x)
             x = Dense(self.num_actions, activation='softmax', name=scope+'label')(x)

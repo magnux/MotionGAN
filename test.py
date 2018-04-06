@@ -11,6 +11,7 @@ from utils.viz import plot_seq_gif, plot_seq_pano
 from utils.baselines import constant_baseline, burke_baseline
 import h5py as h5
 from tqdm import trange
+from collections import OrderedDict
 
 MASK_MODES = ('No mask', 'Future Prediction', 'Occlusion Simulation', 'Structured Occlusion', 'Noisy Transmission')
 
@@ -27,7 +28,7 @@ FLAGS = flags.FLAGS
 
 if __name__ == "__main__":
     # Config stuff
-    batch_size = 1
+    batch_size = 1 if not "dmnn_score" in FLAGS.test_mode else 256
     configs = []
     model_wraps = []
     # Hacks to fill undefined, but necessary flags
@@ -217,7 +218,7 @@ if __name__ == "__main__":
             h5file.flush()
             h5file.close()
 
-    elif FLAGS.test_mode == "dmnn_score":
+    elif "dmnn_score" in FLAGS.test_mode:
         FLAGS.save_path = FLAGS.dmnn_path
         config = get_config(FLAGS)
         config.batch_size = batch_size
@@ -229,42 +230,110 @@ if __name__ == "__main__":
 
         model_wrap_dmnn.model = restore_keras_model(model_wrap_dmnn.model, config.save_path + '_weights.hdf5')
 
-        accs = {'real_acc': 0, 'const_acc': 0, 'burke_acc': 0}
+        def run_dmnn_score():
 
-        for model_wrap in model_wraps:
-            accs[model_wrap.name + '_acc'] = 0
+            accs = OrderedDict({'real_acc': 0, 'const_acc': 0, 'burke_acc': 0})
+            mses = OrderedDict({'const_mse': 0, 'burke_mse': 0})
+            dmmses = OrderedDict({'const_dmmse': 0, 'burke_dmmse': 0})
 
-        t = trange(val_batches)
-        for i in t:
+            for m in range(len(model_wraps)):
+                accs[FLAGS.model_path[m] + '_acc'] = 0
+                mses[FLAGS.model_path[m] + '_mse'] = 0
+                dmmses[FLAGS.model_path[m] + '_dmmse'] = 0
 
-            labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
+            def rescale_batch(batch):
+                if configs[0].normalize_data:
+                    batch = data_input.denormalize_poses(batch) * 1000
+                else:
+                    batch = batch * 1000
+                return batch
 
-            for model_wrap in model_wraps:
-                gen_outputs = model_wrap.gen_model.predict(gen_inputs, batch_size)
-                gen_loss, gen_acc = model_wrap_dmnn.model.evaluate(gen_outputs, labs_batch[:, 2], batch_size=batch_size, verbose=2)
-                accs[model_wrap.name + '_acc'] += gen_acc
+            def mean_squared_error(x, y):
+                return np.mean(np.square(x - y))
+
+            def edm(x, y=None):
+                y = x if y is None else y
+                x = np.expand_dims(x, axis=1)
+                y = np.expand_dims(y, axis=2)
+                return np.sqrt(np.sum(np.square(x - y), axis=-1) + 1e-8)
+
+            t = trange(val_batches)
+            for i in t:
+
+                labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
+
+                re_poses_batch = rescale_batch(poses_batch)
+                re_poses_batch_edm = edm(re_poses_batch)
+
+                for m, model_wrap in enumerate(model_wraps):
+                    gen_outputs = model_wrap.gen_model.predict(gen_inputs, batch_size)
+                    _, gen_acc = model_wrap_dmnn.model.evaluate(gen_outputs, labs_batch[:, 2], batch_size=batch_size, verbose=2)
+                    accs[FLAGS.model_path[m] + '_acc'] += gen_acc
+
+                    gen_outputs = rescale_batch(gen_outputs)
+                    mses[FLAGS.model_path[m] + '_mse'] += mean_squared_error(re_poses_batch, gen_outputs)
+                    dmmses[FLAGS.model_path[m] + '_dmmse'] += mean_squared_error(re_poses_batch_edm, edm(gen_outputs))
 
 
-            real_loss, real_acc = model_wrap_dmnn.model.evaluate(poses_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
-            accs['real_acc'] += real_acc
+                _, real_acc = model_wrap_dmnn.model.evaluate(poses_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
+                accs['real_acc'] += real_acc
 
-            constant_batch = np.empty_like(poses_batch)
-            burke_batch = np.empty_like(poses_batch)
-            for j in range(batch_size):
-                constant_batch[j, ...] = constant_baseline(poses_batch[j, ...], mask_batch[j, ...])
-                burke_batch[j, ...] = burke_baseline(poses_batch[j, ...], mask_batch[j, ...])
+                constant_batch = np.empty_like(poses_batch)
+                burke_batch = np.empty_like(poses_batch)
+                for j in range(batch_size):
+                    constant_batch[j, ...] = constant_baseline(poses_batch[j, ...], mask_batch[j, ...])
+                    burke_batch[j, ...] = burke_baseline(poses_batch[j, ...], mask_batch[j, ...])
 
-            const_loss, const_acc = model_wrap_dmnn.model.evaluate(constant_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
-            accs['const_acc'] += const_acc
+                _, const_acc = model_wrap_dmnn.model.evaluate(constant_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
+                accs['const_acc'] += const_acc
+                constant_batch = rescale_batch(constant_batch)
+                mses['const_mse'] += mean_squared_error(re_poses_batch, constant_batch)
+                dmmses['const_dmmse'] += mean_squared_error(re_poses_batch_edm, edm(constant_batch))
 
-            burke_loss, burke_acc = model_wrap_dmnn.model.evaluate(burke_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
-            accs['burke_acc'] += burke_acc
+                _, burke_acc = model_wrap_dmnn.model.evaluate(burke_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
+                accs['burke_acc'] += burke_acc
+                burke_batch = rescale_batch(burke_batch)
+                mses['burke_mse'] += mean_squared_error(re_poses_batch, burke_batch)
+                dmmses['burke_dmmse'] += mean_squared_error(re_poses_batch_edm, edm(burke_batch))
 
-            mean_accs = {}
-            for key, value in accs.items():
-                mean_accs[key] = value / (i + 1)
+                mean_accs = {}
+                for key, value in accs.items():
+                    mean_accs[key] = value / (i + 1)
 
-            t.set_postfix(mean_accs)
+                t.set_postfix(mean_accs)
+
+            def make_mean(my_dict):
+                for key, value in my_dict.items():
+                    my_dict[key] = value / val_batches
+                return my_dict
+
+            return make_mean(accs), make_mean(mses), make_mean(dmmses)
+
+        if FLAGS.test_mode == "dmnn_score_table":
+
+            PROBS = [0.1, 0.2, 0.5, 0.8, 1.0]
+
+            for m in range(1, len(MASK_MODES)):
+                accs_table = np.zeros((len(PROBS), len(model_wraps) + 3))
+                mses_table = np.zeros((len(PROBS), len(model_wraps) + 2))
+                dmmses_table = np.zeros((len(PROBS), len(model_wraps) + 2))
+                for p, prob in enumerate(PROBS):
+                    FLAGS.mask_mode = m
+                    FLAGS.keep_prob = prob
+
+                    accs, mses, dmmses = run_dmnn_score()
+                    accs_table[p, :] = accs.values()
+                    mses_table[p, :] = mses.values()
+                    dmmses_table[p, :] = dmmses.values()
+
+                np.savetxt('save/test_accs_%d.txt' % m, accs_table, '%.8e', ',', '\n', ','.join(accs.keys()))
+                np.savetxt('save/test_mses_%d.txt' % m, mses_table, '%.8e', ',', '\n', ','.join(mses.keys()))
+                np.savetxt('save/test_dmmses_%d.txt' % m, dmmses_table, '%.8e', ',', '\n', ','.join(dmmses.keys()))
+
+        else:
+            run_dmnn_score()
+
+
 
 
 

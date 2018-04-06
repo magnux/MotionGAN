@@ -12,7 +12,8 @@ from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 from layers.joints import UnfoldJoints, FoldJoints
 from layers.normalization import InstanceNormalization
-from layers.edm import edm
+from layers.edm import edm, EDM
+from layers.comb_matrix import CombMatrix
 from collections import OrderedDict
 from utils.scoping import Scoping
 
@@ -42,7 +43,7 @@ class _MotionGAN(object):
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
-        self.rec_scale = 1.0
+        self.rec_scale = 10.0
         self.action_cond = config.action_cond
         self.action_scale_d = 1.0
         self.action_scale_g = 1.0
@@ -53,7 +54,7 @@ class _MotionGAN(object):
         self.shape_scale = 10.0
         self.smoothing_loss = config.smoothing_loss
         self.smoothing_scale = 0.1
-        self.smoothing_basis = 3
+        self.smoothing_basis = 5
         self.time_pres_emb = config.time_pres_emb
         self.unfold = config.unfold
         self.use_pose_fae = config.use_pose_fae
@@ -232,28 +233,26 @@ class _MotionGAN(object):
 
             # Reconstruction loss
             with K.name_scope('reconstruction_loss'):
-                loss_rec = K.sum(K.sum(K.mean(K.square(real_seq - gen_seq), axis=-1), axis=1) * zero_frames, axis=1)
+                loss_rec = K.sum(K.sum(K.mean(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1), axis=1), axis=1)
                 gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
-            if self.use_pose_fae:
-                with K.name_scope('frame_wgan_loss'):
-                    frame_loss_real = K.sum(K.squeeze(_get_tensor(self.real_outputs, 'frame_score_out'), axis=-1) * zero_frames, axis=1)
-                    frame_loss_fake = K.sum(K.squeeze(_get_tensor(self.fake_outputs, 'frame_score_out'), axis=-1) * zero_frames, axis=1)
-                    wgan_losses['frame_loss_real'] = K.mean(frame_loss_real)
-                    wgan_losses['frame_loss_fake'] = K.mean(frame_loss_fake)
+            with K.name_scope('frame_wgan_loss'):
+                frame_loss_real = K.sum(K.squeeze(_get_tensor(self.real_outputs, 'frame_score_out'), axis=-1) * zero_frames, axis=1)
+                frame_loss_fake = K.sum(K.squeeze(_get_tensor(self.fake_outputs, 'frame_score_out'), axis=-1) * zero_frames, axis=1)
+                wgan_losses['frame_loss_real'] = K.mean(frame_loss_real)
+                wgan_losses['frame_loss_fake'] = K.mean(frame_loss_fake)
 
-                    frame_inter_score = _get_tensor(inter_outputs, 'frame_score_out')
-                    frame_grad_mixed = K.gradients(frame_inter_score, [interpolates])[0]
-                    frame_norm_grad_mixed = K.sqrt(K.sum(K.sum(K.square(frame_grad_mixed), axis=(1, 3)) * zero_frames, axis=1))
-                    frame_grad_penalty = K.mean(K.square(frame_norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
+                frame_inter_score = _get_tensor(inter_outputs, 'frame_score_out')
+                frame_grad_mixed = K.gradients(frame_inter_score, [interpolates])[0]
+                frame_norm_grad_mixed = K.sqrt(K.sum(K.sum(K.square(frame_grad_mixed), axis=(1, 3)) * zero_frames, axis=1))
+                frame_grad_penalty = K.mean(K.square(frame_norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
 
-                    # WGAN-GP losses
-                    frame_disc_loss_wgan = frame_loss_fake - frame_loss_real + (self.lambda_grads * frame_grad_penalty)
-                    disc_losses['frame_disc_loss_wgan'] = self.frame_scale * K.mean(frame_disc_loss_wgan)
+                # WGAN-GP losses
+                frame_disc_loss_wgan = frame_loss_fake - frame_loss_real + (self.lambda_grads * frame_grad_penalty)
+                disc_losses['frame_disc_loss_wgan'] = self.frame_scale * K.mean(frame_disc_loss_wgan)
 
-                    frame_gen_loss_wgan = -frame_loss_fake
-                    gen_losses['frame_gen_loss_wgan'] = self.frame_scale * K.mean(frame_gen_loss_wgan)
-
+                frame_gen_loss_wgan = -frame_loss_fake
+                gen_losses['frame_gen_loss_wgan'] = self.frame_scale * K.mean(frame_gen_loss_wgan)
 
             # Conditional losses
             if self.action_cond:
@@ -321,13 +320,12 @@ class _MotionGAN(object):
                 latent_cond_out = Dense(self.latent_cond_dim, name=scope+'latent_cond_out')(x)
                 output_tensors.append(latent_cond_out)
 
-            if self.use_pose_fae:
-                seq = self.disc_inputs[0]
+            seq = self.disc_inputs[0]
 
-                z = self._pose_encoder(seq)
+            z = self._pose_encoder(seq)
 
-                frame_score_out = Conv1D(1, 1, 1, name=scope+'frame_score_out', **CONV1D_ARGS)(z)
-                output_tensors.append(frame_score_out)
+            frame_score_out = Conv1D(1, 1, 1, name=scope+'frame_score_out', **CONV1D_ARGS)(z)
+            output_tensors.append(frame_score_out)
 
         return output_tensors
 
@@ -681,34 +679,42 @@ class MotionGANV3(_MotionGAN):
 
 
 class MotionGANV4(_MotionGAN):
-    # Dilated ResNet
+    # DMNN Discriminator, Dilated ResNet Generator
 
     def discriminator(self, x):
         scope = Scoping.get_global_scope()
-        with scope.name_scope('discriminator'):
-            n_hidden = 64
-            block_factors = [1, 1, 2, 2]
-            block_strides = [2, 2, 1, 1]
+        with scope.name_scope('classifier'):
+            blocks = [{'size': 64,  'bneck_f': 2, 'strides': 3},
+                      {'size': 128, 'bneck_f': 2, 'strides': 3}]
+            n_reps = 3
 
-            x = Conv2D(n_hidden * block_factors[0], 3, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
-            for i, factor in enumerate(block_factors):
-                with scope.name_scope('block_%d' % i):
-                    n_filters = n_hidden * factor
-                    shortcut = Conv2D(n_filters, block_strides[i], block_strides[i],
-                                      name=scope+'shortcut', **CONV2D_ARGS)(x)
-                    pis = []
-                    for j in range(4):
-                        with scope.name_scope('branch_%d' % j):
-                            pis.append(_conv_block(x, n_filters // 4, 1, 3, 1, dilation_rate=(1, 2 ** j)))
+            x = CombMatrix(self.njoints, name=scope+'comb_matrix')(x)
 
-                    pi = Concatenate(name=scope+'cat_pi')(pis)
-                    pi = Conv2D(n_filters, block_strides[i], block_strides[i],
-                                name=scope+'reduce_pi', **CONV2D_ARGS)(pi)
+            x = EDM(name=scope+'edms')(x)
+            x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name=scope+'resh_in')(x)
 
-                    x = Add(name=scope+'add')([shortcut, pi])
+            x = InstanceNormalization(axis=-1, name=scope+'in_in')(x)
+            x = Conv2D(blocks[0]['size'] // blocks[0]['bneck_f'], 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+            for i in range(len(blocks)):
+                for j in range(n_reps):
+                    with scope.name_scope('block_%d_%d' % (i, j)):
+                        strides = blocks[i]['strides'] if j == 0 else 1
+                        if int(x.shape[-1]) != blocks[i]['size'] or strides > 1:
+                            with scope.name_scope('shortcut'):
+                                shortcut = Activation('relu', name=scope + 'relu')(x)
+                                shortcut = Conv2D(blocks[i]['size'], 1, strides,
+                                                  name=scope + 'conv', **CONV2D_ARGS)(shortcut)
+                        else:
+                            shortcut = x
 
-            x = Activation('relu', name=scope+'relu_out')(x)
-            x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
+                        x = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'], 3, strides)
+                        x = Add(name=scope + 'add')([shortcut, x])
+
+            x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name=scope+'mean_pool')(x)
+            x = InstanceNormalization(name=scope + 'in_out')(x)
+            x = Activation('relu', name=scope + 'relu_out')(x)
+
+            x = Dense(self.num_actions, activation='softmax', name=scope+'label')(x)
 
         return x
 

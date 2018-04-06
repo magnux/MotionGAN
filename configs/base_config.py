@@ -17,7 +17,7 @@
     # Lambda for gradient penalty
     'lambda_grads': 10,
     # Action label conditional model
-    'action_cond': True,
+    'action_cond': False,
     # Latent factor conditional model, size (0 means no condition)
     'latent_cond_dim': 0,
     # Body shape conservation loss

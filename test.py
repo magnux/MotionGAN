@@ -233,13 +233,13 @@ if __name__ == "__main__":
         def run_dmnn_score():
 
             accs = OrderedDict({'real_acc': 0, 'const_acc': 0, 'burke_acc': 0})
-            mses = OrderedDict({'const_mse': 0, 'burke_mse': 0})
-            dmmses = OrderedDict({'const_dmmse': 0, 'burke_dmmse': 0})
+            p2ps = OrderedDict({'const_p2p': 0, 'burke_p2p': 0})
+            dms = OrderedDict({'const_dm': 0, 'burke_dm': 0})
 
             for m in range(len(model_wraps)):
                 accs[FLAGS.model_path[m] + '_acc'] = 0
-                mses[FLAGS.model_path[m] + '_mse'] = 0
-                dmmses[FLAGS.model_path[m] + '_dmmse'] = 0
+                p2ps[FLAGS.model_path[m] + '_p2p'] = 0
+                dms[FLAGS.model_path[m] + '_dm'] = 0
 
             def rescale_batch(batch):
                 if configs[0].normalize_data:
@@ -248,8 +248,8 @@ if __name__ == "__main__":
                     batch = batch * 1000
                 return batch
 
-            def mean_squared_error(x, y):
-                return np.mean(np.square(x - y))
+            def p2pd(x, y):
+                return np.mean(np.sqrt(np.sum(np.square(x - y), axis=-1) + 1e-8))
 
             def edm(x, y=None):
                 y = x if y is None else y
@@ -271,8 +271,8 @@ if __name__ == "__main__":
                     accs[FLAGS.model_path[m] + '_acc'] += gen_acc
 
                     gen_outputs = rescale_batch(gen_outputs)
-                    mses[FLAGS.model_path[m] + '_mse'] += mean_squared_error(re_poses_batch, gen_outputs)
-                    dmmses[FLAGS.model_path[m] + '_dmmse'] += mean_squared_error(re_poses_batch_edm, edm(gen_outputs))
+                    p2ps[FLAGS.model_path[m] + '_p2p'] += p2pd(re_poses_batch, gen_outputs)
+                    dms[FLAGS.model_path[m] + '_dm'] += np.mean(np.abs(re_poses_batch_edm - edm(gen_outputs)))
 
 
                 _, real_acc = model_wrap_dmnn.model.evaluate(poses_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
@@ -287,14 +287,14 @@ if __name__ == "__main__":
                 _, const_acc = model_wrap_dmnn.model.evaluate(constant_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
                 accs['const_acc'] += const_acc
                 constant_batch = rescale_batch(constant_batch)
-                mses['const_mse'] += mean_squared_error(re_poses_batch, constant_batch)
-                dmmses['const_dmmse'] += mean_squared_error(re_poses_batch_edm, edm(constant_batch))
+                p2ps['const_p2p'] += p2pd(re_poses_batch, constant_batch)
+                dms['const_dm'] += np.mean(np.abs(re_poses_batch_edm - edm(constant_batch)))
 
                 _, burke_acc = model_wrap_dmnn.model.evaluate(burke_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
                 accs['burke_acc'] += burke_acc
                 burke_batch = rescale_batch(burke_batch)
-                mses['burke_mse'] += mean_squared_error(re_poses_batch, burke_batch)
-                dmmses['burke_dmmse'] += mean_squared_error(re_poses_batch_edm, edm(burke_batch))
+                p2ps['burke_p2p'] += p2pd(re_poses_batch, burke_batch)
+                dms['burke_dm'] += np.mean(np.abs(re_poses_batch_edm - edm(burke_batch)))
 
                 mean_accs = {}
                 for key, value in accs.items():
@@ -307,7 +307,7 @@ if __name__ == "__main__":
                     my_dict[key] = value / val_batches
                 return my_dict
 
-            return make_mean(accs), make_mean(mses), make_mean(dmmses)
+            return make_mean(accs), make_mean(p2ps), make_mean(dms)
 
         if FLAGS.test_mode == "dmnn_score_table":
 
@@ -315,20 +315,20 @@ if __name__ == "__main__":
 
             for m in range(1, len(MASK_MODES)):
                 accs_table = np.zeros((len(PROBS), len(model_wraps) + 3))
-                mses_table = np.zeros((len(PROBS), len(model_wraps) + 2))
-                dmmses_table = np.zeros((len(PROBS), len(model_wraps) + 2))
+                p2ps_table = np.zeros((len(PROBS), len(model_wraps) + 2))
+                dms_table = np.zeros((len(PROBS), len(model_wraps) + 2))
                 for p, prob in enumerate(PROBS):
                     FLAGS.mask_mode = m
                     FLAGS.keep_prob = prob
 
-                    accs, mses, dmmses = run_dmnn_score()
+                    accs, p2ps, dms = run_dmnn_score()
                     accs_table[p, :] = accs.values()
-                    mses_table[p, :] = mses.values()
-                    dmmses_table[p, :] = dmmses.values()
+                    p2ps_table[p, :] = p2ps.values()
+                    dms_table[p, :] = dms.values()
 
                 np.savetxt('save/test_accs_%d.txt' % m, accs_table, '%.8e', ',', '\n', ','.join(accs.keys()))
-                np.savetxt('save/test_mses_%d.txt' % m, mses_table, '%.8e', ',', '\n', ','.join(mses.keys()))
-                np.savetxt('save/test_dmmses_%d.txt' % m, dmmses_table, '%.8e', ',', '\n', ','.join(dmmses.keys()))
+                np.savetxt('save/test_p2ps_%d.txt' % m, p2ps_table, '%.8e', ',', '\n', ','.join(p2ps.keys()))
+                np.savetxt('save/test_dms_%d.txt' % m, dms_table, '%.8e', ',', '\n', ','.join(dms.keys()))
 
         else:
             run_dmnn_score()

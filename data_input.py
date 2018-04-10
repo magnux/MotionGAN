@@ -95,8 +95,8 @@ class DataInput(object):
         std_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '_poses_std.npy')
 
         hip_poses = poses[:, 0, np.newaxis, :, :]
-        poses[..., :3] = poses[..., :3] - hip_poses[..., :3]
         poses = poses[:, 1:, :, :]
+        poses[..., :3] = poses[..., :3] - hip_poses[..., :3]
 
         if tf.gfile.Exists(min_file_path) and tf.gfile.Exists(std_file_path):
             self.poses_mean = np.load(min_file_path)

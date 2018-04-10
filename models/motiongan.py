@@ -43,7 +43,7 @@ class _MotionGAN(object):
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
-        self.rec_scale = 10.0
+        self.rec_scale = 1.0e6
         self.action_cond = config.action_cond
         self.action_scale_d = 1.0
         self.action_scale_g = 1.0
@@ -51,7 +51,7 @@ class _MotionGAN(object):
         self.latent_scale_d = 1.0
         self.latent_scale_g = 1.0
         self.shape_loss = config.shape_loss
-        self.shape_scale = 10.0
+        self.shape_scale = 1.0e2
         self.smoothing_loss = config.smoothing_loss
         self.smoothing_scale = 0.1
         self.smoothing_basis = 5
@@ -233,7 +233,7 @@ class _MotionGAN(object):
 
             # Reconstruction loss
             with K.name_scope('reconstruction_loss'):
-                loss_rec = K.sum(K.sum(K.mean(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1), axis=1), axis=1)
+                loss_rec = K.sqrt(K.sum(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1) + K.epsilon())
                 gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
             with K.name_scope('frame_wgan_loss'):

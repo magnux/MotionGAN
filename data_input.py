@@ -22,6 +22,9 @@ class DataInput(object):
         self.data_set_version = config.data_set_version
         self.normalize_data = config.normalize_data
 
+        if self.data_set == "Human36":
+            self.used_joints = config.used_joints
+
         file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '.h5')
         self.h5file = h5.File(file_path, 'r')
         self.train_keys = [self.data_set + '/Train/' + k
@@ -57,25 +60,27 @@ class DataInput(object):
 
     def pre_comp_batches(self, is_training):
         epoch_size = self.train_epoch_size if is_training else self.val_epoch_size
-        labs, poses = self.load_to_ram(is_training)
+        labs, poses, hip_poses = self.load_to_ram(is_training)
 
         batches = []
         for slice_idx in range(epoch_size):
             slice_start = slice_idx * self.batch_size
             slice_len = min(slice_start + self.batch_size, np.shape(labs)[0])
-            labs_batch = labs[slice_start:slice_len, :]
-            poses_batch = poses[slice_start:slice_len, :, :, :]
-            batches.append((labs_batch, poses_batch))
+            labs_batch = labs[slice_start:slice_len, ...]
+            poses_batch = poses[slice_start:slice_len, ...]
+            hip_poses_batch = hip_poses[slice_start:slice_len, ...]
+            batches.append((labs_batch, poses_batch, hip_poses_batch))
 
         del labs
         del poses
+        del hip_poses
 
         return batches
 
     def load_to_ram(self, is_training):
         len_keys = self.len_train_keys if is_training else self.len_val_keys
         labs = np.empty([len_keys, 4], dtype=np.int32)
-        poses = np.zeros([len_keys, self.pshape[0], self.max_plen, self.pshape[2]], dtype=np.float32)
+        poses = np.zeros([len_keys, self.pshape[0] + 1, self.max_plen, self.pshape[2]], dtype=np.float32)
         splitname = 'train' if is_training else 'val'
         print('Loading "%s" data to ram...' % splitname)
         t = trange(len_keys, dynamic_ncols=True)
@@ -88,6 +93,10 @@ class DataInput(object):
 
         min_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '_poses_mean.npy')
         std_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '_poses_std.npy')
+
+        hip_poses = poses[:, 0, np.newaxis, :, :]
+        poses[..., :3] = poses[..., :3] - hip_poses[..., :3]
+        poses = poses[:, 1:, :, :]
 
         if tf.gfile.Exists(min_file_path) and tf.gfile.Exists(std_file_path):
             self.poses_mean = np.load(min_file_path)
@@ -103,7 +112,7 @@ class DataInput(object):
         if self.normalize_data:
             poses[..., :3] = self.normalize_poses(poses[..., :3])
 
-        return labs, poses
+        return labs, poses, hip_poses
 
     def read_h5_data(self, key_idx, is_training):
         if is_training:
@@ -124,55 +133,69 @@ class DataInput(object):
     def process_pose(self, pose, plen=None):
         plen = np.int32(np.size(pose, 2)) if plen is None else plen
 
-        pose[:, 3, :] = (pose[:, 3, :] > 0).astype('float32')  # tracking state
+        if pose.shape[1] > 3:
+            pose[:, 3, :] = (pose[:, 3, :] > 0).astype('float32')  # tracking state
+        else:
+            pose = np.concatenate([pose, np.ones((pose.shape[0], 1, pose.shape[2]))], axis=1)
         pose[np.isnan(pose)] = 0
 
         if self.data_set == 'NTURGBD':
             pose = pose[:25, :, :]  # Warning: only taking first skeleton
         elif self.data_set == 'MSRC12':
             pass
+        elif self.data_set == 'Human36':
+            pose /= 1000
+            pose = pose[self.used_joints, ...]
 
         pose = np.transpose(pose, (0, 2, 1))
 
         return pose, plen
 
-    def sub_sample_pose(self, pose, plen):
+    def sub_sample_pose(self, pose, hip_pose, plen):
 
         if self.pick_num > 0:
             if self.pick_num >= plen:
                 pose = pose[:, :self.pick_num, :]
+                hip_pose = hip_pose[:, :self.pick_num, :]
             elif self.pick_num < plen:
                 subplen = plen / self.pick_num
                 picks = np.random.randint(0, subplen, size=(self.pick_num)) + \
                         np.arange(0, plen, subplen, dtype=np.int32)
                 pose = pose[:, picks, :]
+                hip_pose = hip_pose[:, picks, :]
             # plen = np.int32(self.pick_num)
         elif self.crop_len > 0:
             if self.crop_len >= plen:
                 pose = pose[:, :self.crop_len, :]
+                hip_pose = hip_pose[:, :self.crop_len, :]
             elif self.crop_len < plen:
                 indx = np.random.randint(0, plen - self.crop_len)
                 pose = pose[:, indx:indx + self.crop_len, :]
+                hip_pose = hip_pose[:, indx:indx + self.crop_len, :]
             # plen = np.int32(self.crop_len)
 
-        return pose  #, plen
+        return pose, hip_pose  #, plen
 
     def sub_sample_batch(self, batch):
-        labs_batch, poses_batch = batch
+        labs_batch, poses_batch, hip_poses_batch = batch
 
         if self.pshape[1] is not None:
             new_labs_batch = np.empty([self.batch_size, 4], dtype=np.int32)
             new_poses_batch = np.empty(
                 [self.batch_size, self.pshape[0], self.pshape[1], self.pshape[2]], dtype=np.float32)
+            new_hip_poses_batch = np.empty(
+                [self.batch_size, 1, self.pshape[1], self.pshape[2]], dtype=np.float32)
             new_labs_batch[:, :3] = labs_batch[:, :3]
             new_labs_batch[:, 3] = self.pshape[1]
             for i in range(self.batch_size):
-                new_poses_batch[i, ...] = self.sub_sample_pose(poses_batch[i, ...], labs_batch[i, 3])
+                new_poses_batch[i, ...], new_hip_poses_batch[i, ...] = \
+                    self.sub_sample_pose(poses_batch[i, ...], hip_poses_batch[i, ...], labs_batch[i, 3])
 
             labs_batch = new_labs_batch
             poses_batch = new_poses_batch
+            hip_poses_batch = new_hip_poses_batch
 
-        return labs_batch, poses_batch
+        return labs_batch, poses_batch, hip_poses_batch
 
     @threadsafe_generator
     def batch_generator(self, is_training):

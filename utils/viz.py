@@ -56,15 +56,30 @@ MSRC_ACTIONS = ["Start system", "Duck", "Push right",
                 "Bow", "Throw", "Had enough",
                 "Change weapon", "Beat both", "Kick"]
 
-H36_BODY_MEMBERS = {
-    'left_arm': {'joints': [16, 17, 18, 19, 20, 21, 20, 19, 22, 23, 22, 19, 18, 17, 16, 12], 'side': 'left'},
-    'right_arm': {'joints': [24, 25, 26, 27, 28, 29, 28, 27, 30, 31, 30, 27, 26, 25, 24, 12], 'side': 'right'},
-    'head': {'joints': [13, 14, 15, 14, 13, 12], 'side': 'right'},
+H36_BODY_MEMBERS_FULL = {
+    'left_arm': {'joints': [21, 20, 19, 22, 23, 22, 19, 18, 17, 16, 13], 'side': 'left'},
+    'right_arm': {'joints': [29, 28, 27, 30, 31, 30, 27, 26, 25, 24, 13], 'side': 'right'},
+    'head': {'joints': [15, 14, 13, 12], 'side': 'right'},
     'torso': {'joints': [0, 11, 12], 'side': 'right'},
-    'left_leg': {'joints': [0, 6, 7, 8, 9, 10, 9, 8, 7, 6], 'side': 'left'},
-    'right_leg': {'joints': [0, 1, 2, 3, 4, 5, 4, 3, 2, 1], 'side': 'right'},
+    'left_leg': {'joints': [0, 6, 7, 8, 9, 10], 'side': 'left'},
+    'right_leg': {'joints': [0, 1, 2, 3, 4, 5], 'side': 'right'},
 }
-H36_NJOINTS = 32
+H36_NJOINTS_FULL = 32
+
+H36M_USED_JOINTS = [0, 1, 2, 3, 6, 7, 8, 12, 13, 14, 15, 17, 18, 19, 25, 26, 27]
+
+H36_BODY_MEMBERS = {
+    'left_arm': {'joints': [19, 18, 17, 13], 'side': 'left'},
+    'right_arm': {'joints': [27, 26, 25, 13], 'side': 'right'},
+    'head': {'joints': [15, 14, 13], 'side': 'right'},
+    'torso': {'joints': [0, 12, 13], 'side': 'right'},
+    'left_leg': {'joints': [0, 6, 7, 8], 'side': 'left'},
+    'right_leg': {'joints': [0, 1, 2, 3], 'side': 'right'},
+}
+
+H36_ACTIONS = ['Directions', 'Discussion', 'Eating', 'Greeting', 'Phoning',
+               'Posing', 'Purchases', 'Sitting', 'SittingDown', 'Smoking',
+               'Photo', 'Waiting', 'Walking', 'WalkDog', 'WalkTogether']
 
 OPENPOSE_BODY_MEMBERS = {
     'left_arm': {'joints': [2, 3, 4, 3, 2], 'side': 'left'},
@@ -79,6 +94,29 @@ OPENPOSE_BODY_MEMBERS = {
 OPENPOSE_NJOINTS = 16
 
 
+def select_dataset(data_set):
+
+    if data_set == "NTURGBD":
+        actions_l = NTU_ACTIONS
+        njoints = NTU_NJOINTS
+        body_members = NTU_BODY_MEMBERS
+    elif data_set == "MSRC12":
+        actions_l = MSRC_ACTIONS
+        njoints = MSRC_NJOINTS
+        body_members = MSRC_BODY_MEMBERS
+    elif data_set == "Human36":
+        actions_l = H36_ACTIONS
+        njoints = len(H36M_USED_JOINTS)
+        body_members = H36_BODY_MEMBERS
+        new_body_members = {}
+        for key, value in body_members.items():
+            new_body_members[key] = value.copy()
+            new_body_members[key]['joints'] = [H36M_USED_JOINTS.index(j) for j in new_body_members[key]['joints']]
+        body_members = new_body_members
+
+    return actions_l, njoints, body_members
+
+
 class Ax3DPose(object):
     def __init__(self, ax, data_set, lcolor="#3498db", rcolor="#e74c3c"):
         """
@@ -90,12 +128,7 @@ class Ax3DPose(object):
           rcolor: String. Colour for the right part of the body
         """
 
-        if data_set == "NTURGBD":
-            self.body_members = NTU_BODY_MEMBERS
-            self.njoints = NTU_NJOINTS
-        elif data_set == "MSRC12":
-            self.body_members = MSRC_BODY_MEMBERS
-            self.njoints = MSRC_NJOINTS
+        _, self.njoints, self.body_members = select_dataset(data_set)
 
         self.ax = ax
 
@@ -158,8 +191,8 @@ class Ax3DPose(object):
 
         if not self.axes_set:
             r = 1  # 500;
-            # xroot, yroot, zroot = vals[0, 0], vals[0, 1], vals[0, 2]
-            xroot, yroot, zroot = 0, 0, vals[0, 2]
+            xroot, yroot, zroot = vals[0, 0], vals[0, 1], vals[0, 2]
+            # xroot, yroot, zroot = 0, 0, vals[0, 2]
             self.ax.set_xlim3d([-r + xroot, r + xroot])
             self.ax.set_zlim3d([-r + zroot, r + zroot])
             self.ax.set_ylim3d([-r + yroot, r + yroot])
@@ -174,12 +207,7 @@ def plot_seq_gif(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pat
         matplotlib.use('Agg')
     import matplotlib.pyplot as plt
 
-    if data_set == "NTURGBD":
-        actions_l = NTU_ACTIONS
-        njoints = NTU_NJOINTS
-    elif data_set == "MSRC12":
-        actions_l = MSRC_ACTIONS
-        njoints = MSRC_NJOINTS
+    actions_l, njoints, body_members = select_dataset(data_set)
 
     if len(labs.shape) > 1 and labs.shape[0] == seqs.shape[0]:
         labs_mode = "multi"
@@ -213,8 +241,10 @@ def plot_seq_gif(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pat
     obs = []
     for i in range(n_seqs):
         ax = fig.add_subplot(n_rows, n_cols, i + 1, projection='3d')
-        ax.view_init(elev=90, azim=-90)
-        # ax.view_init(elev=0, azim=90)
+        if data_set == 'Human36':
+            ax.view_init(elev=30, azim=-30)
+        else:
+            ax.view_init(elev=90, azim=-90)
         ob = Ax3DPose(ax, data_set)
         axs.append(ax)
         obs.append(ob)
@@ -260,14 +290,7 @@ def plot_seq_pano(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pa
         matplotlib.use('Agg')
     import matplotlib.pyplot as plt
 
-    if data_set == "NTURGBD":
-        actions_l = NTU_ACTIONS
-        njoints = NTU_NJOINTS
-        body_members = NTU_BODY_MEMBERS
-    elif data_set == "MSRC12":
-        actions_l = MSRC_ACTIONS
-        njoints = MSRC_NJOINTS
-        body_members = MSRC_BODY_MEMBERS
+    actions_l, njoints, body_members = select_dataset(data_set)
 
     if labs.shape[0] == seqs.shape[0]:
         labs_mode = "multi"

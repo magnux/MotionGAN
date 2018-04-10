@@ -109,11 +109,13 @@ if __name__ == "__main__":
         return mask
 
     def get_inputs():
-        labs_batch, poses_batch = val_generator.next()
+        labs_batch, poses_batch, hip_poses_batch = val_generator.next()
 
         mask_batch = poses_batch[..., 3, np.newaxis]
         mask_batch = mask_batch * gen_mask(FLAGS.mask_mode, FLAGS.keep_prob)
         poses_batch = poses_batch[..., :3]
+        hip_mask_batch = hip_poses_batch[..., 3, np.newaxis]
+        hip_poses_batch = hip_poses_batch[..., :3]
 
         gen_inputs = [poses_batch, mask_batch]
 
@@ -122,12 +124,12 @@ if __name__ == "__main__":
                 size=(batch_size, configs[0].latent_cond_dim))
             gen_inputs.append(latent_noise)
 
-        return labs_batch, poses_batch, mask_batch, gen_inputs
+        return labs_batch, poses_batch, hip_poses_batch, mask_batch, hip_mask_batch, gen_inputs
 
     if "images" in FLAGS.test_mode:
 
         for i in trange(val_batches):
-            labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
+            labs_batch, poses_batch, hip_poses_batch, mask_batch, hip_mask_batch, gen_inputs = get_inputs()
 
             gen_outputs = []
             for model_wrap in model_wraps:
@@ -182,7 +184,7 @@ if __name__ == "__main__":
 
         for _ in trange(val_batches):
 
-            labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
+            labs_batch, poses_batch, hip_poses_batch, mask_batch, hip_mask_batch, gen_inputs = get_inputs()
 
             for m, model_wrap in enumerate(model_wraps):
                 gen_outputs = model_wrap.gen_model.predict(gen_inputs, batch_size)
@@ -260,7 +262,7 @@ if __name__ == "__main__":
             t = trange(val_batches)
             for i in t:
 
-                labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
+                labs_batch, poses_batch, hip_poses_batch, mask_batch, hip_mask_batch, gen_inputs = get_inputs()
 
                 re_poses_batch = rescale_batch(poses_batch)
                 re_poses_batch_edm = edm(re_poses_batch)

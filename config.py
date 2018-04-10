@@ -74,5 +74,34 @@ def get_config(flags):
             'left_leg': {'joints': [0, 12, 13, 14, 15], 'side': 'left'},
             'right_leg': {'joints': [0, 16, 17, 18, 19], 'side': 'right'},
         }
+    elif config.data_set == 'Human36':
+        config.num_actions = 15
+        config.num_subjects = 7
+        # config.njoints = 32
+        config.max_plen = 6343
+
+        config.body_members = {
+            'left_arm': {'joints': [19, 18, 17, 13], 'side': 'left'},
+            'right_arm': {'joints': [27, 26, 25, 13], 'side': 'right'},
+            'head': {'joints': [15, 14, 13], 'side': 'right'},
+            'torso': {'joints': [0, 12, 13], 'side': 'right'},
+            'left_leg': {'joints': [0, 6, 7, 8], 'side': 'left'},
+            'right_leg': {'joints': [0, 1, 2, 3], 'side': 'right'},
+        }
+        config.used_joints = [0, 1, 2, 3, 6, 7, 8, 12, 13, 14, 15, 17, 18, 19, 25, 26, 27]
+        config.njoints = len(config.used_joints)
+        new_body_members = {}
+        for key, value in config.body_members.items():
+            new_body_members[key] = value.copy()
+            new_body_members[key]['joints'] = [config.used_joints.index(j) for j in new_body_members[key]['joints']]
+        config.body_members = new_body_members
+
+    # Accounting for removal of hip
+    config.njoints -= 1
+    new_body_members = {}
+    for key, value in config.body_members.items():
+        new_body_members[key] = value.copy()
+        new_body_members[key]['joints'] = [j - 1 for j in new_body_members[key]['joints']]
+    config.body_members = new_body_members
 
     return config

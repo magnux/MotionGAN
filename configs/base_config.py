@@ -22,6 +22,8 @@
     'latent_cond_dim': 0,
     # Body shape conservation loss
     'shape_loss': True,
+    # Body rotation loss
+    'rotation_loss': True,
     # Sequence smoothing loss
     'smoothing_loss': True,
     # Time preserving embedding (NOT COMPATIBLE with latent or FAE)

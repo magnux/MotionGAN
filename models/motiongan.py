@@ -45,6 +45,8 @@ class _MotionGAN(object):
         self.gamma_grads = 1.0
         self.wgan_scale_d = 1.0
         self.wgan_scale_g = 0.1
+        self.wgan_frame_scale_d = 1.0
+        self.wgan_frame_scale_g = 0.1
         self.rec_scale = 10.0
         self.action_cond = config.action_cond
         self.action_scale_d = 1.0
@@ -55,16 +57,16 @@ class _MotionGAN(object):
         self.shape_loss = config.shape_loss
         self.shape_scale = 0.1
         self.smoothing_loss = config.smoothing_loss
-        self.smoothing_scale = 0.1
+        self.smoothing_scale = 1.0
         self.smoothing_basis = 5
         self.time_pres_emb = config.time_pres_emb
         self.unfold = config.unfold
         self.use_pose_fae = config.use_pose_fae
         self.fae_original_dim = self.njoints * 3
         self.fae_intermediate_dim = self.fae_original_dim // 2
-        self.fae_latent_dim = self.fae_original_dim // 3
-        self.wgan_frame_scale_d = 1.0
-        self.wgan_frame_scale_g = 0.1
+        self.fae_latent_dim = self.fae_original_dim // 4
+        self.rotation_loss = config.rotation_loss
+        self.rotation_scale = 10.0
 
         # Placeholders for training phase
         self.place_holders = []
@@ -288,6 +290,18 @@ class _MotionGAN(object):
                     gen_shape = edm(gen_seq) * zero_frames_edm * mask
                     loss_shape = K.sum(K.mean(K.square(real_shape - gen_shape), axis=-1), axis=(1, 2))
                     gen_losses['gen_loss_shape'] = self.shape_scale * K.mean(loss_shape)
+            if self.shape_loss:
+                with K.name_scope('rotation_loss'):
+                    def vector_mag(x):
+                        return K.sqrt(K.sum(K.square(x), axis=-1, keepdims=True) + K.epsilon())
+                    masked_real = real_seq * seq_mask
+                    masked_gen = gen_seq * seq_mask
+                    unit_real = masked_real / vector_mag(masked_real)
+                    unit_gen = masked_gen / vector_mag(masked_gen)
+                    unit_real = K.reshape(unit_real, [-1, 3])
+                    unit_gen = K.reshape(unit_gen, [-1, 3])
+                    loss_rot = K.square(1 - K.batch_dot(unit_real, unit_gen, axes=1))
+                    gen_losses['gen_loss_rotation'] = self.rotation_scale * K.mean(loss_rot)
             if self.smoothing_loss:
                 with K.name_scope('smoothing_loss'):
                     Q = idct(np.eye(self.seq_len))[:self.smoothing_basis, :]

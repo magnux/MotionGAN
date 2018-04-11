@@ -43,7 +43,9 @@ class _MotionGAN(object):
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
-        self.rec_scale = 1.0e6
+        self.wgan_scale_d = 1.0
+        self.wgan_scale_g = 0.1
+        self.rec_scale = 10.0
         self.action_cond = config.action_cond
         self.action_scale_d = 1.0
         self.action_scale_g = 1.0
@@ -51,7 +53,7 @@ class _MotionGAN(object):
         self.latent_scale_d = 1.0
         self.latent_scale_g = 1.0
         self.shape_loss = config.shape_loss
-        self.shape_scale = 1.0e2
+        self.shape_scale = 0.1
         self.smoothing_loss = config.smoothing_loss
         self.smoothing_scale = 0.1
         self.smoothing_basis = 5
@@ -60,7 +62,7 @@ class _MotionGAN(object):
         self.use_pose_fae = config.use_pose_fae
         self.fae_original_dim = self.njoints * 3
         self.fae_intermediate_dim = self.fae_original_dim // 2
-        self.fae_latent_dim = self.fae_original_dim // 4
+        self.fae_latent_dim = self.fae_original_dim // 3
         self.frame_scale = 1.0
 
         # Placeholders for training phase
@@ -212,10 +214,10 @@ class _MotionGAN(object):
 
                 # WGAN-GP losses
                 disc_loss_wgan = loss_fake - loss_real + (self.lambda_grads * grad_penalty)
-                disc_losses['disc_loss_wgan'] = K.mean(disc_loss_wgan)
+                disc_losses['disc_loss_wgan'] = self.wgan_scale_d * K.mean(disc_loss_wgan)
 
                 gen_loss_wgan = -loss_fake
-                gen_losses['gen_loss_wgan'] = K.mean(gen_loss_wgan)
+                gen_losses['gen_loss_wgan'] = self.wgan_scale_g * K.mean(gen_loss_wgan)
 
             # Regularization losses
             with K.name_scope('regularization_loss'):
@@ -233,7 +235,7 @@ class _MotionGAN(object):
 
             # Reconstruction loss
             with K.name_scope('reconstruction_loss'):
-                loss_rec = K.sqrt(K.sum(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1) + K.epsilon())
+                loss_rec = K.sum(K.sqrt(K.sum(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1) + K.epsilon()), axis=(1, 2))
                 gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
             with K.name_scope('frame_wgan_loss'):

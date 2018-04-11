@@ -5,8 +5,8 @@
     # Model version to train
     'model_version': 'v1',
 
-    # Use pose FAE
-    'use_pose_fae': True,
+    # Time preserving embedding (NOT COMPATIBLE with latent factor model)
+    'time_pres_emb': True,
 
     # It's the batch size
     'batch_size': 10,

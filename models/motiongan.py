@@ -63,7 +63,8 @@ class _MotionGAN(object):
         self.fae_original_dim = self.njoints * 3
         self.fae_intermediate_dim = self.fae_original_dim // 2
         self.fae_latent_dim = self.fae_original_dim // 3
-        self.frame_scale = 1.0
+        self.wgan_frame_scale_d = 1.0
+        self.wgan_frame_scale_g = 0.1
 
         # Placeholders for training phase
         self.place_holders = []
@@ -251,10 +252,10 @@ class _MotionGAN(object):
 
                 # WGAN-GP losses
                 frame_disc_loss_wgan = frame_loss_fake - frame_loss_real + (self.lambda_grads * frame_grad_penalty)
-                disc_losses['frame_disc_loss_wgan'] = self.frame_scale * K.mean(frame_disc_loss_wgan)
+                disc_losses['frame_disc_loss_wgan'] = self.wgan_frame_scale_d * K.mean(frame_disc_loss_wgan)
 
                 frame_gen_loss_wgan = -frame_loss_fake
-                gen_losses['frame_gen_loss_wgan'] = self.frame_scale * K.mean(frame_gen_loss_wgan)
+                gen_losses['frame_gen_loss_wgan'] = self.wgan_frame_scale_g * K.mean(frame_gen_loss_wgan)
 
             # Conditional losses
             if self.action_cond:

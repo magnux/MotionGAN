@@ -295,6 +295,9 @@ def plot_seq_pano(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pa
 
     actions_l, njoints, body_members = select_dataset(data_set)
 
+    if data_set == 'Human36':
+        seqs /= 1000
+
     if labs.shape[0] == seqs.shape[0]:
         labs_mode = "multi"
     else:

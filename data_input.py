@@ -91,12 +91,12 @@ class DataInput(object):
             labs[k, :] = [seq_idx, subject, action, plen]
             poses[k, :, :plen, :] = pose
 
-        min_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '_poses_mean.npy')
-        std_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '_poses_std.npy')
-
         hip_poses = poses[:, 0, np.newaxis, :, :]
         poses = poses[:, 1:, :, :]
         poses[..., :3] = poses[..., :3] - hip_poses[..., :3]
+
+        min_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '_poses_mean.npy')
+        std_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '_poses_std.npy')
 
         if tf.gfile.Exists(min_file_path) and tf.gfile.Exists(std_file_path):
             self.poses_mean = np.load(min_file_path)
@@ -144,7 +144,6 @@ class DataInput(object):
         elif self.data_set == 'MSRC12':
             pass
         elif self.data_set == 'Human36':
-            # pose /= 1000
             pose = pose[self.used_joints, ...]
 
         pose = np.transpose(pose, (0, 2, 1))

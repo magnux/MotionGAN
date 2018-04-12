@@ -144,7 +144,7 @@ class DataInput(object):
         elif self.data_set == 'MSRC12':
             pass
         elif self.data_set == 'Human36':
-            pose /= 1000
+            # pose /= 1000
             pose = pose[self.used_joints, ...]
 
         pose = np.transpose(pose, (0, 2, 1))

@@ -290,7 +290,7 @@ class _MotionGAN(object):
                     gen_shape = edm(gen_seq) * zero_frames_edm * mask
                     loss_shape = K.sum(K.mean(K.square(real_shape - gen_shape), axis=-1), axis=(1, 2))
                     gen_losses['gen_loss_shape'] = self.shape_scale * K.mean(loss_shape)
-            if self.shape_loss:
+            if self.rotation_loss:
                 with K.name_scope('rotation_loss'):
                     def vector_mag(x):
                         return K.sqrt(K.sum(K.square(x), axis=-1, keepdims=True) + K.epsilon())

@@ -23,7 +23,7 @@
     # Body shape conservation loss
     'shape_loss': True,
     # Body rotation loss
-    'rotation_loss': True,
+    'rotation_loss': False,
     # Sequence smoothing loss
     'smoothing_loss': True,
     # Time preserving embedding (NOT COMPATIBLE with latent or FAE)

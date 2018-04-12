@@ -259,7 +259,7 @@ class _MotionGAN(object):
                 frame_gen_loss_wgan = -frame_loss_fake
                 gen_losses['frame_gen_loss_wgan'] = self.wgan_frame_scale_g * K.mean(frame_gen_loss_wgan)
 
-            # Conditional losses
+            # Optional losses
             if self.action_cond:
                 with K.name_scope('action_loss'):
                     loss_class_real = K.mean(K.sparse_categorical_crossentropy(
@@ -437,9 +437,13 @@ class _MotionGAN(object):
                        name=scope+'conv_in', **CONV1D_ARGS)(h)
             for i in range(3):
                 with scope.name_scope('block_%d' % i):
-                    pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
-                                name=scope+'pi_0', **CONV1D_ARGS)(h)
-                    pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
+                    # pi = InstanceNormalization(axis=-1, name=scope + 'inorm_in')(h)
+                    pi = Activation('relu', name=scope + 'relu_in')(h)
+                    pi = Conv1D(self.fae_intermediate_dim, 1, 1,
+                                name=scope+'pi_0', **CONV1D_ARGS)(pi)
+                    # pi = InstanceNormalization(axis=-1, name=scope + 'inorm_bneck')(pi)
+                    pi = Activation('relu', name=scope + 'relu_bneck')(pi)
+                    pi = Conv1D(self.fae_intermediate_dim, 1, 1,
                                 name=scope+'pi_1', **CONV1D_ARGS)(pi)
                     tau = Conv1D(self.fae_intermediate_dim, 1, 1, activation='sigmoid',
                                  name=scope+'tau_0', **CONV1D_ARGS)(h)
@@ -463,9 +467,11 @@ class _MotionGAN(object):
                            name=scope+'conv_in', **CONV1D_ARGS)(gen_z)
             for i in range(3):
                 with scope.name_scope('block_%d' % i):
-                    pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
+                    pi = Activation('relu', name=scope + 'relu_in')(dec_h)
+                    pi = Conv1D(self.fae_intermediate_dim, 1, 1,
                                 name=scope+'pi_0', **CONV1D_ARGS)(dec_h)
-                    pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
+                    pi = Activation('relu', name=scope + 'relu_bneck')(pi)
+                    pi = Conv1D(self.fae_intermediate_dim, 1, 1,
                                 name=scope+'pi_1', **CONV1D_ARGS)(pi)
                     tau = Conv1D(self.fae_intermediate_dim, 1, 1, activation='sigmoid',
                                  name=scope+'tau_0', **CONV1D_ARGS)(dec_h)

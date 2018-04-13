@@ -34,11 +34,20 @@ if __name__ == "__main__":
     # Hacks to fill undefined, but necessary flags
     tf.flags.DEFINE_string("config_file", None, None)
     tf.flags.DEFINE_string("save_path", None, None)
+
+    data_input = DataInput(configs[0])
+    val_batches = data_input.val_epoch_size
+    val_generator = data_input.batch_generator(False)
+
     for save_path in FLAGS.model_path:
         FLAGS.save_path = save_path
         config = get_config(FLAGS)
         config.only_val = True
         config.batch_size = batch_size
+
+        if config.normalize_data:
+            config.poses_mean = data_input.poses_mean
+            config.poses_std = data_input.poses_std
 
         # Model building
         if config.model_type == 'motiongan':
@@ -80,10 +89,6 @@ if __name__ == "__main__":
     njoints = configs[0].njoints
     seq_len = model_wraps[0].seq_len
     body_members = configs[0].body_members
-
-    data_input = DataInput(configs[0])
-    val_batches = data_input.val_epoch_size
-    val_generator = data_input.batch_generator(False)
 
     def gen_mask(mask_type=0, keep_prob=1.0):
         # Default mask, no mask

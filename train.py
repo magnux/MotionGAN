@@ -30,6 +30,10 @@ if __name__ == "__main__":
     val_batches = data_input.val_epoch_size
     val_generator = data_input.batch_generator(False)
 
+    if config.normalize_data:
+        config.poses_mean = data_input.poses_mean
+        config.poses_std = data_input.poses_std
+
     # Model building
     if config.model_type == 'motiongan':
         if config.model_version == 'v1':

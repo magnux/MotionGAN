@@ -68,6 +68,12 @@ class _MotionGAN(object):
         self.rotation_loss = config.rotation_loss
         self.rotation_scale = 1.0
 
+        self.normalize_data = config.normalize_data
+
+        if self.normalize_data:
+            self.poses_mean = config.poses_mean
+            self.poses_std = config.poses_std
+
         # Placeholders for training phase
         self.place_holders = []
         if self.action_cond:
@@ -223,25 +229,6 @@ class _MotionGAN(object):
                 gen_loss_wgan = -loss_fake
                 gen_losses['gen_loss_wgan'] = self.wgan_scale_g * K.mean(gen_loss_wgan)
 
-            # Regularization losses
-            with K.name_scope('regularization_loss'):
-                if len(self.disc_model.losses) > 0:
-                    disc_loss_reg = 0.0
-                    for reg_loss in set(self.disc_model.losses):
-                        disc_loss_reg += reg_loss
-                    disc_losses['disc_loss_reg'] = disc_loss_reg
-
-                if len(self.gen_model.losses) > 0:
-                    gen_loss_reg = 0.0
-                    for reg_loss in set(self.gen_model.losses):
-                        gen_loss_reg += reg_loss
-                    gen_losses['gen_loss_reg'] = gen_loss_reg
-
-            # Reconstruction loss
-            with K.name_scope('reconstruction_loss'):
-                loss_rec = K.sum(K.sqrt(K.sum(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1) + K.epsilon()), axis=(1, 2))
-                gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
-
             with K.name_scope('frame_wgan_loss'):
                 frame_loss_real = K.sum(K.squeeze(_get_tensor(self.real_outputs, 'frame_score_out'), axis=-1) * zero_frames, axis=1)
                 frame_loss_fake = K.sum(K.squeeze(_get_tensor(self.fake_outputs, 'frame_score_out'), axis=-1) * zero_frames, axis=1)
@@ -259,6 +246,20 @@ class _MotionGAN(object):
 
                 frame_gen_loss_wgan = -frame_loss_fake
                 gen_losses['frame_gen_loss_wgan'] = self.wgan_frame_scale_g * K.mean(frame_gen_loss_wgan)
+
+            if self.normalize_data:
+                def _unnormalize(x):
+                    with K.name_scope('unnormalize'):
+                        return (x * self.poses_std) + self.poses_mean
+                real_seq = _unnormalize(real_seq)
+                gen_seq = _unnormalize(gen_seq)
+
+            # Reconstruction loss
+            with K.name_scope('reconstruction_loss'):
+                loss_rec = K.sum(
+                    K.sqrt(K.sum(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1) + K.epsilon()),
+                    axis=(1, 2))
+                gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
             # Optional losses
             if self.action_cond:
@@ -314,6 +315,21 @@ class _MotionGAN(object):
                     loss_smooth = K.sum(K.mean(K.square(gen_seq_s - gen_seq), axis=-1), axis=(1, 2))
                     gen_losses['gen_loss_smooth'] = self.smoothing_scale * K.mean(loss_smooth)
 
+
+            # Regularization losses
+            with K.name_scope('regularization_loss'):
+                if len(self.disc_model.losses) > 0:
+                    disc_loss_reg = 0.0
+                    for reg_loss in set(self.disc_model.losses):
+                        disc_loss_reg += reg_loss
+                    disc_losses['disc_loss_reg'] = disc_loss_reg
+
+                if len(self.gen_model.losses) > 0:
+                    gen_loss_reg = 0.0
+                    for reg_loss in set(self.gen_model.losses):
+                        gen_loss_reg += reg_loss
+                    gen_losses['gen_loss_reg'] = gen_loss_reg
+
         return wgan_losses, disc_losses, gen_losses
 
     def _pseudo_build_model(self, model, optimizer):
@@ -325,30 +341,30 @@ class _MotionGAN(object):
         model.metrics = None
         return model
 
-    def _rescale_down(self, x, network):
-        if not hasattr(self, 'stats'):
-            self.stats = {}
-        scope = Scoping.get_global_scope()
-        with scope.name_scope('rescale'):
-            self.stats[network + '_xmin'] = Lambda(lambda arg: K.min(arg, axis=(1, 2), keepdims=True), name=scope+'xmin')(x)
-            self.stats[network + '_xmax'] = Lambda(lambda arg: K.max(arg, axis=(1, 2), keepdims=True), name=scope+'xmax')(x)
-
-        x = Lambda(lambda args: (2 * (args[0] - args[1]) / (args[2] - args[1])) - 1, name=scope+'rescale_down')(
-                   [x, self.stats[network + '_xmin'], self.stats[network + '_xmax']])
-        return x
-
-    def _rescale_up(self, x, network):
-        scope = Scoping.get_global_scope()
-        x = Lambda(lambda args: ((1 + args[0]) * (args[2] - args[1]) / 2) + args[1], name=scope+'rescale_up')(
-                   [x, self.stats[network + '_xmin'], self.stats[network + '_xmax']])
-        return x
+    # def _rescale_down(self, x, network):
+    #     if not hasattr(self, 'stats'):
+    #         self.stats = {}
+    #     scope = Scoping.get_global_scope()
+    #     with scope.name_scope('rescale'):
+    #         self.stats[network + '_xmin'] = Lambda(lambda arg: K.min(arg, axis=(1, 2), keepdims=True), name=scope+'xmin')(x)
+    #         self.stats[network + '_xmax'] = Lambda(lambda arg: K.max(arg, axis=(1, 2), keepdims=True), name=scope+'xmax')(x)
+    #
+    #     x = Lambda(lambda args: (2 * (args[0] - args[1]) / (args[2] - args[1])) - 1, name=scope+'rescale_down')(
+    #                [x, self.stats[network + '_xmin'], self.stats[network + '_xmax']])
+    #     return x
+    #
+    # def _rescale_up(self, x, network):
+    #     scope = Scoping.get_global_scope()
+    #     x = Lambda(lambda args: ((1 + args[0]) * (args[2] - args[1]) / 2) + args[1], name=scope+'rescale_up')(
+    #                [x, self.stats[network + '_xmin'], self.stats[network + '_xmax']])
+    #     return x
 
     def _proc_disc_inputs(self, input_tensors):
         scope = Scoping.get_global_scope()
         with scope.name_scope('discriminator'):
 
             x = _get_tensor(input_tensors, 'real_seq')
-            x = self._rescale_down(x, 'discriminator')
+            # x = self._rescale_down(x, 'discriminator')
 
         return x
 
@@ -379,7 +395,7 @@ class _MotionGAN(object):
         with scope.name_scope('generator'):
 
             x = _get_tensor(input_tensors, 'real_seq')
-            x = self._rescale_down(x, 'generator')
+            # x = self._rescale_down(x, 'generator')
             x_mask = _get_tensor(input_tensors, 'seq_mask')
             x = Multiply(name=scope+'mask_mult')([x, x_mask])
 
@@ -451,7 +467,7 @@ class _MotionGAN(object):
             if self.unfold:
                 x = FoldJoints(self.data_set)(x)
 
-            x = self._rescale_up(x, 'generator')
+            # x = self._rescale_up(x, 'generator')
             output_tensors = [x]
 
         return output_tensors

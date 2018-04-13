@@ -333,13 +333,13 @@ class _MotionGAN(object):
             self.stats[network + '_xmin'] = Lambda(lambda arg: K.min(arg, axis=(1, 2), keepdims=True), name=scope+'xmin')(x)
             self.stats[network + '_xmax'] = Lambda(lambda arg: K.max(arg, axis=(1, 2), keepdims=True), name=scope+'xmax')(x)
 
-        x = Lambda(lambda args: (args[0] - args[1]) / (args[2] - args[1]), name=scope+'rescale_down')(
+        x = Lambda(lambda args: (2 * (args[0] - args[1]) / (args[2] - args[1])) - 1, name=scope+'rescale_down')(
                    [x, self.stats[network + '_xmin'], self.stats[network + '_xmax']])
         return x
 
     def _rescale_up(self, x, network):
         scope = Scoping.get_global_scope()
-        x = Lambda(lambda args: (args[0] * (args[2] - args[1])) + args[1], name=scope+'rescale_up')(
+        x = Lambda(lambda args: ((1 + args[0]) * (args[2] - args[1]) / 2) + args[1], name=scope+'rescale_up')(
                    [x, self.stats[network + '_xmin'], self.stats[network + '_xmax']])
         return x
 
@@ -467,13 +467,9 @@ class _MotionGAN(object):
                        name=scope+'conv_in', **CONV1D_ARGS)(h)
             for i in range(3):
                 with scope.name_scope('block_%d' % i):
-                    pi = InstanceNormalization(axis=-1, name=scope+'inorm_0')(h)
-                    pi = Activation('relu', name=scope+'relu_0')(pi)
-                    pi = Conv1D(self.fae_intermediate_dim, 1, 1,
-                                name=scope+'pi_0', **CONV1D_ARGS)(pi)
-                    pi = InstanceNormalization(axis=-1, name=scope+'inorm_1')(pi)
-                    pi = Activation('relu', name=scope+'relu_1')(pi)
-                    pi = Conv1D(self.fae_intermediate_dim, 1, 1,
+                    pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
+                                name=scope+'pi_0', **CONV1D_ARGS)(h)
+                    pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
                                 name=scope+'pi_1', **CONV1D_ARGS)(pi)
                     tau = Conv1D(self.fae_intermediate_dim, 1, 1, activation='sigmoid',
                                  name=scope+'tau_0', **CONV1D_ARGS)(h)
@@ -497,13 +493,9 @@ class _MotionGAN(object):
                            name=scope+'conv_in', **CONV1D_ARGS)(gen_z)
             for i in range(3):
                 with scope.name_scope('block_%d' % i):
-                    pi = InstanceNormalization(axis=-1, name=scope+'inorm_0')(dec_h)
-                    pi = Activation('relu', name=scope+'relu_0')(pi)
-                    pi = Conv1D(self.fae_intermediate_dim, 1, 1,
-                                name=scope+'pi_0', **CONV1D_ARGS)(pi)
-                    pi = InstanceNormalization(axis=-1, name=scope+'inorm_1')(pi)
-                    pi = Activation('relu', name=scope+'relu_1')(pi)
-                    pi = Conv1D(self.fae_intermediate_dim, 1, 1,
+                    pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
+                                name=scope+'pi_0', **CONV1D_ARGS)(dec_h)
+                    pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
                                 name=scope+'pi_1', **CONV1D_ARGS)(pi)
                     tau = Conv1D(self.fae_intermediate_dim, 1, 1, activation='sigmoid',
                                  name=scope+'tau_0', **CONV1D_ARGS)(dec_h)

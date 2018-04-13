@@ -24,7 +24,7 @@ if __name__ == "__main__":
     config = get_config(FLAGS)
 
     data_input = DataInput(config)
-    train_batches = data_input.train_epoch_size * config.epoch_factor
+    train_batches = data_input.train_epoch_size
     val_batches = data_input.val_epoch_size
 
     # Model building

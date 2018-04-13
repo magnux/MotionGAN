@@ -21,6 +21,7 @@ class DataInput(object):
         self.only_val = config.only_val
         self.data_set_version = config.data_set_version
         self.normalize_data = config.normalize_data
+        self.epoch_factor = config.epoch_factor
 
         if self.data_set == "Human36":
             self.used_joints = config.used_joints
@@ -46,8 +47,8 @@ class DataInput(object):
         self.len_train_keys = len(self.train_keys)
         self.len_val_keys = len(self.val_keys)
 
-        self.train_epoch_size = (self.len_train_keys // self.batch_size) #+ 1
-        self.val_epoch_size = (self.len_val_keys // self.batch_size) #+ 1
+        self.train_epoch_size = (self.len_train_keys // self.batch_size) + 1
+        self.val_epoch_size = (self.len_val_keys // self.batch_size) + 1
 
         self.pshape = [config.njoints, None, 4]
         self.max_plen = config.max_plen
@@ -58,6 +59,9 @@ class DataInput(object):
             self.train_batches = self.pre_comp_batches(True)
         self.val_batches = self.pre_comp_batches(False)
 
+        self.train_epoch_size *= self.epoch_factor
+        self.train_batches *= self.epoch_factor
+
     def pre_comp_batches(self, is_training):
         epoch_size = self.train_epoch_size if is_training else self.val_epoch_size
         labs, poses, hip_poses = self.load_to_ram(is_training)
@@ -65,10 +69,18 @@ class DataInput(object):
         batches = []
         for slice_idx in range(epoch_size):
             slice_start = slice_idx * self.batch_size
-            slice_len = min(slice_start + self.batch_size, np.shape(labs)[0])
+            slice_len = min(slice_start + self.batch_size, labs.shape[0])
             labs_batch = labs[slice_start:slice_len, ...]
             poses_batch = poses[slice_start:slice_len, ...]
             hip_poses_batch = hip_poses[slice_start:slice_len, ...]
+            if labs_batch.shape[0] < self.batch_size:
+                rand_indices = np.random.random_integers(0, poses.shape[0] - 1, self.batch_size - labs_batch.shape[0])
+                labs_batch_extra = labs[rand_indices, ...]
+                labs_batch = np.concatenate([labs_batch, labs_batch_extra], axis=0)
+                poses_batch_extra = poses[rand_indices, ...]
+                poses_batch = np.concatenate([poses_batch, poses_batch_extra], axis=0)
+                hip_poses_batch_extra = hip_poses[rand_indices, ...]
+                hip_poses_batch = np.concatenate([hip_poses_batch, hip_poses_batch_extra], axis=0)
             batches.append((labs_batch, poses_batch, hip_poses_batch))
 
         del labs
@@ -144,6 +156,7 @@ class DataInput(object):
         elif self.data_set == 'MSRC12':
             pass
         elif self.data_set == 'Human36':
+            pose /= 1000
             pose = pose[self.used_joints, ...]
 
         pose = np.transpose(pose, (0, 2, 1))
@@ -200,21 +213,17 @@ class DataInput(object):
     def batch_generator(self, is_training):
         epoch_size = self.train_epoch_size if is_training else self.val_epoch_size
         batches = self.train_batches if is_training else self.val_batches
-        slice_idx = -1
-        rand_indices = None
 
         while True:
-            slice_idx += 1
-            slice_idx = slice_idx % epoch_size
-            if not self.only_val:
-                if slice_idx == 0:
-                    rand_indices = np.random.permutation(epoch_size)
-                yield self.sub_sample_batch(batches[rand_indices[slice_idx]])
-            else:
-                yield self.sub_sample_batch(batches[slice_idx])
+            rand_indices = np.random.permutation(epoch_size)
+            for slice_idx in range(epoch_size):
+                if not self.only_val:
+                    yield self.sub_sample_batch(batches[rand_indices[slice_idx]])
+                else:
+                    yield self.sub_sample_batch(batches[slice_idx])
 
     def normalize_poses(self, poses):
         return (poses - self.poses_mean) / self.poses_std
 
-    def denormalize_poses(self, poses):
+    def unnormalize_poses(self, poses):
         return (poses * self.poses_std) + self.poses_mean

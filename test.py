@@ -136,9 +136,9 @@ if __name__ == "__main__":
                 gen_outputs.append(model_wrap.gen_model.predict(gen_inputs, batch_size))
 
             if configs[0].normalize_data:
-                poses_batch = data_input.denormalize_poses(poses_batch)
+                poses_batch = data_input.unnormalize_poses(poses_batch)
                 for j in range(len(gen_outputs)):
-                    gen_outputs[j] = data_input.denormalize_poses(gen_outputs[j])
+                    gen_outputs[j] = data_input.unnormalize_poses(gen_outputs[j])
 
             # rand_indices = np.random.permutation(batch_size)
 
@@ -190,7 +190,7 @@ if __name__ == "__main__":
                 gen_outputs = model_wrap.gen_model.predict(gen_inputs, batch_size)
 
                 if configs[m].normalize_data:
-                    gen_outputs = data_input.denormalize_poses(gen_outputs)
+                    gen_outputs = data_input.unnormalize_poses(gen_outputs)
 
                 for j in range(batch_size):
                     seq_idx, subject, action, plen = labs_batch[j, ...]
@@ -245,7 +245,7 @@ if __name__ == "__main__":
 
             def rescale_batch(batch):
                 if configs[0].normalize_data:
-                    batch = data_input.denormalize_poses(batch) * 1000
+                    batch = data_input.unnormalize_poses(batch) * 1000
                 else:
                     batch = batch * 1000
                 return batch

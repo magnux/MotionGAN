@@ -25,7 +25,7 @@ if __name__ == "__main__":
     config = get_config(FLAGS)
 
     data_input = DataInput(config)
-    train_batches = data_input.train_epoch_size * config.epoch_factor
+    train_batches = data_input.train_epoch_size
     train_generator = data_input.batch_generator(True)
     val_batches = data_input.val_epoch_size
     val_generator = data_input.batch_generator(False)
@@ -174,6 +174,8 @@ if __name__ == "__main__":
                 if (np.isnan(logs['train/disc_loss_reg']) or
                     np.isnan(logs['train/gen_loss_reg'])):
                     print('uh oh, nans found in losses, restarting epoch')
+                    config.nan_restarts += 1
+                    assert config.nan_restarts < 10, "restarted too many times because of nans"
                     break
 
                 tensorboard.on_batch_end(batch, logs)
@@ -218,8 +220,8 @@ if __name__ == "__main__":
             # Generating images
             if (config.epoch % (config.num_epochs // 10)) == 0 or config.epoch == (config.num_epochs - 1):
                 if config.normalize_data:
-                    poses_batch = data_input.denormalize_poses(poses_batch)
-                    gen_outputs = data_input.denormalize_poses(gen_outputs)
+                    poses_batch = data_input.unnormalize_poses(poses_batch)
+                    gen_outputs = data_input.unnormalize_poses(gen_outputs)
 
                 poses_batch = np.concatenate([hip_poses_batch, poses_batch + hip_poses_batch], axis=1)
                 gen_outputs = np.concatenate([hip_poses_batch, gen_outputs + hip_poses_batch], axis=1)

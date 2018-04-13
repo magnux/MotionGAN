@@ -5,7 +5,7 @@
     'data_set': 'NTURGBD',
     'data_set_version': 'v1',
     # Normalize skeletons offline
-    'normalize_data': True,
+    'normalize_data': False,
 
     ## Model Options
     # Model type to train

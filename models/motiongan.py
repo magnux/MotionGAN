@@ -47,7 +47,7 @@ class _MotionGAN(object):
         self.wgan_scale_g = 0.1
         self.wgan_frame_scale_d = 1.0
         self.wgan_frame_scale_g = 0.1
-        self.rec_scale = 0.1
+        self.rec_scale = 1.0
         self.action_cond = config.action_cond
         self.action_scale_d = 1.0
         self.action_scale_g = 1.0
@@ -55,7 +55,7 @@ class _MotionGAN(object):
         self.latent_scale_d = 1.0
         self.latent_scale_g = 1.0
         self.shape_loss = config.shape_loss
-        self.shape_scale = 0.1
+        self.shape_scale = 1.0e-3
         self.smoothing_loss = config.smoothing_loss
         self.smoothing_scale = 1.0
         self.smoothing_basis = 5
@@ -66,7 +66,7 @@ class _MotionGAN(object):
         self.fae_intermediate_dim = self.fae_original_dim
         self.fae_latent_dim = self.fae_original_dim // 2
         self.rotation_loss = config.rotation_loss
-        self.rotation_scale = 10.0
+        self.rotation_scale = 1.0
 
         # Placeholders for training phase
         self.place_holders = []
@@ -78,7 +78,8 @@ class _MotionGAN(object):
         real_seq = Input(batch_shape=(self.batch_size, self.njoints, self.seq_len, 3),
                          name='real_seq', dtype='float32')
         self.disc_inputs = [real_seq]
-        self.real_outputs = self._proc_disc_outputs(self.discriminator(real_seq))
+        x = self._proc_disc_inputs(self.disc_inputs)
+        self.real_outputs = self._proc_disc_outputs(self.discriminator(x))
         self.disc_model = Model(self.disc_inputs,
                                 self.real_outputs,
                                 name=self.name + '_discriminator')
@@ -194,7 +195,7 @@ class _MotionGAN(object):
             seq_mask = _get_tensor(self.gen_inputs, 'seq_mask')
             gen_seq = self.gen_outputs[0]
             zero_sum = K.sum(real_seq, axis=(1, 3))
-            zero_frames = K.cast(K.not_equal(zero_sum, K.zeros_like(zero_sum)), 'float32') + K.epsilon()
+            zero_frames = K.cast(K.less_equal(K.abs(zero_sum), K.epsilon()), 'float32') + K.epsilon()
             zero_frames_edm = K.reshape(zero_frames, (zero_frames.shape[0], 1, 1, zero_frames.shape[1]))
 
             # WGAN Basic losses
@@ -238,7 +239,7 @@ class _MotionGAN(object):
 
             # Reconstruction loss
             with K.name_scope('reconstruction_loss'):
-                loss_rec = K.sum(K.sqrt(K.sum(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1) + K.epsilon()), axis=(1, 2))
+                loss_rec = K.sum(K.sqrt(K.sum(K.square((real_seq * 1000 * seq_mask) - (gen_seq * 1000 * seq_mask)), axis=-1) + K.epsilon()), axis=(1, 2))
                 gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
             with K.name_scope('frame_wgan_loss'):
@@ -285,10 +286,10 @@ class _MotionGAN(object):
                             mask[member['joints'][j + 1], member['joints'][j]] = 1.0
                     mask = np.reshape(mask, (1, self.njoints, self.njoints, 1))
                     mask = K.constant(mask, dtype='float32')
-                    real_shape = K.sum(edm(real_seq) * zero_frames_edm, axis=-1, keepdims=True) \
+                    real_shape = K.sum(edm(real_seq * 1000) * zero_frames_edm, axis=-1, keepdims=True) \
                                  / K.sum(zero_frames_edm, axis=-1, keepdims=True) * mask
-                    gen_shape = edm(gen_seq) * zero_frames_edm * mask
-                    loss_shape = K.sum(K.mean(K.square(real_shape - gen_shape), axis=-1), axis=(1, 2))
+                    gen_shape = edm(gen_seq * 1000) * zero_frames_edm * mask
+                    loss_shape = K.mean(K.square(real_shape - gen_shape), axis=(1, 2, 3))
                     gen_losses['gen_loss_shape'] = self.shape_scale * K.mean(loss_shape)
             if self.rotation_loss:
                 with K.name_scope('rotation_loss'):
@@ -324,6 +325,33 @@ class _MotionGAN(object):
         model.metrics = None
         return model
 
+    def _rescale_down(self, x, network):
+        if not hasattr(self, 'stats'):
+            self.stats = {}
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('rescale'):
+            self.stats[network + '_xmin'] = Lambda(lambda arg: K.min(arg, axis=(1, 2), keepdims=True), name=scope+'xmin')(x)
+            self.stats[network + '_xmax'] = Lambda(lambda arg: K.max(arg, axis=(1, 2), keepdims=True), name=scope+'xmax')(x)
+
+        x = Lambda(lambda args: (args[0] - args[1]) / (args[2] - args[1]), name=scope+'rescale_down')(
+                   [x, self.stats[network + '_xmin'], self.stats[network + '_xmax']])
+        return x
+
+    def _rescale_up(self, x, network):
+        scope = Scoping.get_global_scope()
+        x = Lambda(lambda args: (args[0] * (args[2] - args[1])) + args[1], name=scope+'rescale_up')(
+                   [x, self.stats[network + '_xmin'], self.stats[network + '_xmax']])
+        return x
+
+    def _proc_disc_inputs(self, input_tensors):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('discriminator'):
+
+            x = _get_tensor(input_tensors, 'real_seq')
+            x = self._rescale_down(x, 'discriminator')
+
+        return x
+
     def _proc_disc_outputs(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('discriminator'):
@@ -349,9 +377,9 @@ class _MotionGAN(object):
     def _proc_gen_inputs(self, input_tensors):
         scope = Scoping.get_global_scope()
         with scope.name_scope('generator'):
-            n_hidden = 32 if self.time_pres_emb else 128
 
             x = _get_tensor(input_tensors, 'real_seq')
+            x = self._rescale_down(x, 'generator')
             x_mask = _get_tensor(input_tensors, 'seq_mask')
             x = Multiply(name=scope+'mask_mult')([x, x_mask])
 
@@ -371,6 +399,7 @@ class _MotionGAN(object):
 
             else:
                 with scope.name_scope('seq_fex'):
+                    n_hidden = 32 if self.time_pres_emb else 128
                     strides = (2, 1) if self.time_pres_emb else 2
                     i = 0
                     while (x.shape[1] > 1 and self.time_pres_emb) or (i < 3):
@@ -422,6 +451,7 @@ class _MotionGAN(object):
             if self.unfold:
                 x = FoldJoints(self.data_set)(x)
 
+            x = self._rescale_up(x, 'generator')
             output_tensors = [x]
 
         return output_tensors
@@ -437,9 +467,13 @@ class _MotionGAN(object):
                        name=scope+'conv_in', **CONV1D_ARGS)(h)
             for i in range(3):
                 with scope.name_scope('block_%d' % i):
-                    pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
-                                name=scope+'pi_0', **CONV1D_ARGS)(h)
-                    pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
+                    pi = InstanceNormalization(axis=-1, name=scope+'inorm_0')(h)
+                    pi = Activation('relu', name=scope+'relu_0')(pi)
+                    pi = Conv1D(self.fae_intermediate_dim, 1, 1,
+                                name=scope+'pi_0', **CONV1D_ARGS)(pi)
+                    pi = InstanceNormalization(axis=-1, name=scope+'inorm_1')(pi)
+                    pi = Activation('relu', name=scope+'relu_1')(pi)
+                    pi = Conv1D(self.fae_intermediate_dim, 1, 1,
                                 name=scope+'pi_1', **CONV1D_ARGS)(pi)
                     tau = Conv1D(self.fae_intermediate_dim, 1, 1, activation='sigmoid',
                                  name=scope+'tau_0', **CONV1D_ARGS)(h)
@@ -463,9 +497,13 @@ class _MotionGAN(object):
                            name=scope+'conv_in', **CONV1D_ARGS)(gen_z)
             for i in range(3):
                 with scope.name_scope('block_%d' % i):
-                    pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
-                                name=scope+'pi_0', **CONV1D_ARGS)(dec_h)
-                    pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
+                    pi = InstanceNormalization(axis=-1, name=scope+'inorm_0')(dec_h)
+                    pi = Activation('relu', name=scope+'relu_0')(pi)
+                    pi = Conv1D(self.fae_intermediate_dim, 1, 1,
+                                name=scope+'pi_0', **CONV1D_ARGS)(pi)
+                    pi = InstanceNormalization(axis=-1, name=scope+'inorm_1')(pi)
+                    pi = Activation('relu', name=scope+'relu_1')(pi)
+                    pi = Conv1D(self.fae_intermediate_dim, 1, 1,
                                 name=scope+'pi_1', **CONV1D_ARGS)(pi)
                     tau = Conv1D(self.fae_intermediate_dim, 1, 1, activation='sigmoid',
                                  name=scope+'tau_0', **CONV1D_ARGS)(dec_h)
@@ -718,18 +756,18 @@ class MotionGANV4(_MotionGAN):
                         strides = blocks[i]['strides'] if j == 0 else 1
                         if int(x.shape[-1]) != blocks[i]['size'] or strides > 1:
                             with scope.name_scope('shortcut'):
-                                shortcut = Activation('relu', name=scope + 'relu')(x)
+                                shortcut = Activation('relu', name=scope+'relu')(x)
                                 shortcut = Conv2D(blocks[i]['size'], 1, strides,
-                                                  name=scope + 'conv', **CONV2D_ARGS)(shortcut)
+                                                  name=scope+'conv', **CONV2D_ARGS)(shortcut)
                         else:
                             shortcut = x
 
                         x = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'], 3, strides)
-                        x = Add(name=scope + 'add')([shortcut, x])
+                        x = Add(name=scope+'add')([shortcut, x])
 
             x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name=scope+'mean_pool')(x)
-            x = InstanceNormalization(name=scope + 'in_out')(x)
-            x = Activation('relu', name=scope + 'relu_out')(x)
+            x = InstanceNormalization(name=scope+'in_out')(x)
+            x = Activation('relu', name=scope+'relu_out')(x)
 
             x = Dense(self.num_actions, activation='softmax', name=scope+'label')(x)
 

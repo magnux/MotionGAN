@@ -9,7 +9,7 @@
     'time_pres_emb': True,
 
     # It's the batch size
-    'batch_size': 10,
+    # 'batch_size': 10,
     # Final epoch
     'num_epochs': 200,
     # Multiplies length of epoch, useful for tiny datasets

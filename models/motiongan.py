@@ -55,7 +55,7 @@ class _MotionGAN(object):
         self.latent_scale_d = 1.0
         self.latent_scale_g = 1.0
         self.shape_loss = config.shape_loss
-        self.shape_scale = 1.0e-3
+        self.shape_scale = 1.0
         self.smoothing_loss = config.smoothing_loss
         self.smoothing_scale = 1.0
         self.smoothing_basis = 5
@@ -239,7 +239,7 @@ class _MotionGAN(object):
 
             # Reconstruction loss
             with K.name_scope('reconstruction_loss'):
-                loss_rec = K.sum(K.sqrt(K.sum(K.square((real_seq * 1000 * seq_mask) - (gen_seq * 1000 * seq_mask)), axis=-1) + K.epsilon()), axis=(1, 2))
+                loss_rec = K.sum(K.sqrt(K.sum(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1) + K.epsilon()), axis=(1, 2))
                 gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
             with K.name_scope('frame_wgan_loss'):
@@ -286,9 +286,9 @@ class _MotionGAN(object):
                             mask[member['joints'][j + 1], member['joints'][j]] = 1.0
                     mask = np.reshape(mask, (1, self.njoints, self.njoints, 1))
                     mask = K.constant(mask, dtype='float32')
-                    real_shape = K.sum(edm(real_seq * 1000) * zero_frames_edm, axis=-1, keepdims=True) \
+                    real_shape = K.sum(edm(real_seq) * zero_frames_edm, axis=-1, keepdims=True) \
                                  / K.sum(zero_frames_edm, axis=-1, keepdims=True) * mask
-                    gen_shape = edm(gen_seq * 1000) * zero_frames_edm * mask
+                    gen_shape = edm(gen_seq) * zero_frames_edm * mask
                     loss_shape = K.mean(K.square(real_shape - gen_shape), axis=(1, 2, 3))
                     gen_losses['gen_loss_shape'] = self.shape_scale * K.mean(loss_shape)
             if self.rotation_loss:

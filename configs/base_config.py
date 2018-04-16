@@ -32,6 +32,8 @@
     'unfold': False,
     # Use pose FAE
     'use_pose_fae': False,
+    # Disable GAN loss on the generator
+    'no_gan_loss': False,
 
     ## DMNN Model Options
     'motiongan_save_path': None,

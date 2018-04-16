@@ -10,6 +10,9 @@ from tqdm import trange
 from utils.viz import plot_seq_gif, plot_seq_emb
 from tensorflow.python.platform import tf_logging as logging
 
+np.random.seed(42)
+tf.set_random_seed(42)
+
 logging = tf.logging
 flags = tf.flags
 flags.DEFINE_bool("verbose", False, "To talk or not to talk")

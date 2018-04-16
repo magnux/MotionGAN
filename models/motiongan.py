@@ -43,11 +43,11 @@ class _MotionGAN(object):
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
-        self.wgan_scale_d = 1.0
+        self.wgan_scale_d = 0.1
         self.wgan_scale_g = 0.1
-        self.wgan_frame_scale_d = 1.0
-        self.wgan_frame_scale_g = 0.1
-        self.rec_scale = 1.0e2
+        self.wgan_frame_scale_d = 1.0e2
+        self.wgan_frame_scale_g = 1.0e2
+        self.rec_scale = 10.0
         self.action_cond = config.action_cond
         self.action_scale_d = 1.0
         self.action_scale_g = 1.0
@@ -55,7 +55,7 @@ class _MotionGAN(object):
         self.latent_scale_d = 1.0
         self.latent_scale_g = 1.0
         self.shape_loss = config.shape_loss
-        self.shape_scale = 1.0e3
+        self.shape_scale = 10.0
         self.smoothing_loss = config.smoothing_loss
         self.smoothing_scale = 1.0
         self.smoothing_basis = 5
@@ -68,11 +68,11 @@ class _MotionGAN(object):
         self.rotation_loss = config.rotation_loss
         self.rotation_scale = 1.0
 
-        self.normalize_data = config.normalize_data
-
-        if self.normalize_data:
-            self.poses_mean = config.poses_mean
-            self.poses_std = config.poses_std
+        # self.normalize_data = config.normalize_data
+        #
+        # if self.normalize_data:
+        #     self.poses_mean = config.poses_mean
+        #     self.poses_std = config.poses_std
 
         # Placeholders for training phase
         self.place_holders = []
@@ -247,16 +247,17 @@ class _MotionGAN(object):
                 frame_gen_loss_wgan = -frame_loss_fake
                 gen_losses['frame_gen_loss_wgan'] = self.wgan_frame_scale_g * K.mean(frame_gen_loss_wgan)
 
-            if self.normalize_data:
-                def _unnormalize(x):
-                    with K.name_scope('unnormalize'):
-                        return (x * self.poses_std) + self.poses_mean
-                real_seq = _unnormalize(real_seq)
-                gen_seq = _unnormalize(gen_seq)
+            # if self.normalize_data:
+            #     def _unnormalize(x):
+            #         with K.name_scope('unnormalize'):
+            #             return (x * self.poses_std) + self.poses_mean
+            #     real_seq = _unnormalize(real_seq)
+            #     gen_seq = _unnormalize(gen_seq)
 
             # Reconstruction loss
             with K.name_scope('reconstruction_loss'):
-                loss_rec = K.sum(K.sqrt(K.sum(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1) + K.epsilon()), axis=(1, 2))
+                # loss_rec = K.sum(K.sqrt(K.sum(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1) + K.epsilon()), axis=(1, 2))
+                loss_rec = K.mean(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=(1, 2, 3))
                 gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
             # Optional losses

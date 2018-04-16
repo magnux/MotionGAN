@@ -153,11 +153,12 @@ class DataInput(object):
 
         if self.data_set == 'NTURGBD':
             pose = pose[:25, :, :]  # Warning: only taking first skeleton
+            pose *= 1000
         elif self.data_set == 'MSRC12':
-            pass
+            pose *= 1000
         elif self.data_set == 'Human36':
-            pose /= 1000
             pose = pose[self.used_joints, ...]
+            # pose /= 1000
 
         pose = np.transpose(pose, (0, 2, 1))
 

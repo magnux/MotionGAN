@@ -370,8 +370,6 @@ class _MotionGAN(object):
         with scope.name_scope('discriminator'):
 
             x = _get_tensor(input_tensors, 'real_seq')
-            if self.rescale_coords:
-                x = self._rescale_down(x)
 
         return x
 

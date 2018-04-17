@@ -9,9 +9,11 @@ from utils.restore_keras_model import restore_keras_model
 from tqdm import trange
 from utils.viz import plot_seq_gif, plot_seq_emb
 
-RAND_SEED=991*997
-np.random.seed(RAND_SEED)
-tf.set_random_seed(RAND_SEED)
+
+def _reset_rand_seed():
+    seed = 42
+    np.random.seed(seed)
+    tf.set_random_seed(seed)
 
 logging = tf.logging
 flags = tf.flags
@@ -21,6 +23,8 @@ flags.DEFINE_string("config_file", None, "Model config file")
 FLAGS = flags.FLAGS
 
 if __name__ == "__main__":
+    _reset_rand_seed()
+
     if not tf.gfile.Exists('./save'):
         tf.gfile.MkDir('./save')
 
@@ -28,6 +32,7 @@ if __name__ == "__main__":
     config = get_config(FLAGS)
 
     data_input = DataInput(config)
+    _reset_rand_seed()  # Creating data_input object might introduce some randomness
     train_batches = data_input.train_epoch_size
     train_generator = data_input.batch_generator(True)
     val_batches = data_input.val_epoch_size

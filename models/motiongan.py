@@ -43,10 +43,10 @@ class _MotionGAN(object):
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
-        self.wgan_scale_d = 0.1
+        self.wgan_scale_d = 1.0
         self.wgan_scale_g = 0.1 * (0.0 if config.no_gan_loss else 1.0)
-        self.wgan_frame_scale_d = 1.0e2
-        self.wgan_frame_scale_g = 1.0e2 * (0.0 if config.no_gan_loss else 1.0)
+        self.wgan_frame_scale_d = 1.0
+        self.wgan_frame_scale_g = 0.1 * (0.0 if config.no_gan_loss else 1.0)
         self.rec_scale = 1.0e-2
         self.action_cond = config.action_cond
         self.action_scale_d = 1.0

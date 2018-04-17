@@ -45,10 +45,6 @@ if __name__ == "__main__":
         config.only_val = True
         config.batch_size = batch_size
 
-        if config.normalize_data:
-            config.poses_mean = data_input.poses_mean
-            config.poses_std = data_input.poses_std
-
         # Model building
         if config.model_type == 'motiongan':
             if config.model_version == 'v1':
@@ -137,13 +133,21 @@ if __name__ == "__main__":
             labs_batch, poses_batch, hip_poses_batch, mask_batch, hip_mask_batch, gen_inputs = get_inputs()
 
             gen_outputs = []
-            for model_wrap in model_wraps:
+            for m, model_wrap in enumerate(model_wraps):
                 gen_outputs.append(model_wrap.gen_model.predict(gen_inputs, batch_size))
+
+                if configs[m].normalize_data:
+                    gen_outputs = data_input.unnormalize_poses(gen_outputs)
+
+                if configs[m].remove_hip:
+                    gen_outputs = np.concatenate([hip_poses_batch, gen_outputs + hip_poses_batch], axis=1)
 
             if configs[0].normalize_data:
                 poses_batch = data_input.unnormalize_poses(poses_batch)
-                for j in range(len(gen_outputs)):
-                    gen_outputs[j] = data_input.unnormalize_poses(gen_outputs[j])
+
+            if configs[0].remove_hip:
+                poses_batch = np.concatenate([hip_poses_batch, poses_batch + hip_poses_batch], axis=1)
+                mask_batch = np.concatenate([hip_mask_batch, mask_batch], axis=1)
 
             # rand_indices = np.random.permutation(batch_size)
 
@@ -197,6 +201,11 @@ if __name__ == "__main__":
                 if configs[m].normalize_data:
                     gen_outputs = data_input.unnormalize_poses(gen_outputs)
 
+                if configs[m].remove_hip:
+                    poses_batch = np.concatenate([hip_poses_batch, poses_batch + hip_poses_batch], axis=1)
+                    gen_outputs = np.concatenate([hip_poses_batch, gen_outputs + hip_poses_batch], axis=1)
+                    mask_batch = np.concatenate([hip_mask_batch, mask_batch], axis=1)
+
                 for j in range(batch_size):
                     seq_idx, subject, action, plen = labs_batch[j, ...]
 
@@ -248,11 +257,11 @@ if __name__ == "__main__":
                 p2ps[FLAGS.model_path[m] + '_p2p'] = 0
                 dms[FLAGS.model_path[m] + '_dm'] = 0
 
-            def rescale_batch(batch):
-                if configs[0].normalize_data:
-                    batch = data_input.unnormalize_poses(batch) * 1000
-                else:
-                    batch = batch * 1000
+            def unnormalize_batch(batch, hip_batch, m=0):
+                if configs[m].normalize_data:
+                    batch = data_input.unnormalize_poses(batch)
+                if configs[m].remove_hip:
+                    batch = np.concatenate([hip_batch, batch + hip_batch], axis=1)
                 return batch
 
             def p2pd(x, y):
@@ -269,7 +278,7 @@ if __name__ == "__main__":
 
                 labs_batch, poses_batch, hip_poses_batch, mask_batch, hip_mask_batch, gen_inputs = get_inputs()
 
-                re_poses_batch = rescale_batch(poses_batch)
+                re_poses_batch = unnormalize_batch(poses_batch, hip_poses_batch)
                 re_poses_batch_edm = edm(re_poses_batch)
 
                 for m, model_wrap in enumerate(model_wraps):
@@ -277,7 +286,7 @@ if __name__ == "__main__":
                     _, gen_acc = model_wrap_dmnn.model.evaluate(gen_outputs, labs_batch[:, 2], batch_size=batch_size, verbose=2)
                     accs[FLAGS.model_path[m] + '_acc'] += gen_acc
 
-                    gen_outputs = rescale_batch(gen_outputs)
+                    gen_outputs = unnormalize_batch(gen_outputs, hip_poses_batch, m)
                     p2ps[FLAGS.model_path[m] + '_p2p'] += p2pd(re_poses_batch, gen_outputs)
                     dms[FLAGS.model_path[m] + '_dm'] += np.mean(np.abs(re_poses_batch_edm - edm(gen_outputs)))
 
@@ -293,13 +302,13 @@ if __name__ == "__main__":
 
                 _, const_acc = model_wrap_dmnn.model.evaluate(constant_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
                 accs['const_acc'] += const_acc
-                constant_batch = rescale_batch(constant_batch)
+                constant_batch = unnormalize_batch(constant_batch, hip_poses_batch)
                 p2ps['const_p2p'] += p2pd(re_poses_batch, constant_batch)
                 dms['const_dm'] += np.mean(np.abs(re_poses_batch_edm - edm(constant_batch)))
 
                 _, burke_acc = model_wrap_dmnn.model.evaluate(burke_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
                 accs['burke_acc'] += burke_acc
-                burke_batch = rescale_batch(burke_batch)
+                burke_batch = unnormalize_batch(burke_batch, hip_poses_batch)
                 p2ps['burke_p2p'] += p2pd(re_poses_batch, burke_batch)
                 dms['burke_dm'] += np.mean(np.abs(re_poses_batch_edm - edm(burke_batch)))
 

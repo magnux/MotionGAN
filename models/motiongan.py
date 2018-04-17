@@ -352,6 +352,19 @@ class _MotionGAN(object):
                 [x, self.stats[scope+'height'], self.stats[scope+'start_pt']])
         return x
 
+    def _seq_to_diff(self, x):
+        if not hasattr(self, 'stats'):
+            self.stats = {}
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('diff'):
+            def _get_start(arg):
+                return K.reshape(arg[:, :, 0, :], (arg.shape[0], arg.shape[1], 1, 3))
+
+            self.stats[scope+'start_pt'] = Lambda(_get_start, name=scope+'start_pt')(x)
+
+            x = Lambda(lambda arg: arg[:, :, 1:, :] - arg[:, :, :-1, :], name=scope+'seq_to_diff')(x)
+        return x
+
     def _proc_disc_inputs(self, input_tensors):
         scope = Scoping.get_global_scope()
         with scope.name_scope('discriminator'):

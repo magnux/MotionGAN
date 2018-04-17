@@ -9,8 +9,9 @@ from utils.restore_keras_model import restore_keras_model
 from tqdm import trange
 from utils.viz import plot_seq_gif, plot_seq_emb
 
-np.random.seed(42)
-tf.set_random_seed(42)
+RAND_SEED=991*997
+np.random.seed(RAND_SEED)
+tf.set_random_seed(RAND_SEED)
 
 logging = tf.logging
 flags = tf.flags

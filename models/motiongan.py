@@ -55,7 +55,7 @@ class _MotionGAN(object):
         self.latent_scale_d = 1.0
         self.latent_scale_g = 1.0
         self.shape_loss = config.shape_loss
-        self.shape_scale = 1.0e2
+        self.shape_scale = 1.0e-2
         self.smoothing_loss = config.smoothing_loss
         self.smoothing_scale = 1.0
         self.smoothing_basis = 5
@@ -195,9 +195,9 @@ class _MotionGAN(object):
             real_seq = _get_tensor(self.disc_inputs, 'real_seq')
             seq_mask = _get_tensor(self.gen_inputs, 'seq_mask')
             gen_seq = self.gen_outputs[0]
-            zero_sum = K.sum(real_seq, axis=(1, 3))
-            zero_frames = K.cast(K.less_equal(K.abs(zero_sum), K.epsilon()), 'float32') + K.epsilon()
-            zero_frames_edm = K.reshape(zero_frames, (zero_frames.shape[0], 1, 1, zero_frames.shape[1]))
+
+            no_zero_frames = K.cast(K.greater_equal(K.abs(K.sum(real_seq, axis=(1, 3))), K.epsilon()), 'float32')
+            no_zero_frames_edm = K.reshape(no_zero_frames, (no_zero_frames.shape[0], 1, 1, no_zero_frames.shape[1]))
 
             # WGAN Basic losses
             with K.name_scope('wgan_loss'):
@@ -225,14 +225,14 @@ class _MotionGAN(object):
                 gen_losses['gen_loss_wgan'] = self.wgan_scale_g * K.mean(gen_loss_wgan)
 
             with K.name_scope('frame_wgan_loss'):
-                frame_loss_real = K.sum(K.squeeze(_get_tensor(self.real_outputs, 'frame_score_out'), axis=-1) * zero_frames, axis=1)
-                frame_loss_fake = K.sum(K.squeeze(_get_tensor(self.fake_outputs, 'frame_score_out'), axis=-1) * zero_frames, axis=1)
+                frame_loss_real = K.sum(K.squeeze(_get_tensor(self.real_outputs, 'frame_score_out'), axis=-1) * no_zero_frames, axis=1)
+                frame_loss_fake = K.sum(K.squeeze(_get_tensor(self.fake_outputs, 'frame_score_out'), axis=-1) * no_zero_frames, axis=1)
                 wgan_losses['frame_loss_real'] = K.mean(frame_loss_real)
                 wgan_losses['frame_loss_fake'] = K.mean(frame_loss_fake)
 
                 frame_inter_score = _get_tensor(inter_outputs, 'frame_score_out')
                 frame_grad_mixed = K.gradients(frame_inter_score, [interpolates])[0]
-                frame_norm_grad_mixed = K.sqrt(K.sum(K.sum(K.square(frame_grad_mixed), axis=(1, 3)) * zero_frames, axis=1))
+                frame_norm_grad_mixed = K.sqrt(K.sum(K.sum(K.square(frame_grad_mixed), axis=(1, 3)) * no_zero_frames, axis=1) + K.epsilon())
                 frame_grad_penalty = K.mean(K.square(frame_norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
 
                 # WGAN-GP losses
@@ -273,10 +273,10 @@ class _MotionGAN(object):
                             mask[member['joints'][j + 1], member['joints'][j]] = 1.0
                     mask = np.reshape(mask, (1, self.njoints, self.njoints, 1))
                     mask = K.constant(mask, dtype='float32')
-                    real_shape = K.sum(edm(real_seq) * zero_frames_edm, axis=-1, keepdims=True) \
-                                 / K.sum(zero_frames_edm, axis=-1, keepdims=True) * mask
-                    gen_shape = edm(gen_seq) * zero_frames_edm * mask
-                    loss_shape = K.mean(K.square(real_shape - gen_shape), axis=(1, 2, 3))
+                    real_shape = K.sum(edm(real_seq) * no_zero_frames_edm, axis=-1, keepdims=True) \
+                                 / K.sum(no_zero_frames_edm, axis=-1, keepdims=True) * mask
+                    gen_shape = edm(gen_seq) * no_zero_frames_edm * mask
+                    loss_shape = K.sum(K.square(real_shape - gen_shape), axis=(1, 2, 3))
                     gen_losses['gen_loss_shape'] = self.shape_scale * K.mean(loss_shape)
             if self.rotation_loss:
                 with K.name_scope('rotation_loss'):

@@ -34,6 +34,10 @@
     'use_pose_fae': False,
     # Disable GAN loss on the generator
     'no_gan_loss': False,
+    # Remove Hip, use hip relative coordinates
+    'remove_hip': False,
+    # Rescale coords, use boxed relative coordinates
+    'rescale_coords': False,
 
     ## DMNN Model Options
     'motiongan_save_path': None,

@@ -190,7 +190,7 @@ class Ax3DPose(object):
                 self.plots_mask[j][0].set_3d_properties(vals[j, 2])
 
         if not self.axes_set:
-            r = 1  # 500;
+            r = 1000;
             xroot, yroot, zroot = vals[0, 0], vals[0, 1], vals[0, 2]
             # xroot, yroot, zroot = 0, 0, vals[0, 2]
             self.ax.set_xlim3d([-r + xroot, r + xroot])
@@ -241,10 +241,7 @@ def plot_seq_gif(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pat
     obs = []
     for i in range(n_seqs):
         ax = fig.add_subplot(n_rows, n_cols, i + 1, projection='3d')
-        if data_set == 'Human36':
-            ax.view_init(elev=30, azim=-30)
-        else:
-            ax.view_init(elev=90, azim=-90)
+        ax.view_init(elev=30, azim=-30)
         ob = Ax3DPose(ax, data_set)
         axs.append(ax)
         obs.append(ob)
@@ -324,8 +321,7 @@ def plot_seq_pano(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pa
     obs = []
     for i in range(n_seqs):
         ax = fig.add_subplot(n_rows, n_cols, i + 1, projection='3d')
-        ax.view_init(elev=90, azim=-90)
-        # ax.view_init(elev=0, azim=90)
+        ax.view_init(elev=30, azim=-30)
         ob = Ax3DPose(ax, data_set)
         axs.append(ax)
         obs.append(ob)

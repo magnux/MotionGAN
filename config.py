@@ -98,11 +98,12 @@ def get_config(flags):
         config.body_members = new_body_members
 
     # Accounting for removal of hip
-    config.njoints -= 1
-    new_body_members = {}
-    for key, value in config.body_members.items():
-        new_body_members[key] = value.copy()
-        new_body_members[key]['joints'] = [j - 1 for j in new_body_members[key]['joints']]
-    config.body_members = new_body_members
+    if config.remove_hip:
+        config.njoints -= 1
+        new_body_members = {}
+        for key, value in config.body_members.items():
+            new_body_members[key] = value.copy()
+            new_body_members[key]['joints'] = [j - 1 for j in new_body_members[key]['joints']]
+        config.body_members = new_body_members
 
     return config

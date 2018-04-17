@@ -22,6 +22,7 @@ class DataInput(object):
         self.data_set_version = config.data_set_version
         self.normalize_data = config.normalize_data
         self.epoch_factor = config.epoch_factor
+        self.remove_hip = config.remove_hip
 
         if self.data_set == "Human36":
             self.used_joints = config.used_joints
@@ -92,7 +93,7 @@ class DataInput(object):
     def load_to_ram(self, is_training):
         len_keys = self.len_train_keys if is_training else self.len_val_keys
         labs = np.empty([len_keys, 4], dtype=np.int32)
-        poses = np.zeros([len_keys, self.pshape[0] + 1, self.max_plen, self.pshape[2]], dtype=np.float32)
+        poses = np.zeros([len_keys, self.pshape[0] + (1 if self.remove_hip else 0), self.max_plen, self.pshape[2]], dtype=np.float32)
         splitname = 'train' if is_training else 'val'
         print('Loading "%s" data to ram...' % splitname)
         t = trange(len_keys, dynamic_ncols=True)
@@ -104,8 +105,9 @@ class DataInput(object):
             poses[k, :, :plen, :] = pose
 
         hip_poses = poses[:, 0, np.newaxis, :, :]
-        poses = poses[:, 1:, :, :]
-        poses[..., :3] = poses[..., :3] - hip_poses[..., :3]
+        if self.remove_hip:
+            poses = poses[:, 1:, :, :]
+            poses[..., :3] = poses[..., :3] - hip_poses[..., :3]
 
         min_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '_poses_mean.npy')
         std_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '_poses_std.npy')
@@ -153,11 +155,14 @@ class DataInput(object):
 
         if self.data_set == 'NTURGBD':
             pose = pose[:25, :, :]  # Warning: only taking first skeleton
+            pose[:, :3, :] = pose[:, :3, :] * 1.0e3  # Rescale to mm
+            pose[:, 1, :], pose[:, 2, :] = pose[:, 2, :], pose[:, 1, :]  # Swapping Y-Z coords
         elif self.data_set == 'MSRC12':
-            pass
+            pose[:, :3, :] = pose[:, :3, :] * 1.0e3  # Rescale to mm
+            pose[:, 1, :], pose[:, 2, :] = pose[:, 2, :], pose[:, 1, :]  # Swapping Y-Z coords
         elif self.data_set == 'Human36':
             pose = pose[self.used_joints, ...]
-            pose[:, :3, :] = pose[:, :3, :] / 1.0e3
+            # pose[:, :3, :] = pose[:, :3, :] / 1.0e3 # Rescale to meters
 
         pose = np.transpose(pose, (0, 2, 1))
 

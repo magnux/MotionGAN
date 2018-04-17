@@ -8,7 +8,6 @@ from models.motiongan import MotionGANV1, MotionGANV2, MotionGANV3, MotionGANV4
 from utils.restore_keras_model import restore_keras_model
 from tqdm import trange
 from utils.viz import plot_seq_gif, plot_seq_emb
-from tensorflow.python.platform import tf_logging as logging
 
 np.random.seed(42)
 tf.set_random_seed(42)
@@ -57,10 +56,8 @@ if __name__ == "__main__":
         print(model_wrap.gan_model.summary())
 
     def save_models():
-        # logging.set_verbosity(50)  # Avoid warinings when saving
         model_wrap.disc_model.save(config.save_path + '_disc_weights.hdf5')
         model_wrap.gen_model.save(config.save_path + '_gen_weights.hdf5')
-        # logging.set_verbosity(30)
 
     if config.epoch > 0:
         model_wrap.disc_model = restore_keras_model(
@@ -229,10 +226,10 @@ if __name__ == "__main__":
                 if config.normalize_data:
                     poses_batch = data_input.unnormalize_poses(poses_batch)
                     gen_outputs = data_input.unnormalize_poses(gen_outputs)
-
-                poses_batch = np.concatenate([hip_poses_batch, poses_batch + hip_poses_batch], axis=1)
-                gen_outputs = np.concatenate([hip_poses_batch, gen_outputs + hip_poses_batch], axis=1)
-                mask_batch = np.concatenate([hip_mask_batch, mask_batch], axis=1)
+                if config.remove_hip:
+                    poses_batch = np.concatenate([hip_poses_batch, poses_batch + hip_poses_batch], axis=1)
+                    gen_outputs = np.concatenate([hip_poses_batch, gen_outputs + hip_poses_batch], axis=1)
+                    mask_batch = np.concatenate([hip_mask_batch, mask_batch], axis=1)
                 for i in range(10):  # config.batch_size
                     gif_name = '%s_tmp.gif' % config.save_path
                     gif_height, gif_width = plot_seq_gif(

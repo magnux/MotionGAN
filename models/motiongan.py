@@ -47,7 +47,7 @@ class _MotionGAN(object):
         self.wgan_scale_g = 0.1 * (0.0 if config.no_gan_loss else 1.0)
         self.wgan_frame_scale_d = 1.0e2
         self.wgan_frame_scale_g = 1.0e2 * (0.0 if config.no_gan_loss else 1.0)
-        self.rec_scale = 10.0
+        self.rec_scale = 1.0e-2
         self.action_cond = config.action_cond
         self.action_scale_d = 1.0
         self.action_scale_g = 1.0
@@ -55,7 +55,7 @@ class _MotionGAN(object):
         self.latent_scale_d = 1.0
         self.latent_scale_g = 1.0
         self.shape_loss = config.shape_loss
-        self.shape_scale = 10.0
+        self.shape_scale = 1.0e2
         self.smoothing_loss = config.smoothing_loss
         self.smoothing_scale = 1.0
         self.smoothing_basis = 5
@@ -67,6 +67,7 @@ class _MotionGAN(object):
         self.fae_latent_dim = self.fae_original_dim // 2
         self.rotation_loss = config.rotation_loss
         self.rotation_scale = 1.0
+        self.rescale_coords = config.rescale_coords
 
         # Placeholders for training phase
         self.place_holders = []
@@ -243,7 +244,7 @@ class _MotionGAN(object):
 
             # Reconstruction loss
             with K.name_scope('reconstruction_loss'):
-                loss_rec = K.mean(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=(1, 2, 3))
+                loss_rec = K.sum(K.sqrt(K.sum(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1) + K.epsilon()), axis=(1, 2))
                 gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
             # Optional losses
@@ -326,11 +327,38 @@ class _MotionGAN(object):
         model.metrics = None
         return model
 
+    def _rescale_down(self, x):
+        if not hasattr(self, 'stats'):
+            self.stats = {}
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('rescale'):
+            def _get_height(arg):
+                heights = K.max(arg[..., 2], axis=1, keepdims=True) - K.min(arg[..., 2], axis=1, keepdims=True)
+                return K.reshape(K.max(heights, axis=2, keepdims=True), (arg.shape[0], 1, 1, 1))
+            self.stats[scope+'height'] = Lambda(_get_height, name=scope+'height')(x)
+
+            def _get_start(arg):
+                return K.reshape(arg[:, 0, 0, :], (arg.shape[0], 1, 1, 3))
+            self.stats[scope+'start_pt'] = Lambda(_get_start, name=scope+'start_pt')(x)
+
+            x = Lambda(lambda args: (args[0] - args[2]) / args[1], name=scope+'rescale_down')(
+                       [x, self.stats[scope+'height'], self.stats[scope+'start_pt']])
+        return x
+
+    def _rescale_up(self, x):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('rescale'):
+            x = Lambda(lambda args: (args[0] * args[1]) + args[2], name=scope+'rescale_up')(
+                [x, self.stats[scope+'height'], self.stats[scope+'start_pt']])
+        return x
+
     def _proc_disc_inputs(self, input_tensors):
         scope = Scoping.get_global_scope()
         with scope.name_scope('discriminator'):
 
             x = _get_tensor(input_tensors, 'real_seq')
+            if self.rescale_coords:
+                x = self._rescale_down(x)
 
         return x
 
@@ -361,6 +389,8 @@ class _MotionGAN(object):
         with scope.name_scope('generator'):
 
             x = _get_tensor(input_tensors, 'real_seq')
+            if self.rescale_coords:
+                x = self._rescale_down(x)
             x_mask = _get_tensor(input_tensors, 'seq_mask')
             x = Multiply(name=scope+'mask_mult')([x, x_mask])
 
@@ -431,6 +461,9 @@ class _MotionGAN(object):
 
             if self.unfold:
                 x = FoldJoints(self.data_set)(x)
+
+            if self.rescale_coords:
+                x = self._rescale_up(x)
 
             output_tensors = [x]
 

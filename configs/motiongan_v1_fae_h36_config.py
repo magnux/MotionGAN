@@ -13,7 +13,7 @@
     # Final epoch
     'num_epochs': 200,
     # Multiplies length of epoch, useful for tiny datasets
-    'epoch_factor': 100,
+    'epoch_factor': 200,
     # How fast should we learn?
     'learning_rate': 1.0e-3,
     # Train using learning rate decay

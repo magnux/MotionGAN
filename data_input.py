@@ -58,10 +58,9 @@ class DataInput(object):
 
         if not self.only_val:
             self.train_batches = self.pre_comp_batches(True)
+            self.train_batches *= self.epoch_factor
+            self.train_epoch_size *= self.epoch_factor
         self.val_batches = self.pre_comp_batches(False)
-
-        self.train_epoch_size *= self.epoch_factor
-        self.train_batches *= self.epoch_factor
 
     def pre_comp_batches(self, is_training):
         epoch_size = self.train_epoch_size if is_training else self.val_epoch_size

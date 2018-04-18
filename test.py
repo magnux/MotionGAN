@@ -35,10 +35,6 @@ if __name__ == "__main__":
     tf.flags.DEFINE_string("config_file", None, None)
     tf.flags.DEFINE_string("save_path", None, None)
 
-    data_input = DataInput(configs[0])
-    val_batches = data_input.val_epoch_size
-    val_generator = data_input.batch_generator(False)
-
     for save_path in FLAGS.model_path:
         FLAGS.save_path = save_path
         config = get_config(FLAGS)
@@ -75,6 +71,10 @@ if __name__ == "__main__":
         model_wraps.append(model_wrap)
 
     # TODO: assert all configs are for the same dataset
+    # TODO: assert all configs have the same remove_hip
+    data_input = DataInput(configs[0])
+    val_batches = data_input.val_epoch_size
+    val_generator = data_input.batch_generator(False)
 
     if FLAGS.test_mode == "write_images":
         images_path = "%s_test_images_%s/" % \
@@ -202,9 +202,7 @@ if __name__ == "__main__":
                     gen_outputs = data_input.unnormalize_poses(gen_outputs)
 
                 if configs[m].remove_hip:
-                    poses_batch = np.concatenate([hip_poses_batch, poses_batch + hip_poses_batch], axis=1)
                     gen_outputs = np.concatenate([hip_poses_batch, gen_outputs + hip_poses_batch], axis=1)
-                    mask_batch = np.concatenate([hip_mask_batch, mask_batch], axis=1)
 
                 for j in range(batch_size):
                     seq_idx, subject, action, plen = labs_batch[j, ...]
@@ -235,16 +233,18 @@ if __name__ == "__main__":
             h5file.close()
 
     elif "dmnn_score" in FLAGS.test_mode:
-        FLAGS.save_path = FLAGS.dmnn_path
-        config = get_config(FLAGS)
-        config.batch_size = batch_size
 
-        # Model building
-        if config.model_type == 'dmnn':
-            if config.model_version == 'v1':
-                model_wrap_dmnn = DMNNv1(config)
+        if FLAGS.dmnn_path is not None:
+            FLAGS.save_path = FLAGS.dmnn_path
+            config = get_config(FLAGS)
+            config.batch_size = batch_size
 
-        model_wrap_dmnn.model = restore_keras_model(model_wrap_dmnn.model, config.save_path + '_weights.hdf5')
+            # Model building
+            if config.model_type == 'dmnn':
+                if config.model_version == 'v1':
+                    model_wrap_dmnn = DMNNv1(config)
+
+            model_wrap_dmnn.model = restore_keras_model(model_wrap_dmnn.model, config.save_path + '_weights.hdf5')
 
         def run_dmnn_score():
 
@@ -265,13 +265,13 @@ if __name__ == "__main__":
                 return batch
 
             def p2pd(x, y):
-                return np.mean(np.sqrt(np.sum(np.square(x - y), axis=-1) + 1e-8))
+                return np.mean(np.sqrt(np.sum(np.square(x - y), axis=-1)))
 
             def edm(x, y=None):
                 y = x if y is None else y
                 x = np.expand_dims(x, axis=1)
                 y = np.expand_dims(y, axis=2)
-                return np.sqrt(np.sum(np.square(x - y), axis=-1) + 1e-8)
+                return np.sqrt(np.sum(np.square(x - y), axis=-1))
 
             t = trange(val_batches)
             for i in t:
@@ -283,16 +283,17 @@ if __name__ == "__main__":
 
                 for m, model_wrap in enumerate(model_wraps):
                     gen_outputs = model_wrap.gen_model.predict(gen_inputs, batch_size)
-                    _, gen_acc = model_wrap_dmnn.model.evaluate(gen_outputs, labs_batch[:, 2], batch_size=batch_size, verbose=2)
-                    accs[FLAGS.model_path[m] + '_acc'] += gen_acc
+                    if FLAGS.dmnn_path is not None:
+                        _, gen_acc = model_wrap_dmnn.model.evaluate(gen_outputs, labs_batch[:, 2], batch_size=batch_size, verbose=2)
+                        accs[FLAGS.model_path[m] + '_acc'] += gen_acc
 
                     gen_outputs = unnormalize_batch(gen_outputs, hip_poses_batch, m)
                     p2ps[FLAGS.model_path[m] + '_p2p'] += p2pd(re_poses_batch, gen_outputs)
                     dms[FLAGS.model_path[m] + '_dm'] += np.mean(np.abs(re_poses_batch_edm - edm(gen_outputs)))
 
-
-                _, real_acc = model_wrap_dmnn.model.evaluate(poses_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
-                accs['real_acc'] += real_acc
+                if FLAGS.dmnn_path is not None:
+                    _, real_acc = model_wrap_dmnn.model.evaluate(poses_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
+                    accs['real_acc'] += real_acc
 
                 constant_batch = np.empty_like(poses_batch)
                 burke_batch = np.empty_like(poses_batch)
@@ -300,14 +301,18 @@ if __name__ == "__main__":
                     constant_batch[j, ...] = constant_baseline(poses_batch[j, ...], mask_batch[j, ...])
                     burke_batch[j, ...] = burke_baseline(poses_batch[j, ...], mask_batch[j, ...])
 
-                _, const_acc = model_wrap_dmnn.model.evaluate(constant_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
-                accs['const_acc'] += const_acc
+                if FLAGS.dmnn_path is not None:
+                    _, const_acc = model_wrap_dmnn.model.evaluate(constant_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
+                    accs['const_acc'] += const_acc
+
                 constant_batch = unnormalize_batch(constant_batch, hip_poses_batch)
                 p2ps['const_p2p'] += p2pd(re_poses_batch, constant_batch)
                 dms['const_dm'] += np.mean(np.abs(re_poses_batch_edm - edm(constant_batch)))
 
-                _, burke_acc = model_wrap_dmnn.model.evaluate(burke_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
-                accs['burke_acc'] += burke_acc
+                if FLAGS.dmnn_path is not None:
+                    _, burke_acc = model_wrap_dmnn.model.evaluate(burke_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
+                    accs['burke_acc'] += burke_acc
+
                 burke_batch = unnormalize_batch(burke_batch, hip_poses_batch)
                 p2ps['burke_p2p'] += p2pd(re_poses_batch, burke_batch)
                 dms['burke_dm'] += np.mean(np.abs(re_poses_batch_edm - edm(burke_batch)))
@@ -327,7 +332,7 @@ if __name__ == "__main__":
 
         if FLAGS.test_mode == "dmnn_score_table":
 
-            PROBS = [0.1, 0.2, 0.5, 0.8, 1.0]
+            PROBS = np.arange(0.0, 1.1, 0.1)
 
             for m in range(1, len(MASK_MODES)):
                 accs_table = np.zeros((len(PROBS), len(model_wraps) + 3))

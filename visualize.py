@@ -28,8 +28,7 @@ if __name__ == "__main__":
           (n_batches, n_splits, config.data_set))
     for b in range(n_batches):
 
-        labs_batch, poses_batch, hip_poses_batch = data_input.batch_generator(False).next()
-        poses_batch = np.concatenate([hip_poses_batch, poses_batch + hip_poses_batch], axis=1)
+        labs_batch, poses_batch = data_input.batch_generator(False).next()
 
         n_seqs = (config.batch_size // n_splits)
         for i in trange(n_splits):

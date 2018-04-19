@@ -15,6 +15,7 @@ from layers.edm import edm, EDM
 from layers.comb_matrix import CombMatrix
 from collections import OrderedDict
 from utils.scoping import Scoping
+from utils.tfangles import quaternion_between, quat2expmap, expmap2rotmat, rotmat2euler
 
 CONV1D_ARGS = {'padding': 'same', 'kernel_regularizer': l2(5e-4)}
 CONV2D_ARGS = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
@@ -67,6 +68,8 @@ class _MotionGAN(object):
         self.re_start = config.re_start
         self.rescale_coords = config.rescale_coords
         self.remove_hip = config.remove_hip
+        self.use_diff = config.use_diff
+        self.use_angles = config.use_angles
         self.stats = {}
 
         # Placeholders for training phase
@@ -330,9 +333,9 @@ class _MotionGAN(object):
     def _remove_hip_in(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('remove_hip'):
-            def _get_start(arg):
+            def _get_hips(arg):
                 return K.reshape(arg[:, 0, :, :], (arg.shape[0], 1, self.seq_len, 3))
-            self.stats[scope+'hip_coords'] = Lambda(_get_start, name=scope+'hip_coords')(x)
+            self.stats[scope+'hip_coords'] = Lambda(_get_hips, name=scope+'hip_coords')(x)
 
             x = Lambda(lambda args: (args[0] - args[1])[:, 1:, :, :], name=scope+'remove_hip_in')(
                 [x, self.stats[scope+'hip_coords']])
@@ -380,20 +383,69 @@ class _MotionGAN(object):
 
     def _seq_to_diff_in(self, x):
         scope = Scoping.get_global_scope()
-        with scope.name_scope('diff'):
+        with scope.name_scope('seq_to_diff'):
             def _get_start(arg):
                 return K.reshape(arg[:, :, 0, :], (arg.shape[0], arg.shape[1], 1, 3))
+            self.stats[scope+'start_pose'] = Lambda(_get_start, name=scope+'start_pose')(x)
 
-            self.stats[scope+'start_pt'] = Lambda(_get_start, name=scope+'start_pt')(x)
-
-            x = Lambda(lambda arg: arg[:, :, 1:, :] - arg[:, :, :-1, :], name=scope+'seq_to_diff')(x)
+            x = Lambda(lambda arg: arg[:, :, 1:, :] - arg[:, :, :-1, :], name=scope+'diff')(x)
         return x
 
     def _seq_to_diff_out(self, x):
         scope = Scoping.get_global_scope()
-        # with scope.name_scope('diff'):
+        # with scope.name_scope('seq_to_diff'):
             #TODO: implement this
             # x = Lambda(lambda arg: arg[:, :, 1:, :] - arg[:, :, :-1, :], name=scope+'seq_to_diff')(x)
+        return x
+
+    def _seq_to_angles_in(self, x):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('seq_to_angles'):
+            def _get_hips(arg):
+                return K.reshape(arg[:, 0, :, :], (arg.shape[0], 1, self.seq_len, 3))
+            self.stats[scope+'hip_coords'] = Lambda(_get_hips, name=scope+'hip_coords')(x)
+
+            members_from = []
+            members_to = []
+            for member in self.body_members.values():
+                for j in range(len(member['joints']) - 1):
+                    members_from.append(member['joints'][j])
+                    members_to(member['joints'][j + 1])
+
+            def _get_bone_len(arg):
+                return arg[:, members_from, 0, :] - arg[:, members_to, 0, :]
+            self.stats[scope+'bone_len'] = Lambda(_get_bone_len, name=scope+'bone_len')(x)
+
+            def _get_angles(arg):
+                return quat2expmap(quaternion_between(arg[:, members_from, :, :], arg[:, members_to, :, :]))
+
+            x = Lambda(_get_angles, name=scope+'angles')(x)
+        return x
+
+    def _seq_to_angles_out(self, x):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('seq_to_angles'):
+
+            x = Lambda(lambda arg: expmap2rotmat(arg), name=scope+'rotmat')(x)
+            self.euler_out = Lambda(lambda arg: rotmat2euler(arg), name=scope+'euler')(x)
+
+            members_from = []
+            members_to = []
+
+            self.body_members['left_arm']['joints'][1]
+            self.body_members['right_arm']['joints'][1]
+            self.body_members['torso']['joints'][0]
+
+            for member in self.body_members.values():
+                for j in range(len(member['joints']) - 1):
+                    members_from.append(member['joints'][j])
+                    members_to(member['joints'][j + 1])
+
+            def _get_coords(arg):
+                return arg
+            
+            x = Lambda(_get_coords, name=scope+'rotmat')(x)
+            x = Lambda(lambda args: args[0] + args[1], name=scope+'add_hip_coords')([x, self.stats[scope+'hip_coords']])
         return x
 
     def _proc_disc_inputs(self, input_tensors):

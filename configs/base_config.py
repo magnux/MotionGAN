@@ -40,6 +40,10 @@
     'rescale_coords': False,
     # Restart sequence, restart sequence start to 0,0,0
     're_start': False,
+    # Transform euclidean coordinates input to differences
+    'use_diff': False,
+    # Transform euclidean coordinates input to angles in exponential maps
+    'use_angles': False,
 
     ## DMNN Model Options
     'motiongan_save_path': None,

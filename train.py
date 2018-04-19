@@ -127,7 +127,7 @@ if __name__ == "__main__":
                 loss_real = 0.0
                 loss_fake = 0.0
                 for disc_batch in range(disc_batches):
-                    labs_batch, poses_batch, _ = train_generator.next()
+                    labs_batch, poses_batch = train_generator.next()
 
                     mask_batch = poses_batch[..., 3, np.newaxis]
                     mask_batch = mask_batch * gen_mask(np.random.randint(5), keep_prob)
@@ -152,7 +152,7 @@ if __name__ == "__main__":
                 for key in disc_losses.keys():
                     disc_losses[key] /= disc_batches
 
-                labs_batch, poses_batch, _ = train_generator.next()
+                labs_batch, poses_batch = train_generator.next()
 
                 mask_batch = poses_batch[..., 3, np.newaxis]
                 mask_batch = mask_batch * gen_mask(np.random.randint(5), keep_prob)
@@ -197,14 +197,12 @@ if __name__ == "__main__":
                 config.batch = 0
                 continue
 
-            labs_batch, poses_batch, hip_poses_batch = val_generator.next()
+            labs_batch, poses_batch = val_generator.next()
 
             mask_batch = poses_batch[..., 3, np.newaxis]
             mask_mode = np.random.randint(5)
             mask_batch = mask_batch * gen_mask(mask_mode, keep_prob)
             poses_batch = poses_batch[..., :3]
-            hip_mask_batch = hip_poses_batch[..., 3, np.newaxis]
-            hip_poses_batch = hip_poses_batch[..., :3]
 
             disc_inputs = [poses_batch]
             gen_inputs = [poses_batch, mask_batch]
@@ -228,10 +226,6 @@ if __name__ == "__main__":
                 if config.normalize_data:
                     poses_batch = data_input.unnormalize_poses(poses_batch)
                     gen_outputs = data_input.unnormalize_poses(gen_outputs)
-                if config.remove_hip:
-                    poses_batch = np.concatenate([hip_poses_batch, poses_batch + hip_poses_batch], axis=1)
-                    gen_outputs = np.concatenate([hip_poses_batch, gen_outputs + hip_poses_batch], axis=1)
-                    mask_batch = np.concatenate([hip_mask_batch, mask_batch], axis=1)
                 for i in range(10):  # config.batch_size
                     gif_name = '%s_tmp.gif' % config.save_path
                     gif_height, gif_width = plot_seq_gif(

@@ -67,6 +67,7 @@ class _MotionGAN(object):
         self.fae_latent_dim = self.fae_original_dim // 2
         self.rotation_loss = config.rotation_loss
         self.rotation_scale = 1.0
+        self.remove_hip = config.remove_hip
         self.rescale_coords = config.rescale_coords
 
         # Placeholders for training phase

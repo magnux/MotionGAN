@@ -36,8 +36,10 @@
     'no_gan_loss': False,
     # Remove Hip, use hip relative coordinates
     'remove_hip': False,
-    # Rescale coords, use boxed relative coordinates
+    # Rescale coords using skeleton height
     'rescale_coords': False,
+    # Restart sequence, restart sequence start to 0,0,0
+    're_start': False,
 
     ## DMNN Model Options
     'motiongan_save_path': None,

@@ -58,7 +58,7 @@ def get_config(flags):
             'left_arm': {'joints': [20, 8, 9, 10, 11, 23, 11, 24], 'side': 'left'},
             'right_arm': {'joints': [20, 4, 5, 6, 7, 21, 7, 22], 'side': 'right'},
             'head': {'joints': [20, 2, 3], 'side': 'right'},
-            'torso': {'joints': [20, 1, 0], 'side': 'right'},
+            'torso': {'joints': [0, 1, 20], 'side': 'right'},
             'left_leg': {'joints': [0, 16, 17, 18, 19], 'side': 'left'},
             'right_leg': {'joints': [0, 12, 13, 14, 15], 'side': 'right'},
         }
@@ -71,7 +71,7 @@ def get_config(flags):
             'left_arm': {'joints': [2, 4, 5, 6, 7], 'side': 'left'},
             'right_arm': {'joints': [2, 8, 9, 10, 11], 'side': 'right'},
             'head': {'joints': [1, 2, 3], 'side': 'right'},
-            'torso': {'joints': [1, 0], 'side': 'right'},
+            'torso': {'joints': [0, 1], 'side': 'right'},
             'left_leg': {'joints': [0, 12, 13, 14, 15], 'side': 'left'},
             'right_leg': {'joints': [0, 16, 17, 18, 19], 'side': 'right'},
         }
@@ -84,7 +84,7 @@ def get_config(flags):
         config.body_members = {
             'left_arm': {'joints': [13, 17, 18, 19], 'side': 'left'},
             'right_arm': {'joints': [13, 25, 26, 27], 'side': 'right'},
-            'head': {'joints': [15, 14, 13], 'side': 'right'},
+            'head': {'joints': [13, 14, 15], 'side': 'right'},
             'torso': {'joints': [0, 12, 13], 'side': 'right'},
             'left_leg': {'joints': [0, 6, 7, 8], 'side': 'left'},
             'right_leg': {'joints': [0, 1, 2, 3], 'side': 'right'},

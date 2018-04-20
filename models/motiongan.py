@@ -1,4 +1,5 @@
 from __future__ import absolute_import, division, print_function
+import tensorflow as tf
 import numpy as np
 import tensorflow.contrib.keras.api.keras.backend as K
 from scipy.fftpack import idct
@@ -15,7 +16,8 @@ from layers.edm import edm, EDM
 from layers.comb_matrix import CombMatrix
 from collections import OrderedDict
 from utils.scoping import Scoping
-from utils.tfangles import quaternion_between, quat2expmap, expmap2rotmat, rotmat2euler
+from utils.tfangles import quaternion_between, quat_to_expmap, expmap_to_rotmat, rotmat_to_euler, \
+    vector3d_to_quaternion, quaternion_conjugate, rotate_vector_by_quaternion
 
 CONV1D_ARGS = {'padding': 'same', 'kernel_regularizer': l2(5e-4)}
 CONV2D_ARGS = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
@@ -65,7 +67,8 @@ class _MotionGAN(object):
         self.fae_latent_dim = self.fae_original_dim // 2
         self.rotation_loss = config.rotation_loss
         self.rotation_scale = 1.0
-        self.re_start = config.re_start
+        self.translate_start = config.translate_start
+        self.rotate_start = config.rotate_start
         self.rescale_coords = config.rescale_coords
         self.remove_hip = config.remove_hip
         self.use_diff = config.use_diff
@@ -142,6 +145,7 @@ class _MotionGAN(object):
             gen_f_outs = self.gen_losses.values()
             if self.use_pose_fae:
                 gen_f_outs.append(self.fae_z)
+            # gen_f_outs.append(self.aux_out)
             gen_f_outs += self.gen_outputs
             self.gen_eval_f = K.function(self.gen_inputs + self.place_holders, gen_f_outs)
 
@@ -179,6 +183,7 @@ class _MotionGAN(object):
         keys = ['val/%s' % key for key in keys]
         if self.use_pose_fae:
             keys.append('fae_z')
+        # keys.append('aux_out')
         keys.append('gen_outputs')
         losses_dict = OrderedDict(zip(keys, eval_outs))
         return losses_dict
@@ -348,37 +353,84 @@ class _MotionGAN(object):
                 [x, self.stats[scope+'hip_coords']])
         return x
 
-    def _re_start_in(self, x):
+    def _translate_start_in(self, x):
         scope = Scoping.get_global_scope()
-        with scope.name_scope('re_start'):
+        with scope.name_scope('translate_start'):
             def _get_start(arg):
                 return K.reshape(arg[:, 0, 0, :], (arg.shape[0], 1, 1, 3))
             self.stats[scope+'start_pt'] = Lambda(_get_start, name=scope+'start_pt')(x)
 
-            x = Lambda(lambda args: args[0] - args[1], name=scope+'re_start_in')([x, self.stats[scope+'start_pt']])
+            x = Lambda(lambda args: args[0] - args[1], name=scope+'translate_start_in')([x, self.stats[scope+'start_pt']])
         return x
 
-    def _re_start_out(self, x):
+    def _translate_start_out(self, x):
         scope = Scoping.get_global_scope()
-        with scope.name_scope('re_start'):
-            x = Lambda(lambda args: args[0] + args[1], name=scope+'re_start_out')([x, self.stats[scope+'start_pt']])
+        with scope.name_scope('translate_start'):
+            x = Lambda(lambda args: args[0] + args[1], name=scope+'translate_start_out')([x, self.stats[scope+'start_pt']])
+        return x
+
+    def _rotate_start_in(self, x):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('rotate_start'):
+
+            left_shoulder = self.body_members['left_arm']['joints'][1]
+            right_shoulder = self.body_members['right_arm']['joints'][1]
+            hip = self.body_members['torso']['joints'][0]
+            head_top = self.body_members['head']['joints'][-1]
+
+            base_shape = [int(d) for d in x.shape]
+            base_shape[1] = 1
+            base_shape[2] = 1
+
+            def _get_rotation(arg):
+                torso_rot = tf.cross(arg[:, left_shoulder, 0, :] - arg[:, hip, 0, :],
+                                     arg[:, right_shoulder, 0, :] - arg[:, hip, 0, :])
+                side_rot = K.reshape(tf.cross(arg[:, head_top, 0, :] - arg[:, hip, 0, :], torso_rot), base_shape)
+                theta_diff = ((np.pi / 2) - tf.atan2(side_rot[..., 1], side_rot[..., 0])) / 2
+                cos_theta_diff = tf.cos(theta_diff)
+                sin_theta_diff = tf.sin(theta_diff)
+                zeros_theta = K.zeros_like(sin_theta_diff)
+                return tf.stack([cos_theta_diff, zeros_theta, zeros_theta, sin_theta_diff], axis=-1)
+            self.stats[scope+'start_rotation'] = Lambda(_get_rotation, name=scope+'start_rotation')(x)
+
+            x = Lambda(lambda args: rotate_vector_by_quaternion(args[1], args[0]),
+                       name=scope+'rotate_start_in')([x, self.stats[scope+'start_rotation']])
+        return x
+
+    def _rotate_start_out(self, x):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('rotate_start'):
+            x = Lambda(lambda args: rotate_vector_by_quaternion(quaternion_conjugate(args[1]), args[0]),
+                       name=scope+'rotate_start_out')([x, self.stats[scope+'start_rotation']])
         return x
 
     def _rescale_in(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('rescale'):
-            def _get_height(arg):
-                heights = K.max(arg[..., 2], axis=1, keepdims=True) - K.min(arg[..., 2], axis=1, keepdims=True)
-                return K.reshape(K.max(heights, axis=2, keepdims=True), (arg.shape[0], 1, 1, 1))
-            self.stats[scope+'height'] = Lambda(_get_height, name=scope+'height')(x)
+            members_from = []
+            members_to = []
+            for member in self.body_members.values():
+                for j in range(len(member['joints']) - 1):
+                    members_from.append(member['joints'][j])
+                    members_to.append(member['joints'][j + 1])
 
-            x = Lambda(lambda args: args[0] / args[1], name=scope+'rescale_in')([x, self.stats[scope+'height']])
+            def _len(bone):
+                return K.sqrt(K.sum(K.square(bone), axis=-1, keepdims=True) + K.epsilon())
+
+            def _get_avg_bone_len(arg):
+                bones = [arg[:, i, 0, :] - arg[:, j, 0, :] for i, j in zip(members_from, members_to)]
+                bones = K.expand_dims(K.stack(bones, axis=1), axis=2)
+                return K.mean(_len(bones), axis=1, keepdims=True)
+
+            self.stats[scope+'bone_len'] = Lambda(_get_avg_bone_len, name=scope+'bone_len')(x)
+
+            x = Lambda(lambda args: args[0] / args[1], name=scope+'rescale_in')([x, self.stats[scope+'bone_len']])
         return x
 
     def _rescale_out(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('rescale'):
-            x = Lambda(lambda args: args[0] * args[1], name=scope+'rescale_out')([x, self.stats[scope+'height']])
+            x = Lambda(lambda args: args[0] * args[1], name=scope+'rescale_out')([x, self.stats[scope+'bone_len']])
         return x
 
     def _seq_to_diff_in(self, x):
@@ -405,19 +457,20 @@ class _MotionGAN(object):
                 return K.reshape(arg[:, 0, :, :], (arg.shape[0], 1, self.seq_len, 3))
             self.stats[scope+'hip_coords'] = Lambda(_get_hips, name=scope+'hip_coords')(x)
 
+            # TODO: angles are not computed correctly
             members_from = []
             members_to = []
             for member in self.body_members.values():
                 for j in range(len(member['joints']) - 1):
                     members_from.append(member['joints'][j])
-                    members_to(member['joints'][j + 1])
+                    members_to.append(member['joints'][j + 1])
 
             def _get_bone_len(arg):
                 return arg[:, members_from, 0, :] - arg[:, members_to, 0, :]
             self.stats[scope+'bone_len'] = Lambda(_get_bone_len, name=scope+'bone_len')(x)
 
             def _get_angles(arg):
-                return quat2expmap(quaternion_between(arg[:, members_from, :, :], arg[:, members_to, :, :]))
+                return quat_to_expmap(quaternion_between(arg[:, members_from, :, :], arg[:, members_to, :, :]))
 
             x = Lambda(_get_angles, name=scope+'angles')(x)
         return x
@@ -426,25 +479,57 @@ class _MotionGAN(object):
         scope = Scoping.get_global_scope()
         with scope.name_scope('seq_to_angles'):
 
-            x = Lambda(lambda arg: expmap2rotmat(arg), name=scope+'rotmat')(x)
-            self.euler_out = Lambda(lambda arg: rotmat2euler(arg), name=scope+'euler')(x)
+            x = Lambda(lambda arg: expmap_to_rotmat(arg), name=scope+'rotmat')(x)
+            self.euler_out = Lambda(lambda arg: rotmat_to_euler(arg), name=scope+'euler')(x)
 
             members_from = []
             members_to = []
-
-            self.body_members['left_arm']['joints'][1]
-            self.body_members['right_arm']['joints'][1]
-            self.body_members['torso']['joints'][0]
-
             for member in self.body_members.values():
                 for j in range(len(member['joints']) - 1):
                     members_from.append(member['joints'][j])
-                    members_to(member['joints'][j + 1])
+                    members_to.append(member['joints'][j + 1])
 
-            def _get_coords(arg):
-                return arg
-            
-            x = Lambda(_get_coords, name=scope+'rotmat')(x)
+
+            members_lst = zip(members_from, members_to)
+
+            graph = {name: set() for tup in members_lst for name in tup}
+            has_parent = {name: False for tup in members_lst for name in tup}
+            for parent, child in members_lst:
+                graph[parent].add(child)
+                has_parent[child] = True
+
+            # roots = [name for name, parents in has_parent.items() if not parents]  # assuming 0 (hip)
+            #
+            # def traverse(hierarchy, graph, names):
+            #     for name in names:
+            #         hierarchy[name] = traverse({}, graph, graph[name])
+            #     return hierarchy
+            # traverse({}, graph, roots)
+
+            base_shape = [int(d) for d in x.shape]
+            base_shape[1] = 1
+            base_shape[-1] = 1
+
+            def _get_coords(args):
+                rot_mat, bone_len = args
+                coords = range(self.njoints)
+
+                def _set_coords(parent_idx, idx):
+                    if parent_idx is None:
+                        coords[idx] = K.zeros(base_shape)
+                    else:
+                        coords[idx] = coords[parent_idx]  # + rotation dot bonelen
+                        # this rotation dot parent rotation
+                        # TODO: implement forward kinematics once the angles are correctly computed
+
+                    for child_idx in graph[idx]:
+                        _set_coords(coords[idx], child_idx)
+
+                coords = K.stack(coords, axis=1)
+                coords = K.squeeze(coords, axis=-1)
+                return coords
+
+            x = Lambda(_get_coords, name=scope+'coords')([x, self.stats[scope+'bone_len']])
             x = Lambda(lambda args: args[0] + args[1], name=scope+'add_hip_coords')([x, self.stats[scope+'hip_coords']])
         return x
 
@@ -454,8 +539,10 @@ class _MotionGAN(object):
 
             x = _get_tensor(input_tensors, 'real_seq')
 
-            if self.re_start:
-                x = self._re_start_in(x)
+            if self.translate_start:
+                x = self._translate_start_in(x)
+            if self.rotate_start:
+                x = self._rotate_start_in(x)
             if self.rescale_coords:
                 x = self._rescale_in(x)
             if self.remove_hip:
@@ -491,8 +578,12 @@ class _MotionGAN(object):
 
             x = _get_tensor(input_tensors, 'real_seq')
 
-            if self.re_start:
-                x = self._re_start_in(x)
+            if self.translate_start:
+                x = self._translate_start_in(x)
+            if self.rotate_start:
+                x = self._rotate_start_in(x)
+                # self.aux_out = x
+                # self.aux_out = self._rotate_start_out(x)
             if self.rescale_coords:
                 x = self._rescale_in(x)
             if self.remove_hip:
@@ -566,8 +657,10 @@ class _MotionGAN(object):
                 x = self._remove_hip_out(x)
             if self.rescale_coords:
                 x = self._rescale_out(x)
-            if self.re_start:
-                x = self._re_start_out(x)
+            if self.rotate_start:
+                x = self._rotate_start_out(x)
+            if self.translate_start:
+                x = self._translate_start_out(x)
 
             output_tensors = [x]
 

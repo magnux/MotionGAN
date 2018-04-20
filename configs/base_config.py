@@ -36,10 +36,12 @@
     'no_gan_loss': False,
     # Remove Hip, use hip relative coordinates
     'remove_hip': False,
-    # Rescale coords using skeleton height
-    'rescale_coords': False,
-    # Restart sequence, restart sequence start to 0,0,0
-    're_start': False,
+    # Rescale coords using skeleton average bone len
+    'rescale_coords': True,
+    # Translate sequence starting point to 0,0,0
+    'translate_start': True,
+    # Rotate sequence starting point
+    'rotate_start': True,
     # Transform euclidean coordinates input to differences
     'use_diff': False,
     # Transform euclidean coordinates input to angles in exponential maps

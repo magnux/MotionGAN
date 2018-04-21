@@ -335,28 +335,23 @@ class _MotionGAN(object):
         model.metrics = None
         return model
 
-    def _remove_hip_in(self, x, x_mask=None):
+    def _remove_hip_in(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('remove_hip'):
 
             def _get_hips(arg):
-                return K.reshape(arg[:, 0, :, :], (self.batch_size, 1, self.seq_len, 3))
+                return K.reshape(arg[:, 0, :, :], (arg.shape[0], 1, arg.shape[2], 3))
 
             self.stats[scope+'hip_coords'] = Lambda(_get_hips, name=scope+'hip_coords')(x)
 
-            x = Lambda(lambda args: (args[0] - args[1])[:, 1:, :, :],
-                       name=scope+'remove_hip_in')([x, self.stats[scope+'hip_coords']])
-
-            if x_mask is not None:
-                x_mask = Lambda(lambda arg: arg[:, 1:, :, :], name=scope+'remove_hip_mask_in')(x_mask)
-        return x, x_mask
+            x = Lambda(lambda args: args[0] - args[1], name=scope+'remove_hip_in')([x, self.stats[scope+'hip_coords']])
+        return x
 
     def _remove_hip_out(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('remove_hip'):
 
-            x = Lambda(lambda args: K.concatenate([args[1], args[0] + args[1]], axis=1),
-                       name=scope+'remove_hip_out')([x, self.stats[scope+'hip_coords']])
+            x = Lambda(lambda args: args[0] + args[1], name=scope+'remove_hip_out')([x, self.stats[scope+'hip_coords']])
         return x
 
     def _translate_start_in(self, x):
@@ -569,7 +564,7 @@ class _MotionGAN(object):
             if self.rescale_coords:
                 x = self._rescale_in(x)
             if self.remove_hip:
-                x, _ = self._remove_hip_in(x)
+                x = self._remove_hip_in(x)
             if self.use_diff:
                 x, _ = self._seq_to_diff_in(x)
 
@@ -613,7 +608,7 @@ class _MotionGAN(object):
             if self.rescale_coords:
                 x = self._rescale_in(x)
             if self.remove_hip:
-                x, x_mask = self._remove_hip_in(x, x_mask)
+                x = self._remove_hip_in(x)
             if self.use_diff:
                 x, x_mask = self._seq_to_diff_in(x, x_mask)
 

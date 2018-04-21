@@ -346,9 +346,9 @@ class _MotionGAN(object):
 
             x = Lambda(lambda args: (args[0] - args[1])[:, 1:, :, :],
                        name=scope+'remove_hip_in')([x, self.stats[scope+'hip_coords']])
-            
+
             if x_mask is not None:
-                x = Lambda(lambda arg: arg[:, 1:, :, :], name=scope+'remove_hip_mask_in')(x_mask)
+                x_mask = Lambda(lambda arg: arg[:, 1:, :, :], name=scope+'remove_hip_mask_in')(x_mask)
         return x, x_mask
 
     def _remove_hip_out(self, x):

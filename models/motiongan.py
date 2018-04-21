@@ -252,7 +252,7 @@ class _MotionGAN(object):
 
             # Reconstruction loss
             with K.name_scope('reconstruction_loss'):
-                loss_rec = K.sum(K.sqrt(K.sum(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1) + K.epsilon()), axis=(1, 2))
+                loss_rec = K.sum(K.mean(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1), axis=(1, 2))
                 gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
             # Optional losses
@@ -338,26 +338,31 @@ class _MotionGAN(object):
     def _remove_hip_in(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('remove_hip'):
+
             def _get_hips(arg):
                 return K.reshape(arg[:, 0, :, :], (arg.shape[0], 1, self.seq_len, 3))
+
             self.stats[scope+'hip_coords'] = Lambda(_get_hips, name=scope+'hip_coords')(x)
 
-            x = Lambda(lambda args: (args[0] - args[1])[:, 1:, :, :], name=scope+'remove_hip_in')(
-                [x, self.stats[scope+'hip_coords']])
+            x = Lambda(lambda args: (args[0] - args[1])[:, 1:, :, :],
+                       name=scope+'remove_hip_in')([x, self.stats[scope+'hip_coords']])
         return x
 
     def _remove_hip_out(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('remove_hip'):
-            x = Lambda(lambda args: K.concatenate([args[1], args[0] + args[1]], axis=1), name=scope+'remove_hip_out')(
-                [x, self.stats[scope+'hip_coords']])
+
+            x = Lambda(lambda args: K.concatenate([args[1], args[0] + args[1]], axis=1),
+                       name=scope+'remove_hip_out')([x, self.stats[scope+'hip_coords']])
         return x
 
     def _translate_start_in(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('translate_start'):
+
             def _get_start(arg):
                 return K.reshape(arg[:, 0, 0, :], (arg.shape[0], 1, 1, 3))
+
             self.stats[scope+'start_pt'] = Lambda(_get_start, name=scope+'start_pt')(x)
 
             x = Lambda(lambda args: args[0] - args[1], name=scope+'translate_start_in')([x, self.stats[scope+'start_pt']])
@@ -366,6 +371,7 @@ class _MotionGAN(object):
     def _translate_start_out(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('translate_start'):
+
             x = Lambda(lambda args: args[0] + args[1], name=scope+'translate_start_out')([x, self.stats[scope+'start_pt']])
         return x
 
@@ -391,6 +397,7 @@ class _MotionGAN(object):
                 sin_theta_diff = tf.sin(theta_diff)
                 zeros_theta = K.zeros_like(sin_theta_diff)
                 return tf.stack([cos_theta_diff, zeros_theta, zeros_theta, sin_theta_diff], axis=-1)
+
             self.stats[scope+'start_rotation'] = Lambda(_get_rotation, name=scope+'start_rotation')(x)
 
             x = Lambda(lambda args: rotate_vector_by_quaternion(args[1], args[0]),
@@ -400,6 +407,7 @@ class _MotionGAN(object):
     def _rotate_start_out(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('rotate_start'):
+
             x = Lambda(lambda args: rotate_vector_by_quaternion(quaternion_conjugate(args[1]), args[0]),
                        name=scope+'rotate_start_out')([x, self.stats[scope+'start_rotation']])
         return x
@@ -407,6 +415,7 @@ class _MotionGAN(object):
     def _rescale_in(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('rescale'):
+
             members_from = []
             members_to = []
             for member in self.body_members.values():
@@ -430,29 +439,40 @@ class _MotionGAN(object):
     def _rescale_out(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('rescale'):
+
             x = Lambda(lambda args: args[0] * args[1], name=scope+'rescale_out')([x, self.stats[scope+'bone_len']])
         return x
 
-    def _seq_to_diff_in(self, x):
+    def _seq_to_diff_in(self, x, x_mask=None):
         scope = Scoping.get_global_scope()
         with scope.name_scope('seq_to_diff'):
-            def _get_start(arg):
-                return K.reshape(arg[:, :, 0, :], (arg.shape[0], arg.shape[1], 1, 3))
-            self.stats[scope+'start_pose'] = Lambda(_get_start, name=scope+'start_pose')(x)
 
-            x = Lambda(lambda arg: arg[:, :, 1:, :] - arg[:, :, :-1, :], name=scope+'diff')(x)
-        return x
+            self.stats[scope+'start_pose'] = Lambda(lambda arg: arg[:, :, 0, :], name=scope+'start_pose')(x)
+
+            x = Lambda(lambda arg: arg[:, :, 1:, :] - arg[:, :, :-1, :], name=scope+'seq_to_diff_in')(x)
+
+            if x_mask is not None:
+                x_mask = Lambda(lambda arg: arg[:, :, 1:, :] * arg[:, :, :-1, :], name=scope + 'seq_mask_to_diff_in')(x_mask)
+        return x, x_mask
 
     def _seq_to_diff_out(self, x):
         scope = Scoping.get_global_scope()
-        # with scope.name_scope('seq_to_diff'):
-            #TODO: implement this
-            # x = Lambda(lambda arg: arg[:, :, 1:, :] - arg[:, :, :-1, :], name=scope+'seq_to_diff')(x)
+        with scope.name_scope('seq_to_diff'):
+
+            def _diff_to_seq(args):
+                diffs, start_pose = args
+                poses = [start_pose]
+                for p in range(diffs.shape[2]):
+                    poses.append(poses[p] + diffs[:, :, p, :])
+                return tf.stack(poses, axis=2)
+
+            x = Lambda(_diff_to_seq, name=scope+'seq_to_diff_out')([x, self.stats[scope+'start_pose']])
         return x
 
     def _seq_to_angles_in(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('seq_to_angles'):
+
             def _get_hips(arg):
                 return K.reshape(arg[:, 0, :, :], (arg.shape[0], 1, self.seq_len, 3))
             self.stats[scope+'hip_coords'] = Lambda(_get_hips, name=scope+'hip_coords')(x)
@@ -547,6 +567,8 @@ class _MotionGAN(object):
                 x = self._rescale_in(x)
             if self.remove_hip:
                 x = self._remove_hip_in(x)
+            if self.use_diff:
+                x, _ = self._seq_to_diff_in(x)
 
         return x
 
@@ -577,6 +599,7 @@ class _MotionGAN(object):
         with scope.name_scope('generator'):
 
             x = _get_tensor(input_tensors, 'real_seq')
+            x_mask = _get_tensor(input_tensors, 'seq_mask')
 
             if self.translate_start:
                 x = self._translate_start_in(x)
@@ -588,17 +611,17 @@ class _MotionGAN(object):
                 x = self._rescale_in(x)
             if self.remove_hip:
                 x = self._remove_hip_in(x)
+            if self.use_diff:
+                x, x_mask = self._seq_to_diff_in(x, x_mask)
 
-            x_mask = _get_tensor(input_tensors, 'seq_mask')
             x = Multiply(name=scope+'mask_mult')([x, x_mask])
-
             x_occ = Lambda(lambda arg: 1 - arg, name=scope+'mask_occ')(x_mask)
             x = Concatenate(axis=-1, name=scope+'cat_occ')([x, x_occ])
 
             if self.use_pose_fae:
 
                 self.fae_z = self._pose_encoder(x)
-                x = Reshape((self.seq_len, self.fae_latent_dim, 1), name=scope+'gen_reshape_in')(self.fae_z)
+                x = Reshape((int(self.fae_z.shape[1]), int(self.fae_z.shape[2]), 1), name=scope+'gen_reshape_in')(self.fae_z)
 
                 self.nblocks = 4
 
@@ -641,7 +664,7 @@ class _MotionGAN(object):
 
             if self.use_pose_fae:
                 x = Conv2D(1, 3, 1, name=scope+'fae_merge', **CONV2D_ARGS)(x)
-                self.fae_gen_z = Reshape((self.seq_len, self.fae_latent_dim), name=scope+'fae_reshape')(x)
+                self.fae_gen_z = Reshape((int(x.shape[1]), int(x.shape[2])), name=scope+'fae_reshape')(x)
 
                 x = self._pose_decoder(self.fae_gen_z)
 
@@ -653,6 +676,8 @@ class _MotionGAN(object):
                 x = Permute((2, 3, 1), name=scope+'coords_permute')(x)  # joints, time, filters
                 x = Conv2D(3, 3, 1, name=scope+'coords_reshape', **CONV2D_ARGS)(x)
 
+            if self.use_diff:
+                x = self._seq_to_diff_out(x)
             if self.remove_hip:
                 x = self._remove_hip_out(x)
             if self.rescale_coords:
@@ -671,7 +696,7 @@ class _MotionGAN(object):
         with scope.name_scope('encoder'):
 
             h = Permute((2, 1, 3), name=scope+'perm_in')(seq)
-            h = Reshape((self.seq_len, int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
+            h = Reshape((int(seq.shape[2]), int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
 
             h = Conv1D(self.fae_intermediate_dim, 1, 1,
                        name=scope+'conv_in', **CONV1D_ARGS)(h)
@@ -714,7 +739,7 @@ class _MotionGAN(object):
 
             dec_x = Conv1D(self.fae_original_dim, 1, 1, name=scope+'conv_out', **CONV1D_ARGS)(dec_h)
 
-            dec_x = Reshape((self.seq_len, self.njoints, 3), name=scope+'resh_out')(dec_x)
+            dec_x = Reshape((int(gen_z.shape[1]), self.njoints, 3), name=scope+'resh_out')(dec_x)
             dec_x = Permute((2, 1, 3), name=scope+'perm_out')(dec_x)
 
         return dec_x

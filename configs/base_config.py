@@ -37,11 +37,11 @@
     # Remove Hip, use hip relative coordinates
     'remove_hip': False,
     # Rescale coords using skeleton average bone len
-    'rescale_coords': True,
+    'rescale_coords': False,
     # Translate sequence starting point to 0,0,0
     'translate_start': True,
     # Rotate sequence starting point
-    'rotate_start': True,
+    'rotate_start': False,
     # Transform euclidean coordinates input to differences
     'use_diff': False,
     # Transform euclidean coordinates input to angles in exponential maps

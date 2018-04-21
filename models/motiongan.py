@@ -414,12 +414,7 @@ class _MotionGAN(object):
         scope = Scoping.get_global_scope()
         with scope.name_scope('rescale'):
 
-            members_from = []
-            members_to = []
-            for member in self.body_members.values():
-                for j in range(len(member['joints']) - 1):
-                    members_from.append(member['joints'][j])
-                    members_to.append(member['joints'][j + 1])
+            members_from, members_to, body_graph = self._get_body_graph()
 
             def _len(bone):
                 return K.sqrt(K.sum(K.square(bone), axis=-1, keepdims=True) + K.epsilon())
@@ -467,28 +462,66 @@ class _MotionGAN(object):
             x = Lambda(_diff_to_seq, name=scope+'seq_to_diff_out')([x, self.stats[scope+'start_pose']])
         return x
 
+    def _get_body_graph(self):
+        members_from = []
+        members_to = []
+        for member in self.body_members.values():
+            for j in range(len(member['joints']) - 1):
+                members_from.append(member['joints'][j])
+                members_to.append(member['joints'][j + 1])
+
+        members_lst = zip(members_from, members_to)
+
+        graph = {name: set() for tup in members_lst for name in tup}
+        has_parent = {name: False for tup in members_lst for name in tup}
+        for parent, child in members_lst:
+            graph[parent].add(child)
+            has_parent[child] = True
+
+        # roots = [name for name, parents in has_parent.items() if not parents]  # assuming 0 (hip)
+        #
+        # def traverse(hierarchy, graph, names):
+        #     for name in names:
+        #         hierarchy[name] = traverse({}, graph, graph[name])
+        #     return hierarchy
+        # traverse({}, graph, roots)
+
+        return members_from, members_to, graph
+
     def _seq_to_angles_in(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('seq_to_angles'):
+
+            members_from, members_to, body_graph = self._get_body_graph()
 
             def _get_hips(arg):
                 return K.reshape(arg[:, 0, :, :], (arg.shape[0], 1, self.seq_len, 3))
             self.stats[scope+'hip_coords'] = Lambda(_get_hips, name=scope+'hip_coords')(x)
 
-            # TODO: angles are not computed correctly
-            members_from = []
-            members_to = []
-            for member in self.body_members.values():
-                for j in range(len(member['joints']) - 1):
-                    members_from.append(member['joints'][j])
-                    members_to.append(member['joints'][j + 1])
-
-            def _get_bone_len(arg):
+            def _get_bones(arg):
                 return arg[:, members_from, 0, :] - arg[:, members_to, 0, :]
-            self.stats[scope+'bone_len'] = Lambda(_get_bone_len, name=scope+'bone_len')(x)
 
+            self.stats[scope+'bones'] = Lambda(_get_bones, name=scope+'bones')(x)
+
+            def _len(bone):
+                return K.sqrt(K.sum(K.square(bone), axis=-1, keepdims=True) + K.epsilon())
+
+            self.stats[scope+'bone_len'] = Lambda(_len, name=scope+'bone_len')(self.stats[scope+'bones'])
+
+            # TODO: angles are not computed correctly
             def _get_angles(arg):
-                return quat_to_expmap(quaternion_between(arg[:, members_from, :, :], arg[:, members_to, :, :]))
+                angles = []
+                def _get_angles(parent_idx, idx):
+                    if parent_idx is None:
+                        pass  # TODO: add base cases
+                    else:
+                        angle = quat_to_expmap(quaternion_between(self.stats[scope+'bones'][parent_idx],
+                                                                  self.stats[scope+'bones'][idx]))
+                        angles.append(angle)
+                    for child_idx in body_graph[idx]:
+                        _get_angles(idx, child_idx)
+
+                return tf.stack(angles, axis=1)
 
             x = Lambda(_get_angles, name=scope+'angles')(x)
         return x
@@ -497,32 +530,10 @@ class _MotionGAN(object):
         scope = Scoping.get_global_scope()
         with scope.name_scope('seq_to_angles'):
 
+            members_from, members_to, body_graph = self._get_body_graph()
+
             x = Lambda(lambda arg: expmap_to_rotmat(arg), name=scope+'rotmat')(x)
             self.euler_out = Lambda(lambda arg: rotmat_to_euler(arg), name=scope+'euler')(x)
-
-            members_from = []
-            members_to = []
-            for member in self.body_members.values():
-                for j in range(len(member['joints']) - 1):
-                    members_from.append(member['joints'][j])
-                    members_to.append(member['joints'][j + 1])
-
-
-            members_lst = zip(members_from, members_to)
-
-            graph = {name: set() for tup in members_lst for name in tup}
-            has_parent = {name: False for tup in members_lst for name in tup}
-            for parent, child in members_lst:
-                graph[parent].add(child)
-                has_parent[child] = True
-
-            # roots = [name for name, parents in has_parent.items() if not parents]  # assuming 0 (hip)
-            #
-            # def traverse(hierarchy, graph, names):
-            #     for name in names:
-            #         hierarchy[name] = traverse({}, graph, graph[name])
-            #     return hierarchy
-            # traverse({}, graph, roots)
 
             base_shape = [int(d) for d in x.shape]
             base_shape[1] = 1
@@ -540,7 +551,7 @@ class _MotionGAN(object):
                         # this rotation dot parent rotation
                         # TODO: implement forward kinematics once the angles are correctly computed
 
-                    for child_idx in graph[idx]:
+                    for child_idx in body_graph[idx]:
                         _set_coords(coords[idx], child_idx)
 
                 coords = K.stack(coords, axis=1)

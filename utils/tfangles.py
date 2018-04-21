@@ -76,6 +76,7 @@ def quaternion_between(u, v):
     Raises:
         ValueError, if the last dimension of u and v is not 3.
     """
+    #TODO: FIX stack operations and test code
     u = tf.convert_to_tensor(u)
     v = tf.convert_to_tensor(v)
     if u.shape[-1] != 3 or v.shape[-1] != 3:
@@ -154,6 +155,7 @@ def quat_to_expmap(q):
     """
     # if (np.abs(np.linalg.norm(q)-1)>1e-3):
     # raise(ValueError, "quat2expmap: input quaternion is not norm 1")
+    # TODO: test code
 
     sinhalftheta = tf.sqrt(tf.reduce_sum(tf.square(q[..., 1:]), axis=-1, keep_dims=True) + 1e-8)
     coshalftheta = q[..., 0]
@@ -179,6 +181,7 @@ def rotmat_to_quat(R):
     Returns:
       q: 1x4 quaternion
     """
+    # TODO: FIX stack operations and test code
     trans_dims = range(len(R.shape))
     trans_dims[-1], trans_dims[-2] = trans_dims[-2], trans_dims[-1]
     rotdiff = R - tf.transpose(R, trans_dims)
@@ -211,6 +214,7 @@ def expmap_to_rotmat(r):
     Returns:
       R: 3x3 rotation matrix
     """
+    # TODO: FIX stack operations and test code
     base_shape = [int(d) for d in r.shape]
     base_shape[-1] = 1
     zero_dim = tf.zeros(base_shape)
@@ -234,6 +238,7 @@ def expmap_to_rotmat(r):
     R = tile_eye + tf.sin(theta) * r0x + (1.0 - tf.cos(theta)) * \
         tf.reduce_sum(tf.multiply(r0x, r0x), axis=-1, keep_dims=True)
     return R
+
 
 def quat_to_rotmat(q):
     """Calculate the corresponding rotation matrix.
@@ -275,7 +280,7 @@ def rotmat_to_euler(R):
     Returns:
       eul: a 3x1 Euler angle representation of R
     """
-
+    # TODO: FIX stack operations and test codes
     base_shape = [int(d) for d in R.shape][:-1]
     base_shape[-1] = 1
     zero_dim = tf.zeros(base_shape)

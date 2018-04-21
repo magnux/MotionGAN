@@ -145,10 +145,14 @@ class DataInput(object):
         if self.data_set == 'NTURGBD':
             pose = pose[:25, :, :]  # Warning: only taking first skeleton
             pose[:, :3, :] = pose[:, :3, :] * 1.0e3  # Rescale to mm
-            pose[:, 1, :], pose[:, 2, :] = pose[:, 2, :], pose[:, 1, :]  # Swapping Y-Z coords
+            pose_1 = pose[:, 1, :].copy()
+            pose[:, 1, :] = pose[:, 2, :]  # Swapping Y-Z coords
+            pose[:, 2, :] = pose_1
         elif self.data_set == 'MSRC12':
             pose[:, :3, :] = pose[:, :3, :] * 1.0e3  # Rescale to mm
-            pose[:, 1, :], pose[:, 2, :] = pose[:, 2, :], pose[:, 1, :]  # Swapping Y-Z coords
+            pose_1 = pose[:, 1, :].copy()
+            pose[:, 1, :] = pose[:, 2, :]  # Swapping Y-Z coords
+            pose[:, 2, :] = pose_1
         elif self.data_set == 'Human36':
             pose = pose[self.used_joints, ...]
             # pose[:, :3, :] = pose[:, :3, :] / 1.0e3 # Rescale to meters

@@ -72,7 +72,7 @@ class _MotionGAN(object):
         self.rescale_coords = config.rescale_coords
         self.remove_hip = config.remove_hip
         self.use_diff = config.use_diff
-        self.diff_scale = 1.0
+        self.diff_scale = 1.0e1
         self.use_angles = config.use_angles
         self.angles_scale = 1.0
         self.stats = {}

@@ -177,12 +177,11 @@ if __name__ == "__main__":
                 logs.update(gen_losses)
 
                 # Check for a bad minima, leading to nan weights
-                if (np.isnan(logs['train/disc_loss_reg']) or
-                    np.isnan(logs['train/gen_loss_reg'])):
-                    if np.isnan(logs['train/disc_loss_reg']):
-                        print('uh oh, nans found in disc reg loss, restarting epoch')
-                    if np.isnan(logs['train/gen_loss_reg']):
-                        print('uh oh, nans found in gen reg loss, restarting epoch')
+                if True in [np.isnan(log) for log in logs.values()]:
+                    for log_key, log_val in logs.items():
+                        if np.isnan(log_val):
+                            print('nans found in %s' % log_key)
+                    print('restarting epoch')
                     config.nan_restarts += 1
                     assert config.nan_restarts < 10, "restarted too many times because of nans"
                     break

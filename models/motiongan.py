@@ -72,7 +72,9 @@ class _MotionGAN(object):
         self.rescale_coords = config.rescale_coords
         self.remove_hip = config.remove_hip
         self.use_diff = config.use_diff
+        self.diff_scale = 1.0
         self.use_angles = config.use_angles
+        self.angles_scale = 1.0
         self.stats = {}
 
         # Placeholders for training phase
@@ -222,7 +224,7 @@ class _MotionGAN(object):
                 inter_outputs = self.disc_model(interpolates)
                 inter_score = _get_tensor(inter_outputs, 'score_out')
                 grad_mixed = K.gradients(inter_score, [interpolates])[0]
-                norm_grad_mixed = K.sqrt(K.sum(K.square(grad_mixed), axis=(1, 2, 3)))
+                norm_grad_mixed = K.sqrt(K.sum(K.square(grad_mixed), axis=(1, 2, 3)) + K.epsilon())
                 grad_penalty = K.mean(K.square(norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
 
                 # WGAN-GP losses
@@ -254,6 +256,11 @@ class _MotionGAN(object):
             with K.name_scope('reconstruction_loss'):
                 loss_rec = K.sum(K.mean(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1), axis=(1, 2))
                 gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
+
+                if self.use_diff:
+                    loss_rec_diff = K.sum(K.mean(K.square((self.diff_input * self.diff_input_mask) -
+                                                          (self.diff_output * self.diff_input_mask)), axis=-1), axis=(1, 2))
+                    gen_losses['gen_loss_rec_diff'] = self.diff_scale * K.mean(loss_rec_diff)
 
             # Optional losses
             if self.action_cond:
@@ -622,6 +629,8 @@ class _MotionGAN(object):
                 x = self._remove_hip_in(x)
             if self.use_diff:
                 x, x_mask = self._seq_to_diff_in(x, x_mask)
+                self.diff_input, self.diff_input_mask = x, x_mask
+
 
             x = Multiply(name=scope+'mask_mult')([x, x_mask])
             x_occ = Lambda(lambda arg: 1 - arg, name=scope+'mask_occ')(x_mask)
@@ -686,6 +695,7 @@ class _MotionGAN(object):
                 x = Conv2D(3, 3, 1, name=scope+'coords_reshape', **CONV2D_ARGS)(x)
 
             if self.use_diff:
+                self.diff_output = x
                 x = self._seq_to_diff_out(x)
             if self.remove_hip:
                 x = self._remove_hip_out(x)

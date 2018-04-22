@@ -123,7 +123,7 @@ class _MotionGAN(object):
 
         # Custom train functions
         with K.name_scope('discriminator/functions/train'):
-            disc_optimizer = Adam(lr=config.learning_rate, beta_1=0., beta_2=0.9)
+            disc_optimizer = Adam(lr=config.learning_rate)
             disc_training_updates = disc_optimizer.get_updates(disc_loss, self.disc_model.trainable_weights)
             self.disc_train_f = K.function(self.disc_inputs + self.gen_inputs + self.place_holders,
                                            self.wgan_losses.values() + self.disc_losses.values(),
@@ -136,7 +136,7 @@ class _MotionGAN(object):
         self.disc_model = self._pseudo_build_model(self.disc_model, disc_optimizer)
 
         with K.name_scope('generator/functions/train'):
-            gen_optimizer = Adam(lr=config.learning_rate, beta_1=0., beta_2=0.9)
+            gen_optimizer = Adam(lr=config.learning_rate)
             gen_training_updates = gen_optimizer.get_updates(gen_loss,
                                    self.gen_model.trainable_weights)
             self.gen_train_f = K.function(self.gen_inputs + self.place_holders,

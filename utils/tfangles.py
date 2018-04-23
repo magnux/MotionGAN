@@ -142,7 +142,7 @@ def quaternion_between(u, v):
         )
 
 
-def quat_to_expmap(q):
+def quaternion_to_expmap(q):
     """Converts a quaternion to an exponential map
     Tensorflow port and tensorization of code in:
     https://github.com/una-dinosauria/human-motion-prediction/blob/master/src/data_utils.py
@@ -171,7 +171,7 @@ def quat_to_expmap(q):
     return r
 
 
-def rotmat_to_quat(R):
+def rotmat_to_quaternion(R):
     """
     Converts a rotation matrix to a quaternion
     Tensorflow port and tensorization of code in:
@@ -201,7 +201,7 @@ def rotmat_to_quat(R):
 
 
 def rotmat_to_expmap(R):
-    return quat_to_expmap(rotmat_to_quat(R))
+    return quaternion_to_expmap(rotmat_to_quaternion(R))
 
 
 def expmap_to_rotmat(r):
@@ -240,7 +240,7 @@ def expmap_to_rotmat(r):
     return R
 
 
-def quat_to_rotmat(q):
+def quaternion_to_rotmat(q):
     """Calculate the corresponding rotation matrix.
     See
     http://www.euclideanspace.com/maths/geometry/rotations/conversions/quaternionToMatrix/

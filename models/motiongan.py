@@ -16,7 +16,7 @@ from layers.edm import edm, EDM
 from layers.comb_matrix import CombMatrix
 from collections import OrderedDict
 from utils.scoping import Scoping
-from utils.tfangles import quaternion_between, quat_to_expmap, expmap_to_rotmat, rotmat_to_euler, \
+from utils.tfangles import quaternion_between, quaternion_to_expmap, expmap_to_rotmat, rotmat_to_euler, \
     vector3d_to_quaternion, quaternion_conjugate, rotate_vector_by_quaternion
 from utils.seq_utils import get_body_graph
 
@@ -402,7 +402,7 @@ class _MotionGAN(object):
                 cos_theta_diff = tf.cos(theta_diff)
                 sin_theta_diff = tf.sin(theta_diff)
                 zeros_theta = K.zeros_like(sin_theta_diff)
-                return tf.stack([cos_theta_diff, zeros_theta, zeros_theta, sin_theta_diff], axis=-1)
+                return K.stack([cos_theta_diff, zeros_theta, zeros_theta, sin_theta_diff], axis=-1)
 
             self.stats[scope+'start_rotation'] = Lambda(_get_rotation, name=scope+'start_rotation')(x)
 
@@ -465,7 +465,7 @@ class _MotionGAN(object):
                 poses = [start_pose]
                 for p in range(diffs.shape[2]):
                     poses.append(poses[p] + diffs[:, :, p, :])
-                return tf.stack(poses, axis=2)
+                return K.stack(poses, axis=2)
 
             x = Lambda(_diff_to_seq, name=scope+'seq_to_diff_out')([x, self.stats[scope+'start_pose']])
         return x
@@ -477,33 +477,40 @@ class _MotionGAN(object):
             members_from, members_to, body_graph = get_body_graph(self.body_members)
 
             def _get_hips(arg):
-                return K.reshape(arg[:, 0, :, :], (arg.shape[0], 1, self.seq_len, 3))
+                return K.reshape(arg[:, 0, :, :], (arg.shape[0], 1, arg.shape[2], 3))
             self.stats[scope+'hip_coords'] = Lambda(_get_hips, name=scope+'hip_coords')(x)
 
-            def _get_bones(arg):
-                return arg[:, members_from, 0, :] - arg[:, members_to, 0, :]
+            def _get_bone_len(arg):
+                bones = [arg[:, i, 0, :] - arg[:, j, 0, :] for i, j in zip(members_from, members_to)]
+                bones = K.expand_dims(K.stack(bones, axis=1), axis=2)
+                return K.sqrt(K.sum(K.square(bones), axis=-1, keepdims=True) + K.epsilon())
 
-            self.stats[scope+'bones'] = Lambda(_get_bones, name=scope+'bones')(x)
+            self.stats[scope+'bone_len'] = Lambda(_get_bone_len, name=scope+'bone_len')(x)
 
-            def _len(bone):
-                return K.sqrt(K.sum(K.square(bone), axis=-1, keepdims=True) + K.epsilon())
-
-            self.stats[scope+'bone_len'] = Lambda(_len, name=scope+'bone_len')(self.stats[scope+'bones'])
-
-            # TODO: angles are not computed correctly
             def _get_angles(arg):
                 angles = []
-                def _get_angles(parent_idx, idx):
-                    if parent_idx is None:
-                        pass  # TODO: add base cases
-                    else:
-                        angle = quat_to_expmap(quaternion_between(self.stats[scope+'bones'][parent_idx],
-                                                                  self.stats[scope+'bones'][idx]))
-                        angles.append(angle)
-                    for child_idx in body_graph[idx]:
-                        _get_angles(idx, child_idx)
+                base_shape = [int(dim) for dim in arg.shape]
+                base_shape[1] = 1
+                base_shape[-1] = 1
 
-                return tf.stack(angles, axis=1)
+                def _get_angles_for_joint(joint_idx, parent_idx):
+                    if parent_idx is None:  # joint_idx should be 0
+                        parent_bone = K.constant(np.concatenate([np.ones(base_shape),
+                                                                 np.zeros(base_shape),
+                                                                 np.zeros(base_shape)]))
+                    else:
+                        parent_bone = arg[:, parent_idx, :, :] - arg[:, joint_idx, :, :]
+
+                    for child_idx in body_graph[joint_idx]:
+                        child_bone = arg[:, child_idx, :, :] - arg[:, joint_idx, :, :]
+                        angle = quaternion_to_expmap(quaternion_between(parent_bone, child_bone))
+                        angles.append(angle)
+
+                    for child_idx in body_graph[joint_idx]:
+                        _get_angles_for_joint(child_idx, joint_idx)
+
+                _get_angles_for_joint(0, None)
+                return K.stack(angles, axis=1)
 
             x = Lambda(_get_angles, name=scope+'angles')(x)
         return x
@@ -517,25 +524,34 @@ class _MotionGAN(object):
             x = Lambda(lambda arg: expmap_to_rotmat(arg), name=scope+'rotmat')(x)
             self.euler_out = Lambda(lambda arg: rotmat_to_euler(arg), name=scope+'euler')(x)
 
-            base_shape = [int(d) for d in x.shape]
-            base_shape[1] = 1
-            base_shape[-1] = 1
-
             def _get_coords(args):
                 rot_mat, bone_len = args
                 coords = range(self.njoints)
+                base_shape = [int(d) for d in rot_mat.shape]
+                base_shape[1] = 1
+                base_shape[-2] = 1
+                bone_idcs = {idx_tup: i for i, idx_tup in enumerate([idx_tup for idx_tup in zip(members_from, members_to)])}
 
-                def _set_coords(parent_idx, idx):
-                    if parent_idx is None:
-                        coords[idx] = K.zeros(base_shape)
+                def _get_coords_for_joint(joint_idx, parent_idx):
+                    if parent_idx is None:  # joint_idx should be 0
+                        coords[joint_idx] = K.zeros(base_shape)  # TODO: check shape
+                        parent_bone = K.constant(np.concatenate([np.ones(base_shape),
+                                                                 np.zeros(base_shape),
+                                                                 np.zeros(base_shape)]))
                     else:
-                        coords[idx] = coords[parent_idx]  # + rotation dot bonelen
-                        # this rotation dot parent rotation
-                        # TODO: implement forward kinematics once the angles are correctly computed
+                        parent_bone = coords[parent_idx] - coords[joint_idx]
+                        parent_bone = parent_bone / K.sqrt(K.sum(K.square(parent_bone), axis=-1) + K.epsilon())
 
-                    for child_idx in body_graph[idx]:
-                        _set_coords(coords[idx], child_idx)
+                    for child_idx in body_graph[joint_idx]:
+                        child_bone_idx = bone_idcs[(joint_idx, child_idx)]
+                        child_bone = parent_bone * bone_len[:, child_bone_idx, :, :]
+                        child_bone = K.expand_dims(child_bone, axis=3)  # TODO: check idcs
+                        coords[child_idx] = coords[joint_idx] + K.batch_dot(rot_mat[:, child_bone_idx, :, :, :], child_bone, axes=[[-2, -1], [-2, -1]])
 
+                    for child_idx in body_graph[joint_idx]:
+                        _get_coords_for_joint(child_idx, joint_idx)
+
+                _get_coords_for_joint(0, None)
                 coords = K.stack(coords, axis=1)
                 coords = K.squeeze(coords, axis=-1)
                 return coords

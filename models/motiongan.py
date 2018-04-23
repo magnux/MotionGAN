@@ -556,10 +556,6 @@ class _MotionGAN(object):
                 x = self._rotate_start_in(x)
             if self.rescale_coords:
                 x = self._rescale_in(x)
-            if self.remove_hip:
-                x = self._remove_hip_in(x)
-            if self.use_diff:
-                x, _ = self._seq_to_diff_in(x)
 
         return x
 

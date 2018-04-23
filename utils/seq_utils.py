@@ -34,13 +34,25 @@ def gen_latent_noise(batch_size, latent_cond_dim):
     return np.random.uniform(size=(batch_size, latent_cond_dim))
 
 
-def constant_baseline(X, mask):
-    new_X = X * mask
-    for j in range(X.shape[0]):
-        for f in range(1, X.shape[1]):
+def linear_baseline(real_seq, mask):
+    linear_seq = real_seq * mask
+    for j in range(real_seq.shape[0]):
+        for f in range(1, real_seq.shape[1] - 1):
             if mask[j, f, 0] == 0:
-                new_X[j, f, :] = new_X[j, f - 1, :]
-    return new_X
+                prev_f = f - 1
+                for g in range(f - 1, -1, -1):
+                    if mask[j, g, 0] == 1:
+                        prev_f = g
+                        break
+                next_f = f + 1
+                for g in range(f + 1, real_seq.shape[1]):
+                    if mask[j, g, 0] == 1:
+                        next_f = g
+                        break
+                blend_factor = (f - prev_f) / (next_f - prev_f)
+                linear_seq[j, f, :] = ((linear_seq[j, prev_f, :] * (1 - blend_factor)) +
+                                       (linear_seq[j, next_f, :] * blend_factor))
+    return linear_seq
 
 
 def burke_baseline(rawdata, mask, tol=0.0025, sigR=1e-3, keepOriginal=True):
@@ -111,3 +123,55 @@ def burke_baseline(rawdata, mask, tol=0.0025, sigR=1e-3, keepOriginal=True):
     y = np.transpose(y, (1, 0, 2))
 
     return y
+
+
+def get_body_graph(body_members):
+    members_from = []
+    members_to = []
+    for member in body_members.values():
+        for j in range(len(member['joints']) - 1):
+            members_from.append(member['joints'][j])
+            members_to.append(member['joints'][j + 1])
+
+    members_lst = zip(members_from, members_to)
+
+    graph = {name: set() for tup in members_lst for name in tup}
+    has_parent = {name: False for tup in members_lst for name in tup}
+    for parent, child in members_lst:
+        graph[parent].add(child)
+        has_parent[child] = True
+
+    # roots = [name for name, parents in has_parent.items() if not parents]  # assuming 0 (hip)
+    #
+    # def traverse(hierarchy, graph, names):
+    #     for name in names:
+    #         hierarchy[name] = traverse({}, graph, graph[name])
+    #     return hierarchy
+    # traverse({}, graph, roots)
+
+    return members_from, members_to, graph
+
+
+def post_process(real_seq, gen_seq, mask, body_members):
+    _, _, graph = get_body_graph(body_members)
+
+    blend_seq = real_seq * mask
+
+    def _post_process_joint(frame, joint_idx, parent_idx):
+        if mask[joint_idx, frame, 0] == 0:
+            # Blend in time
+            blend_seq[joint_idx, frame, :] = (blend_seq[joint_idx, frame - 1, :]
+                                              + gen_seq[joint_idx, frame, :] - gen_seq[joint_idx, frame - 1, :])
+            # Blend in space
+            if parent_idx is not None:
+                space_blend = (gen_seq[joint_idx, frame, :] - gen_seq[parent_idx, frame, :]
+                               + blend_seq[parent_idx, frame, :])
+                blend_seq[joint_idx, frame, :] = (blend_seq[joint_idx, frame, :] + space_blend) / 2
+
+        for child_idx in graph[joint_idx]:
+            _post_process_joint(frame, child_idx, joint_idx)
+
+    for f in range(1, real_seq.shape[1] - 1):
+        _post_process_joint(f, 0, None)
+
+    return blend_seq

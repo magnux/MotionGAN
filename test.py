@@ -8,7 +8,7 @@ from models.motiongan import MotionGANV1, MotionGANV2, MotionGANV3, MotionGANV4
 from models.dmnn import DMNNv1
 from utils.restore_keras_model import restore_keras_model
 from utils.viz import plot_seq_gif, plot_seq_pano
-from utils.seq_utils import MASK_MODES, gen_mask, gen_latent_noise, constant_baseline, burke_baseline
+from utils.seq_utils import MASK_MODES, gen_mask, gen_latent_noise, linear_baseline, burke_baseline, post_process
 import h5py as h5
 from tqdm import trange
 from collections import OrderedDict
@@ -107,10 +107,13 @@ if __name__ == "__main__":
 
             gen_outputs = []
             for m, model_wrap in enumerate(model_wraps):
-                gen_outputs.append(model_wrap.gen_model.predict(gen_inputs, batch_size))
-
+                gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
                 if configs[m].normalize_data:
-                    gen_outputs = data_input.unnormalize_poses(gen_outputs)
+                    for seq_idx in batch_size:
+                        gen_output[seq_idx, ...] = post_process(poses_batch[seq_idx, ...], gen_output[seq_idx, ...],
+                                                                mask_batch[seq_idx, ...], body_members)
+                    gen_output = data_input.unnormalize_poses(gen_output)
+                gen_outputs.append(gen_output)
 
             if configs[0].normalize_data:
                 poses_batch = data_input.unnormalize_poses(poses_batch)
@@ -134,14 +137,14 @@ if __name__ == "__main__":
                     figwidth = 768
                     figheight = 384 * 3
 
-                constant_seq =\
-                    constant_baseline(poses_batch[seq_idx, ...], mask_batch[seq_idx, ...])
-                constant_seq = np.expand_dims(constant_seq, 0)
+                linear_seq =\
+                    linear_baseline(poses_batch[seq_idx, ...], mask_batch[seq_idx, ...])
+                linear_seq = np.expand_dims(linear_seq, 0)
                 burke_seq = \
                     burke_baseline(poses_batch[seq_idx, ...], mask_batch[seq_idx, ...])
                 burke_seq = np.expand_dims(burke_seq, 0)
 
-                plot_func(np.concatenate([poses_batch[np.newaxis, seq_idx, ...], constant_seq, burke_seq] +
+                plot_func(np.concatenate([poses_batch[np.newaxis, seq_idx, ...], linear_seq, burke_seq] +
                                          [gen_output[np.newaxis, seq_idx, ...] for gen_output in gen_outputs]),
                           labs_batch[seq_idx, ...],
                           configs[0].data_set,
@@ -162,17 +165,19 @@ if __name__ == "__main__":
             labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
 
             for m, model_wrap in enumerate(model_wraps):
-                gen_outputs = model_wrap.gen_model.predict(gen_inputs, batch_size)
-
+                gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
                 if configs[m].normalize_data:
-                    gen_outputs = data_input.unnormalize_poses(gen_outputs)
+                    for seq_idx in batch_size:
+                        gen_output[seq_idx, ...] = post_process(poses_batch[seq_idx, ...], gen_output[seq_idx, ...],
+                                                                mask_batch[seq_idx, ...], body_members)
+                    gen_output = data_input.unnormalize_poses(gen_output)
 
                 for j in range(batch_size):
                     seq_idx, subject, action, plen = labs_batch[j, ...]
 
                     sub_array = np.array(subject + 1)
                     act_array = np.array(action + 1)
-                    pose_array = gen_outputs[j, ...]
+                    pose_array = gen_output[j, ...]
                     pose_array = np.transpose(pose_array, (0, 2, 1))
                     if config.data_set == 'NTURGBD':
                         pose_array = np.concatenate([pose_array, np.zeros_like(pose_array)])
@@ -211,9 +216,9 @@ if __name__ == "__main__":
 
         def run_dmnn_score():
 
-            accs = OrderedDict({'real_acc': 0, 'const_acc': 0, 'burke_acc': 0})
-            p2ps = OrderedDict({'const_p2p': 0, 'burke_p2p': 0})
-            dms = OrderedDict({'const_dm': 0, 'burke_dm': 0})
+            accs = OrderedDict({'real_acc': 0, 'linear_acc': 0, 'burke_acc': 0})
+            p2ps = OrderedDict({'linear_p2p': 0, 'burke_p2p': 0})
+            dms = OrderedDict({'linear_dm': 0, 'burke_dm': 0})
 
             for m in range(len(model_wraps)):
                 accs[FLAGS.model_path[m] + '_acc'] = 0
@@ -256,19 +261,19 @@ if __name__ == "__main__":
                     _, real_acc = model_wrap_dmnn.model.evaluate(poses_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
                     accs['real_acc'] += real_acc
 
-                constant_batch = np.empty_like(poses_batch)
+                linear_batch = np.empty_like(poses_batch)
                 burke_batch = np.empty_like(poses_batch)
                 for j in range(batch_size):
-                    constant_batch[j, ...] = constant_baseline(poses_batch[j, ...], mask_batch[j, ...])
+                    linear_batch[j, ...] = linear_baseline(poses_batch[j, ...], mask_batch[j, ...])
                     burke_batch[j, ...] = burke_baseline(poses_batch[j, ...], mask_batch[j, ...])
 
                 if FLAGS.dmnn_path is not None:
-                    _, const_acc = model_wrap_dmnn.model.evaluate(constant_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
-                    accs['const_acc'] += const_acc
+                    _, linear_acc = model_wrap_dmnn.model.evaluate(linear_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
+                    accs['linear_acc'] += linear_acc
 
-                constant_batch = unnormalize_batch(constant_batch)
-                p2ps['const_p2p'] += p2pd(re_poses_batch, constant_batch)
-                dms['const_dm'] += np.mean(np.abs(re_poses_batch_edm - edm(constant_batch)))
+                linear_batch = unnormalize_batch(linear_batch)
+                p2ps['linear_p2p'] += p2pd(re_poses_batch, linear_batch)
+                dms['linear_dm'] += np.mean(np.abs(re_poses_batch_edm - edm(linear_batch)))
 
                 if FLAGS.dmnn_path is not None:
                     _, burke_acc = model_wrap_dmnn.model.evaluate(burke_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)

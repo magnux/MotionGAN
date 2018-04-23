@@ -18,6 +18,7 @@ from collections import OrderedDict
 from utils.scoping import Scoping
 from utils.tfangles import quaternion_between, quat_to_expmap, expmap_to_rotmat, rotmat_to_euler, \
     vector3d_to_quaternion, quaternion_conjugate, rotate_vector_by_quaternion
+from utils.seq_utils import get_body_graph
 
 CONV1D_ARGS = {'padding': 'same', 'kernel_regularizer': l2(5e-4)}
 CONV2D_ARGS = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
@@ -421,7 +422,7 @@ class _MotionGAN(object):
         scope = Scoping.get_global_scope()
         with scope.name_scope('rescale'):
 
-            members_from, members_to, body_graph = self._get_body_graph()
+            members_from, members_to, body_graph = get_body_graph(self.body_members)
 
             def _len(bone):
                 return K.sqrt(K.sum(K.square(bone), axis=-1, keepdims=True) + K.epsilon())
@@ -469,37 +470,11 @@ class _MotionGAN(object):
             x = Lambda(_diff_to_seq, name=scope+'seq_to_diff_out')([x, self.stats[scope+'start_pose']])
         return x
 
-    def _get_body_graph(self):
-        members_from = []
-        members_to = []
-        for member in self.body_members.values():
-            for j in range(len(member['joints']) - 1):
-                members_from.append(member['joints'][j])
-                members_to.append(member['joints'][j + 1])
-
-        members_lst = zip(members_from, members_to)
-
-        graph = {name: set() for tup in members_lst for name in tup}
-        has_parent = {name: False for tup in members_lst for name in tup}
-        for parent, child in members_lst:
-            graph[parent].add(child)
-            has_parent[child] = True
-
-        # roots = [name for name, parents in has_parent.items() if not parents]  # assuming 0 (hip)
-        #
-        # def traverse(hierarchy, graph, names):
-        #     for name in names:
-        #         hierarchy[name] = traverse({}, graph, graph[name])
-        #     return hierarchy
-        # traverse({}, graph, roots)
-
-        return members_from, members_to, graph
-
     def _seq_to_angles_in(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('seq_to_angles'):
 
-            members_from, members_to, body_graph = self._get_body_graph()
+            members_from, members_to, body_graph = get_body_graph(self.body_members)
 
             def _get_hips(arg):
                 return K.reshape(arg[:, 0, :, :], (arg.shape[0], 1, self.seq_len, 3))
@@ -537,7 +512,7 @@ class _MotionGAN(object):
         scope = Scoping.get_global_scope()
         with scope.name_scope('seq_to_angles'):
 
-            members_from, members_to, body_graph = self._get_body_graph()
+            members_from, members_to, body_graph = get_body_graph(self.body_members)
 
             x = Lambda(lambda arg: expmap_to_rotmat(arg), name=scope+'rotmat')(x)
             self.euler_out = Lambda(lambda arg: rotmat_to_euler(arg), name=scope+'euler')(x)

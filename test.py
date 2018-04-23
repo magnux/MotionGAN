@@ -8,12 +8,10 @@ from models.motiongan import MotionGANV1, MotionGANV2, MotionGANV3, MotionGANV4
 from models.dmnn import DMNNv1
 from utils.restore_keras_model import restore_keras_model
 from utils.viz import plot_seq_gif, plot_seq_pano
-from utils.baselines import constant_baseline, burke_baseline
+from utils.seq_utils import MASK_MODES, gen_mask, gen_latent_noise, constant_baseline, burke_baseline
 import h5py as h5
 from tqdm import trange
 from collections import OrderedDict
-
-MASK_MODES = ('No mask', 'Future Prediction', 'Occlusion Simulation', 'Structured Occlusion', 'Noisy Transmission')
 
 logging = tf.logging
 flags = tf.flags
@@ -85,34 +83,12 @@ if __name__ == "__main__":
     seq_len = model_wraps[0].seq_len
     body_members = configs[0].body_members
 
-    def gen_mask(mask_type=0, keep_prob=1.0):
-        # Default mask, no mask
-        mask = np.ones(shape=(batch_size, njoints, seq_len, 1))
-        if mask_type == 1:  # Future Prediction
-            mask[:, :, np.int(seq_len * keep_prob):, :] = 0.0
-        elif mask_type == 2:  # Occlusion Simulation
-            rand_joints = np.random.randint(njoints, size=np.int(njoints * (1.0 - keep_prob)))
-            mask[:, rand_joints, :, :] = 0.0
-        elif mask_type == 3:  # Structured Occlusion Simulation
-            rand_joints = set()
-            while ((njoints - len(rand_joints)) >
-                   (njoints * keep_prob)):
-                joints_to_add = (body_members.values()[np.random.randint(len(body_members))])['joints']
-                for joint in joints_to_add:
-                    rand_joints.add(joint)
-            mask[:, list(rand_joints), :, :] = 0.0
-        elif mask_type == 4:  # Noisy transmission
-            mask = np.random.binomial(1, keep_prob, size=mask.shape)
-
-        # This unmasks first frame for all sequences
-        mask[:, :, [0, -1], :] = 1.0
-        return mask
-
     def get_inputs():
         labs_batch, poses_batch = val_generator.next()
 
         mask_batch = poses_batch[..., 3, np.newaxis]
-        mask_batch = mask_batch * gen_mask(FLAGS.mask_mode, FLAGS.keep_prob)
+        mask_batch = mask_batch * gen_mask(FLAGS.mask_mode, FLAGS.keep_prob,
+                                           batch_size, njoints, seq_len, body_members, True)
         poses_batch = poses_batch[..., :3]
 
         gen_inputs = [poses_batch, mask_batch]

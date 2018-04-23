@@ -8,12 +8,13 @@ from models.motiongan import MotionGANV1, MotionGANV2, MotionGANV3, MotionGANV4
 from utils.restore_keras_model import restore_keras_model
 from tqdm import trange
 from utils.viz import plot_seq_gif, plot_seq_emb
-
+from utils.seq_utils import MASK_MODES, gen_mask, gen_latent_noise
 
 def _reset_rand_seed():
     seed = 42
     np.random.seed(seed)
     tf.set_random_seed(seed)
+
 
 logging = tf.logging
 flags = tf.flags
@@ -77,32 +78,6 @@ if __name__ == "__main__":
                               write_graph=True)
     tensorboard.set_model(model_wrap.gan_model)
 
-    mask_modes = ('No mask', 'Future Prediction', 'Occlusion Simulation', 'Structured Occlusion', 'Noisy Transmission')
-
-    def gen_mask(mask_type=0, keep_prob=1.0):
-        # Default mask, no mask
-        mask = np.ones(shape=(config.batch_size, config.njoints, model_wrap.seq_len, 1))
-        if mask_type == 1:  # Future Prediction
-            mask[:, :, np.int(model_wrap.seq_len * keep_prob):, :] = 0.0
-        elif mask_type == 2:  # Occlusion Simulation
-            rand_joints = np.random.randint(config.njoints, size=np.int(config.njoints * (1.0 - keep_prob)))
-            mask[:, rand_joints, :, :] = 0.0
-        elif mask_type == 3:  # Structured Occlusion Simulation
-            rand_joints = set()
-            while ((config.njoints - len(rand_joints)) >
-                   (config.njoints * keep_prob)):
-                joints_to_add = (config.body_members.values()[np.random.randint(len(config.body_members))])['joints']
-                for joint in joints_to_add:
-                    rand_joints.add(joint)
-            mask[:, list(rand_joints), :, :] = 0.0
-        elif mask_type == 4:  # Noisy transmission
-            mask = np.random.binomial(1, keep_prob, size=mask.shape)
-
-        return mask
-
-    def gen_latent_noise():
-        return np.random.uniform(size=(config.batch_size, config.latent_cond_dim))
-
     try:
         while config.epoch < config.num_epochs:
             tensorboard.on_epoch_begin(config.epoch)
@@ -130,7 +105,8 @@ if __name__ == "__main__":
                     labs_batch, poses_batch = train_generator.next()
 
                     mask_batch = poses_batch[..., 3, np.newaxis]
-                    mask_batch = mask_batch * gen_mask(np.random.randint(5), keep_prob)
+                    mask_batch = mask_batch * gen_mask(np.random.randint(5), keep_prob, config.batch_size,
+                                                       config.njoints, model_wrap.seq_len, config.body_members)
                     poses_batch = poses_batch[..., :3]
 
                     disc_inputs = [poses_batch]
@@ -139,7 +115,7 @@ if __name__ == "__main__":
                     if config.action_cond:
                         place_holders.append(labs_batch[:, 2])
                     if config.latent_cond_dim > 0:
-                        gen_inputs.append(gen_latent_noise())
+                        gen_inputs.append(gen_latent_noise(config.batch_size, config.latent_cond_dim))
 
                     losses = model_wrap.disc_train(disc_inputs + gen_inputs + place_holders)
 
@@ -155,7 +131,8 @@ if __name__ == "__main__":
                 labs_batch, poses_batch = train_generator.next()
 
                 mask_batch = poses_batch[..., 3, np.newaxis]
-                mask_batch = mask_batch * gen_mask(np.random.randint(5), keep_prob)
+                mask_batch = mask_batch * gen_mask(np.random.randint(5), keep_prob, config.batch_size,
+                                                   config.njoints, model_wrap.seq_len, config.body_members)
                 poses_batch = poses_batch[..., :3]
 
                 gen_inputs = [poses_batch, mask_batch]
@@ -163,7 +140,7 @@ if __name__ == "__main__":
                 if config.action_cond:
                     place_holders.append(labs_batch[:, 2])
                 if config.latent_cond_dim > 0:
-                    gen_inputs.append(gen_latent_noise())
+                    gen_inputs.append(gen_latent_noise(config.batch_size, config.latent_cond_dim))
 
                 gen_losses = model_wrap.gen_train(gen_inputs + place_holders)
 
@@ -203,7 +180,8 @@ if __name__ == "__main__":
 
             mask_batch = poses_batch[..., 3, np.newaxis]
             mask_mode = np.random.randint(5)
-            mask_batch = mask_batch * gen_mask(mask_mode, keep_prob)
+            mask_batch = mask_batch * gen_mask(mask_mode, keep_prob, config.batch_size,
+                                               config.njoints, model_wrap.seq_len, config.body_members)
             poses_batch = poses_batch[..., :3]
 
             disc_inputs = [poses_batch]
@@ -212,7 +190,7 @@ if __name__ == "__main__":
             if config.action_cond:
                 place_holders.append(labs_batch[:, 2])
             if config.latent_cond_dim > 0:
-                gen_inputs.append(gen_latent_noise())
+                gen_inputs.append(gen_latent_noise(config.batch_size, config.latent_cond_dim))
 
             disc_losses = model_wrap.disc_eval(disc_inputs + gen_inputs + place_holders)
             gen_losses = model_wrap.gen_eval(gen_inputs + place_holders)
@@ -239,7 +217,7 @@ if __name__ == "__main__":
                         labs_batch[i, ...],
                         config.data_set,
                         seq_masks=mask_batch[i, ...],
-                        extra_text='mask mode: %s' % mask_modes[mask_mode],
+                        extra_text='mask mode: %s' % MASK_MODES[mask_mode],
                         save_path=gif_name)
 
                     with open(gif_name, 'rb') as f:

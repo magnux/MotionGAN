@@ -2,6 +2,38 @@ from __future__ import absolute_import, division, print_function
 import numpy as np
 
 
+MASK_MODES = ('No mask', 'Future Prediction', 'Occlusion Simulation', 'Structured Occlusion', 'Noisy Transmission')
+
+
+def gen_mask(mask_type, keep_prob, batch_size, njoints, seq_len, body_members, test_mode=False):
+    # Default mask, no mask
+    mask = np.ones(shape=(batch_size, njoints, seq_len, 1))
+    if mask_type == 1:  # Future Prediction
+        mask[:, :, np.int(seq_len * keep_prob):, :] = 0.0
+    elif mask_type == 2:  # Occlusion Simulation
+        rand_joints = np.random.randint(njoints, size=np.int(njoints * (1.0 - keep_prob)))
+        mask[:, rand_joints, :, :] = 0.0
+    elif mask_type == 3:  # Structured Occlusion Simulation
+        rand_joints = set()
+        while ((njoints - len(rand_joints)) >
+               (njoints * keep_prob)):
+            joints_to_add = (body_members.values()[np.random.randint(len(body_members))])['joints']
+            for joint in joints_to_add:
+                rand_joints.add(joint)
+        mask[:, list(rand_joints), :, :] = 0.0
+    elif mask_type == 4:  # Noisy transmission
+        mask = np.random.binomial(1, keep_prob, size=mask.shape)
+
+    if test_mode:
+        # This unmasks first and last frame for all sequences (required for baselines)
+        mask[:, :, [0, -1], :] = 1.0
+    return mask
+
+
+def gen_latent_noise(batch_size, latent_cond_dim):
+    return np.random.uniform(size=(batch_size, latent_cond_dim))
+
+
 def constant_baseline(X, mask):
     new_X = X * mask
     for j in range(X.shape[0]):

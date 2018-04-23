@@ -9,6 +9,12 @@
     'use_pose_fae': True,
     # Disable GAN loss on the generator
     'no_gan_loss': True,
+    # Rescale coords using skeleton average bone len
+    'rescale_coords': True,
+    # Translate sequence starting point to 0,0,0
+    'translate_start': True,
+    # Rotate sequence starting point
+    'rotate_start': True,
 
     # It's the batch size
     # 'batch_size': 10,

@@ -46,10 +46,10 @@ class _MotionGAN(object):
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
         self.wgan_scale_d = 10.0
-        self.wgan_scale_g = 1.0 * (0.0 if config.no_gan_loss else 1.0)
+        self.wgan_scale_g = 2.0 * (0.0 if config.no_gan_loss else 1.0)
         self.wgan_frame_scale_d = 10.0
-        self.wgan_frame_scale_g = 1.0 * (0.0 if config.no_gan_loss else 1.0)
-        self.rec_scale = 0.1
+        self.wgan_frame_scale_g = 2.0 * (0.0 if config.no_gan_loss else 1.0)
+        self.rec_scale = 1.0
         self.action_cond = config.action_cond
         self.action_scale_d = 10.0
         self.action_scale_g = 1.0
@@ -57,9 +57,9 @@ class _MotionGAN(object):
         self.latent_scale_d = 10.0
         self.latent_scale_g = 1.0
         self.shape_loss = config.shape_loss
-        self.shape_scale = 0.1
+        self.shape_scale = 1.0
         self.smoothing_loss = config.smoothing_loss
-        self.smoothing_scale = 10.0
+        self.smoothing_scale = 20.0
         self.smoothing_basis = 5
         self.time_pres_emb = config.time_pres_emb
         self.use_pose_fae = config.use_pose_fae

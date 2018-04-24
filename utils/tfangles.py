@@ -1,5 +1,6 @@
 from __future__ import absolute_import, division, print_function
 import tensorflow as tf
+import tensorflow.contrib.keras.api.keras.backend as K
 import numpy as np
 
 
@@ -76,9 +77,8 @@ def quaternion_between(u, v):
     Raises:
         ValueError, if the last dimension of u and v is not 3.
     """
-    #TODO: FIX stack operations and test code
-    u = tf.convert_to_tensor(u)
-    v = tf.convert_to_tensor(v)
+    u = tf.convert_to_tensor(u, dtype=tf.float32)
+    v = tf.convert_to_tensor(v, dtype=tf.float32)
     if u.shape[-1] != 3 or v.shape[-1] != 3:
         raise ValueError("The last dimension of u and v must be 3.")
 
@@ -105,18 +105,19 @@ def quaternion_between(u, v):
         """
 
         return tf.where(
-            tf.reduce_sum(a, axis=-1, keepdims=True) == 0.0, a,
+            tf.tile(tf.equal(tf.reduce_sum(a, axis=-1, keepdims=True), zero_dim), (1, 1, 1, 3)), a,
             tf.where(
-                tf.expand_dims(tf.where(a[..., 0]), axis=-1) == 0.0,
-                tf.stack([one_dim, zero_dim, zero_dim]),
+                tf.tile(tf.equal(tf.expand_dims(a[..., 0], axis=-1), zero_dim), (1, 1, 1, 3)),
+                tf.concat([one_dim, zero_dim, zero_dim], axis=-1),
                 tf.where(
-                    tf.expand_dims(tf.where(a[..., 1]), axis=-1) == 0.0,
-                    tf.stack([zero_dim, one_dim, zero_dim]),
+                    tf.tile(tf.equal(tf.expand_dims(a[..., 1], axis=-1), zero_dim), (1, 1, 1, 3)),
+                    tf.concat([zero_dim, one_dim, zero_dim], axis=-1),
                     tf.where(
-                        tf.expand_dims(tf.where(a[..., 2]), axis=-1) == 0.0,
-                        tf.stack([zero_dim, zero_dim, one_dim]),
-                        tf.stack([one_dim, one_dim,
-                                  -1.0 * tf.reduce_sum(u[..., :2], axis=-1, keepdims=True) / u[..., 2]], axis=-1)
+                        tf.tile(tf.equal(tf.expand_dims(a[..., 2], axis=-1), zero_dim), (1, 1, 1, 3)),
+                        tf.concat([zero_dim, zero_dim, one_dim], axis=-1),
+                        tf.concat([one_dim, one_dim,
+                                   -1.0 * tf.reduce_sum(u[..., :2], axis=-1, keepdims=True) /
+                                   tf.expand_dims(u[..., 2], axis=-1)], axis=-1)
                     )
                 )
             )
@@ -129,13 +130,15 @@ def quaternion_between(u, v):
     k = tf.sqrt(_length_2(u) * _length_2(v))
 
     return tf.where(
-            tf.reduce_sum(u, axis=-1, keepdims=True) == 0.0, tf.stack([one_dim, u], axis=-1),
+            tf.tile(tf.equal(tf.reduce_sum(u, axis=-1, keepdims=True), zero_dim), (1, 1, 1, 4)),
+            tf.concat([one_dim, u], axis=-1),
             tf.where(
-                tf.reduce_sum(v, axis=-1, keepdims=True) == 0.0, tf.stack([one_dim, v], axis=-1),
+                tf.tile(tf.equal(tf.reduce_sum(v, axis=-1, keepdims=True), zero_dim), (1, 1, 1, 4)),
+                tf.concat([one_dim, v], axis=-1),
                 tf.where(
-                    (k_cos_theta / k) == -1,
-                    tf.stack([zero_dim, _normalize(_perpendicular_vector(u))], axis=-1),
-                    _normalize(tf.stack([k_cos_theta + k, tf.cross(u, v)], axis=-1))
+                    tf.tile(tf.equal(k_cos_theta / k, -1.0 * one_dim), (1, 1, 1, 4)),
+                    tf.concat([zero_dim, _normalize(_perpendicular_vector(u))], axis=-1),
+                    _normalize(tf.concat([k_cos_theta + k, tf.cross(u, v)], axis=-1))
                 )
             )
 
@@ -147,25 +150,27 @@ def quaternion_to_expmap(q):
     Tensorflow port and tensorization of code in:
     https://github.com/una-dinosauria/human-motion-prediction/blob/master/src/data_utils.py
     Args:
-        q: 1x4 quaternion
+        q: (..., 4) quaternion Tensor
     Returns:
-        r: 1x3 exponential map
+        r: (..., 3) exponential map Tensor
     Raises:
         ValueError if the l2 norm of the quaternion is not close to 1
     """
     # if (np.abs(np.linalg.norm(q)-1)>1e-3):
     # raise(ValueError, "quat2expmap: input quaternion is not norm 1")
-    # TODO: test code
 
     sinhalftheta = tf.sqrt(tf.reduce_sum(tf.square(q[..., 1:]), axis=-1, keep_dims=True) + 1e-8)
-    coshalftheta = q[..., 0]
+    coshalftheta = tf.expand_dims(q[..., 0], axis=-1)
 
     r0 = q[..., 1:] / sinhalftheta
     theta = 2 * tf.atan2(sinhalftheta, coshalftheta)
     theta = tf.mod(theta + 2*np.pi, 2*np.pi)
 
-    theta = tf.where(theta > np.pi, 2 * np.pi - theta, theta)
-    r0 = tf.where(theta > np.pi, -r0, r0)
+    condition = tf.greater(theta, np.pi * tf.ones_like(theta))
+    cond_tile = [1 for _ in condition.shape]
+    cond_tile[-1] = 3
+    theta = tf.where(condition, 2 * np.pi - theta, theta)
+    r0 = tf.where(tf.tile(condition, cond_tile), -r0, r0)
     r = r0 * theta
 
     return r
@@ -177,9 +182,9 @@ def rotmat_to_quaternion(R):
     Tensorflow port and tensorization of code in:
     https://github.com/una-dinosauria/human-motion-prediction/blob/master/src/data_utils.py
     Args:
-      R: 3x3 rotation matrix
+      R: (..., 3, 3) rotation matrix Tensor
     Returns:
-      q: 1x4 quaternion
+      q: (..., 4) quaternion Tensor
     """
     # TODO: FIX stack operations and test code
     trans_dims = range(len(R.shape))
@@ -210,13 +215,11 @@ def expmap_to_rotmat(r):
     Tensorflow port and tensorization of code in:
     https://github.com/una-dinosauria/human-motion-prediction/blob/master/src/data_utils.py
     Args:
-      r: 1x3 exponential map
+      r: (..., 3) exponential map Tensor
     Returns:
-      R: 3x3 rotation matrix
+      R: (..., 3, 3) rotation matrix Tensor
     """
-    # TODO: FIX stack operations and test code
-    base_shape = [int(d) for d in r.shape]
-    base_shape[-1] = 1
+    base_shape = [int(d) for d in r.shape][:-1]
     zero_dim = tf.zeros(base_shape)
 
     theta = tf.sqrt(tf.reduce_sum(tf.square(r), axis=-1, keep_dims=True) + 1e-8)
@@ -226,17 +229,17 @@ def expmap_to_rotmat(r):
         tf.stack([zero_dim, -1.0 * r0[..., 2], r0[..., 1],
                   zero_dim, zero_dim, -1.0 * r0[..., 0],
                   zero_dim, zero_dim, zero_dim], axis=-1),
-        base_shape[:-2] + [3, 3]
+        base_shape + [3, 3]
     )
 
-    trans_dims = range(len(r.shape))
+    trans_dims = range(len(r0x.shape))
     trans_dims[-1], trans_dims[-2] = trans_dims[-2], trans_dims[-1]
 
     r0x = r0x - tf.transpose(r0x, trans_dims)
-    tile_eye = tf.constant(np.tile(np.eye(3), base_shape[:-2] + [1, 1]))
+    tile_eye = tf.constant(np.tile(np.reshape(np.eye(3), [1 for _ in base_shape] + [3, 3]), base_shape + [1, 1]), dtype=tf.float32)
+    theta = tf.expand_dims(theta, axis=-1)
 
-    R = tile_eye + tf.sin(theta) * r0x + (1.0 - tf.cos(theta)) * \
-        tf.reduce_sum(tf.multiply(r0x, r0x), axis=-1, keep_dims=True)
+    R = tile_eye + tf.sin(theta) * r0x + (1.0 - tf.cos(theta)) * K.batch_dot(r0x, r0x, axes=[[-2,-1], [-2,-1]])
     return R
 
 
@@ -246,7 +249,7 @@ def quaternion_to_rotmat(q):
     http://www.euclideanspace.com/maths/geometry/rotations/conversions/quaternionToMatrix/
     https://github.com/PhilJd/tf-quaternion/blob/master/tfquaternion/tfquaternion.py
     Args:
-        q: a (...x, 4) quaternion tensor
+        q: a (..., 4) quaternion tensor
     Returns:
         A `tf.Tensor` with R+1 dimensions and
         shape [d_1, ..., d_(R-1), 3, 3], the rotation matrix
@@ -276,35 +279,33 @@ def rotmat_to_euler(R):
     Tensorflow port and tensorization of code in:
     https://github.com/una-dinosauria/human-motion-prediction/blob/master/src/data_utils.py
     Args:
-      R: a 3x3 rotation matrix
+      R: a (..., 3, 3) rotation matrix Tensor
     Returns:
-      eul: a 3x1 Euler angle representation of R
+      eul: a (..., 3) Euler angle representation of R
     """
-    # TODO: FIX stack operations and test codes
-    base_shape = [int(d) for d in R.shape][:-1]
-    base_shape[-1] = 1
+    base_shape = [int(d) for d in R.shape][:-2]
     zero_dim = tf.zeros(base_shape)
     one_dim = tf.ones(base_shape)
 
-    econd0 = R[..., 0, 2] == 1
-    econd1 = R[..., 0, 2] == -1
+    econd0 = tf.equal(R[..., 0, 2], one_dim)
+    econd1 = tf.equal(R[..., 0, 2], -1.0 * one_dim)
     econd = tf.logical_or(econd0, econd1)
 
-    E2 = tf.where(
+    e2 = tf.where(
         econd,
         tf.where(econd1, one_dim * np.pi / 2.0, one_dim * -np.pi / 2.0),
         -tf.asin(R[..., 0, 2])
     )
-    E1 = tf.where(
+    e1 = tf.where(
         econd,
         tf.atan2(R[..., 1, 2], R[..., 0, 2]),
-        tf.atan2(R[..., 1, 2] / tf.cos(E2), R[..., 2, 2] / tf.cos(E2))
+        tf.atan2(R[..., 1, 2] / tf.cos(e2), R[..., 2, 2] / tf.cos(e2))
     )
-    E3 = tf.where(
+    e3 = tf.where(
         econd,
         zero_dim,
-        tf.atan2(R[..., 0, 1] / tf.cos(E2), R[..., 0, 0] / tf.cos(E2))
+        tf.atan2(R[..., 0, 1] / tf.cos(e2), R[..., 0, 0] / tf.cos(e2))
     )
 
-    eul = tf.expand_dims(tf.stack([E1, E2, E3], axis=-1), axis=-1)
+    eul = tf.stack([e1, e2, e3], axis=-1)
     return eul

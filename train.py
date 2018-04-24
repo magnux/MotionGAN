@@ -196,7 +196,7 @@ if __name__ == "__main__":
             gen_losses = model_wrap.gen_eval(gen_inputs + place_holders)
             if config.use_pose_fae:
                 fae_z = gen_losses.pop('fae_z', None)
-            # aux_out = gen_losses.pop('aux_out', None)
+            aux_out = gen_losses.pop('aux_out', None)
             gen_outputs = gen_losses.pop('gen_outputs', None)
 
             logs = disc_losses.copy()
@@ -207,12 +207,12 @@ if __name__ == "__main__":
                 if config.normalize_data:
                     poses_batch = data_input.unnormalize_poses(poses_batch)
                     gen_outputs = data_input.unnormalize_poses(gen_outputs)
-                    # aux_out = data_input.unnormalize_poses(aux_out)
+                    aux_out = data_input.unnormalize_poses(aux_out)
                 for i in range(10):  # config.batch_size
                     gif_name = '%s_tmp.gif' % config.save_path
                     gif_height, gif_width = plot_seq_gif(
                         np.concatenate([poses_batch[np.newaxis, i, ...],
-                                        # aux_out[np.newaxis, i, ...],
+                                        aux_out[np.newaxis, i, ...],
                                         gen_outputs[np.newaxis, i, ...]]),
                         labs_batch[i, ...],
                         config.data_set,

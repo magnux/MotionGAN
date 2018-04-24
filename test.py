@@ -17,7 +17,7 @@ logging = tf.logging
 flags = tf.flags
 flags.DEFINE_bool("verbose", False, "To talk or not to talk")
 flags.DEFINE_multi_string("model_path", None, "Model output directory")
-flags.DEFINE_string("test_mode", "show_images", "Test modes: show_images, write_images, write_data, dmnn_score")
+flags.DEFINE_string("test_mode", "show_images", "Test modes: show_images, write_images, write_data, dmnn_score, dmnn_score_table")
 flags.DEFINE_string("dmnn_path", None, "Path to trained DMNN model")
 flags.DEFINE_string("images_mode", "gif", "Image modes: gif, png")
 flags.DEFINE_integer("mask_mode", 3, "Mask modes: 0:%s, 1:%s, 2:%s, 3:%s, 4:%s" % MASK_MODES)
@@ -106,14 +106,18 @@ if __name__ == "__main__":
             labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
 
             gen_outputs = []
+            proc_gen_outputs = []
             for m, model_wrap in enumerate(model_wraps):
                 gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
+                proc_gen_output = np.empty_like(gen_output)
+                for j in range(batch_size):
+                    proc_gen_output[j, ...] = post_process(poses_batch[j, ...], gen_output[j, ...],
+                                                      mask_batch[j, ...], body_members)
                 if configs[m].normalize_data:
-                    for seq_idx in batch_size:
-                        gen_output[seq_idx, ...] = post_process(poses_batch[seq_idx, ...], gen_output[seq_idx, ...],
-                                                                mask_batch[seq_idx, ...], body_members)
                     gen_output = data_input.unnormalize_poses(gen_output)
+                    proc_gen_output = data_input.unnormalize_poses(proc_gen_output)
                 gen_outputs.append(gen_output)
+                proc_gen_outputs.append(proc_gen_output)
 
             if configs[0].normalize_data:
                 poses_batch = data_input.unnormalize_poses(poses_batch)
@@ -145,7 +149,8 @@ if __name__ == "__main__":
                 burke_seq = np.expand_dims(burke_seq, 0)
 
                 plot_func(np.concatenate([poses_batch[np.newaxis, seq_idx, ...], linear_seq, burke_seq] +
-                                         [gen_output[np.newaxis, seq_idx, ...] for gen_output in gen_outputs]),
+                                         [gen_output[np.newaxis, seq_idx, ...] for gen_output in gen_outputs] +
+                                         [proc_gen_output[np.newaxis, seq_idx, ...] for proc_gen_output in proc_gen_outputs]),
                           labs_batch[seq_idx, ...],
                           configs[0].data_set,
                           seq_masks=mask_batch[seq_idx, ...],
@@ -166,10 +171,10 @@ if __name__ == "__main__":
 
             for m, model_wrap in enumerate(model_wraps):
                 gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
+                for j in range(batch_size):
+                    gen_output[j, ...] = post_process(poses_batch[j, ...], gen_output[j, ...],
+                                                      mask_batch[j, ...], body_members)
                 if configs[m].normalize_data:
-                    for seq_idx in batch_size:
-                        gen_output[seq_idx, ...] = post_process(poses_batch[seq_idx, ...], gen_output[seq_idx, ...],
-                                                                mask_batch[seq_idx, ...], body_members)
                     gen_output = data_input.unnormalize_poses(gen_output)
 
                 for j in range(batch_size):
@@ -244,18 +249,21 @@ if __name__ == "__main__":
 
                 labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
 
-                re_poses_batch = unnormalize_batch(poses_batch)
-                re_poses_batch_edm = edm(re_poses_batch)
+                unorm_poses_batch = unnormalize_batch(poses_batch)
+                unorm_poses_batch_edm = edm(unorm_poses_batch)
 
                 for m, model_wrap in enumerate(model_wraps):
-                    gen_outputs = model_wrap.gen_model.predict(gen_inputs, batch_size)
+                    gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
+                    for j in range(batch_size):
+                        gen_output[j, ...] = post_process(poses_batch[j, ...], gen_output[j, ...],
+                                                          mask_batch[j, ...], body_members)
                     if FLAGS.dmnn_path is not None:
-                        _, gen_acc = model_wrap_dmnn.model.evaluate(gen_outputs, labs_batch[:, 2], batch_size=batch_size, verbose=2)
+                        _, gen_acc = model_wrap_dmnn.model.evaluate(gen_output, labs_batch[:, 2], batch_size=batch_size, verbose=2)
                         accs[FLAGS.model_path[m] + '_acc'] += gen_acc
 
-                    gen_outputs = unnormalize_batch(gen_outputs, m)
-                    p2ps[FLAGS.model_path[m] + '_p2p'] += p2pd(re_poses_batch, gen_outputs)
-                    dms[FLAGS.model_path[m] + '_dm'] += np.mean(np.abs(re_poses_batch_edm - edm(gen_outputs)))
+                    gen_output = unnormalize_batch(gen_output, m)
+                    p2ps[FLAGS.model_path[m] + '_p2p'] += p2pd(unorm_poses_batch, gen_output)
+                    dms[FLAGS.model_path[m] + '_dm'] += np.mean(np.abs(unorm_poses_batch_edm - edm(gen_output)))
 
                 if FLAGS.dmnn_path is not None:
                     _, real_acc = model_wrap_dmnn.model.evaluate(poses_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
@@ -272,16 +280,16 @@ if __name__ == "__main__":
                     accs['linear_acc'] += linear_acc
 
                 linear_batch = unnormalize_batch(linear_batch)
-                p2ps['linear_p2p'] += p2pd(re_poses_batch, linear_batch)
-                dms['linear_dm'] += np.mean(np.abs(re_poses_batch_edm - edm(linear_batch)))
+                p2ps['linear_p2p'] += p2pd(unorm_poses_batch, linear_batch)
+                dms['linear_dm'] += np.mean(np.abs(unorm_poses_batch_edm - edm(linear_batch)))
 
                 if FLAGS.dmnn_path is not None:
                     _, burke_acc = model_wrap_dmnn.model.evaluate(burke_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
                     accs['burke_acc'] += burke_acc
 
                 burke_batch = unnormalize_batch(burke_batch)
-                p2ps['burke_p2p'] += p2pd(re_poses_batch, burke_batch)
-                dms['burke_dm'] += np.mean(np.abs(re_poses_batch_edm - edm(burke_batch)))
+                p2ps['burke_p2p'] += p2pd(unorm_poses_batch, burke_batch)
+                dms['burke_dm'] += np.mean(np.abs(unorm_poses_batch_edm - edm(burke_batch)))
 
                 mean_accs = {}
                 for key, value in accs.items():

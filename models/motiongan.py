@@ -148,7 +148,7 @@ class _MotionGAN(object):
             gen_f_outs = self.gen_losses.values()
             if self.use_pose_fae:
                 gen_f_outs.append(self.fae_z)
-            gen_f_outs.append(self.aux_out)
+            # gen_f_outs.append(self.aux_out)
             gen_f_outs += self.gen_outputs
             self.gen_eval_f = K.function(self.gen_inputs + self.place_holders, gen_f_outs)
 
@@ -186,7 +186,7 @@ class _MotionGAN(object):
         keys = ['val/%s' % key for key in keys]
         if self.use_pose_fae:
             keys.append('fae_z')
-        keys.append('aux_out')
+        # keys.append('aux_out')
         keys.append('gen_outputs')
         losses_dict = OrderedDict(zip(keys, eval_outs))
         return losses_dict
@@ -257,6 +257,18 @@ class _MotionGAN(object):
             with K.name_scope('reconstruction_loss'):
                 loss_rec = K.sum(K.mean(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1), axis=(1, 2))
                 gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
+
+                real_seq_vel = real_seq[:, :, 1:, :] - real_seq[:, :, :-1, :]
+                gen_seq_vel = gen_seq[:, :, 1:, :] - gen_seq[:, :, :-1, :]
+                seq_mask_vel = seq_mask[:, :, 1:, :] * seq_mask[:, :, :-1, :]
+                loss_rec_vel = K.sum(K.mean(K.square((real_seq_vel * seq_mask_vel) - (gen_seq_vel * seq_mask_vel)), axis=-1), axis=(1, 2))
+                gen_losses['gen_loss_rec_vel'] = self.rec_scale * K.mean(loss_rec_vel)
+
+                real_seq_acl = real_seq_vel[:, :, 1:, :] - real_seq_vel[:, :, :-1, :]
+                gen_seq_acl = gen_seq_vel[:, :, 1:, :] - gen_seq_vel[:, :, :-1, :]
+                seq_mask_acl = seq_mask_vel[:, :, 1:, :] * seq_mask_vel[:, :, :-1, :]
+                loss_rec_acl = K.sum(K.mean(K.square((real_seq_acl * seq_mask_acl) - (gen_seq_acl * seq_mask_acl)), axis=-1), axis=(1, 2))
+                gen_losses['gen_loss_rec_acl'] = self.rec_scale * K.mean(loss_rec_acl)
 
                 if self.use_diff:
                     loss_rec_diff = K.sum(K.mean(K.square((self.diff_input * self.diff_input_mask) -
@@ -627,8 +639,8 @@ class _MotionGAN(object):
                 self.diff_input, self.diff_input_mask = x, x_mask
             if self.use_angles:
                 x, x_mask = self._seq_to_angles_in(x, x_mask)
-                self.aux_out = x
-                self.aux_out = self._seq_to_angles_out(x)
+                # self.aux_out = x
+                # self.aux_out = self._seq_to_angles_out(x)
 
 
             x = Multiply(name=scope+'mask_mult')([x, x_mask])

@@ -262,13 +262,13 @@ class _MotionGAN(object):
                 gen_seq_vel = gen_seq[:, :, 1:, :] - gen_seq[:, :, :-1, :]
                 seq_mask_vel = seq_mask[:, :, 1:, :] * seq_mask[:, :, :-1, :]
                 loss_rec_vel = K.sum(K.mean(K.square((real_seq_vel * seq_mask_vel) - (gen_seq_vel * seq_mask_vel)), axis=-1), axis=(1, 2))
-                gen_losses['gen_loss_rec_vel'] = self.rec_scale * K.mean(loss_rec_vel)
+                gen_losses['gen_loss_rec_vel'] = self.rec_scale * 10 * K.mean(loss_rec_vel)
 
                 real_seq_acl = real_seq_vel[:, :, 1:, :] - real_seq_vel[:, :, :-1, :]
                 gen_seq_acl = gen_seq_vel[:, :, 1:, :] - gen_seq_vel[:, :, :-1, :]
                 seq_mask_acl = seq_mask_vel[:, :, 1:, :] * seq_mask_vel[:, :, :-1, :]
                 loss_rec_acl = K.sum(K.mean(K.square((real_seq_acl * seq_mask_acl) - (gen_seq_acl * seq_mask_acl)), axis=-1), axis=(1, 2))
-                gen_losses['gen_loss_rec_acl'] = self.rec_scale * K.mean(loss_rec_acl)
+                gen_losses['gen_loss_rec_acl'] = self.rec_scale * 100 * K.mean(loss_rec_acl)
 
                 if self.use_diff:
                     loss_rec_diff = K.sum(K.mean(K.square((self.diff_input * self.diff_input_mask) -

@@ -149,6 +149,9 @@ def get_body_graph(body_members):
         return hierarchy
     # traverse({}, graph, roots)
 
+    for key, value in graph.items():
+        graph[key] = sorted(list(graph[key]))
+
     return members_from, members_to, graph
 
 
@@ -168,7 +171,7 @@ def post_process(real_seq, gen_seq, mask, body_members):
                                + blend_seq[parent_idx, frame, :])
                 blend_seq[joint_idx, frame, :] = (blend_seq[joint_idx, frame, :] + space_blend) / 2
 
-        for child_idx in sorted(graph[joint_idx]):
+        for child_idx in graph[joint_idx]:
             _post_process_joint(frame, child_idx, joint_idx)
 
     for f in range(1, real_seq.shape[1] - 1):

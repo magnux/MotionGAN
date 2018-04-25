@@ -103,17 +103,16 @@ def quaternion_between(u, v):
         """ Finds an arbitrary perpendicular vector to *a*.
             returns 0, 0, 0 for the all zeros singular case
         """
-
         return tf.where(
-            tf.tile(tf.equal(tf.reduce_sum(a, axis=-1, keepdims=True), zero_dim), (1, 1, 1, 3)), a,
+            tf.tile(tf.equal(tf.reduce_sum(a, axis=-1, keepdims=True), zero_dim), [1 for _ in a.shape[:-1]] + [3]), a,
             tf.where(
-                tf.tile(tf.equal(tf.expand_dims(a[..., 0], axis=-1), zero_dim), (1, 1, 1, 3)),
+                tf.tile(tf.equal(tf.expand_dims(a[..., 0], axis=-1), zero_dim), [1 for _ in a.shape[:-1]] + [3]),
                 tf.concat([one_dim, zero_dim, zero_dim], axis=-1),
                 tf.where(
-                    tf.tile(tf.equal(tf.expand_dims(a[..., 1], axis=-1), zero_dim), (1, 1, 1, 3)),
+                    tf.tile(tf.equal(tf.expand_dims(a[..., 1], axis=-1), zero_dim), [1 for _ in a.shape[:-1]] + [3]),
                     tf.concat([zero_dim, one_dim, zero_dim], axis=-1),
                     tf.where(
-                        tf.tile(tf.equal(tf.expand_dims(a[..., 2], axis=-1), zero_dim), (1, 1, 1, 3)),
+                        tf.tile(tf.equal(tf.expand_dims(a[..., 2], axis=-1), zero_dim), [1 for _ in a.shape[:-1]] + [3]),
                         tf.concat([zero_dim, zero_dim, one_dim], axis=-1),
                         tf.concat([one_dim, one_dim,
                                    -1.0 * tf.reduce_sum(u[..., :2], axis=-1, keepdims=True) /
@@ -130,13 +129,13 @@ def quaternion_between(u, v):
     k = tf.sqrt(_length_2(u) * _length_2(v))
 
     return tf.where(
-            tf.tile(tf.equal(tf.reduce_sum(u, axis=-1, keepdims=True), zero_dim), (1, 1, 1, 4)),
+            tf.tile(tf.equal(tf.reduce_sum(u, axis=-1, keepdims=True), zero_dim), [1 for _ in u.shape[:-1]] + [4]),
             tf.concat([one_dim, u], axis=-1),
             tf.where(
-                tf.tile(tf.equal(tf.reduce_sum(v, axis=-1, keepdims=True), zero_dim), (1, 1, 1, 4)),
+                tf.tile(tf.equal(tf.reduce_sum(v, axis=-1, keepdims=True), zero_dim), [1 for _ in u.shape[:-1]] + [4]),
                 tf.concat([one_dim, v], axis=-1),
                 tf.where(
-                    tf.tile(tf.equal(k_cos_theta / k, -1.0 * one_dim), (1, 1, 1, 4)),
+                    tf.tile(tf.equal(k_cos_theta / k, -1.0 * one_dim), [1 for _ in u.shape[:-1]] + [4]),
                     tf.concat([zero_dim, _normalize(_perpendicular_vector(u))], axis=-1),
                     _normalize(tf.concat([k_cos_theta + k, tf.cross(u, v)], axis=-1))
                 )
@@ -167,10 +166,8 @@ def quaternion_to_expmap(q):
     theta = tf.mod(theta + 2*np.pi, 2*np.pi)
 
     condition = tf.greater(theta, np.pi * tf.ones_like(theta))
-    cond_tile = [1 for _ in condition.shape]
-    cond_tile[-1] = 3
     theta = tf.where(condition, 2 * np.pi - theta, theta)
-    r0 = tf.where(tf.tile(condition, cond_tile), -r0, r0)
+    r0 = tf.where(tf.tile(condition, [1 for _ in condition.shape[:-1]] + [3]), -r0, r0)
     r = r0 * theta
 
     return r

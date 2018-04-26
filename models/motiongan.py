@@ -494,7 +494,7 @@ class _MotionGAN(object):
             self.stats[scope+'hip_coords'] = Lambda(_get_hips, name=scope+'hip_coords')(x)
 
             def _get_bone_len(arg):
-                bones = [arg[:, i, 0, :] - arg[:, j, 0, :] for i, j in zip(members_from, members_to)]
+                bones = [arg[:, j, 0, :] - arg[:, i, 0, :] for i, j in zip(members_from, members_to)]
                 bones = K.stack(bones, axis=1)
                 return K.sqrt(K.sum(K.square(bones), axis=-1) + K.epsilon())
 
@@ -516,6 +516,7 @@ class _MotionGAN(object):
                     for child_idx in body_graph[joint_idx]:
                         child_bone = coords[:, child_idx, :, :] - coords[:, joint_idx, :, :]
                         angle = quaternion_between(parent_bone, child_bone)
+                        angle = quaternion_to_expmap(angle)
                         angles.append(angle)
 
                     for child_idx in body_graph[joint_idx]:
@@ -527,9 +528,6 @@ class _MotionGAN(object):
                 return K.stack(angles, axis=1)
 
             x = Lambda(_get_angles, name=scope+'angles')(x)
-            self.quats = x
-            x = Lambda(lambda arg: K.stack([quaternion_to_expmap(arg[:, i, ...]) for i in range(arg.shape[1])], axis=1),
-                       name=scope+'exp_map_angles')(x)
 
             def _get_angles_mask(coord_masks):
                 base_shape = [int(dim) for dim in coord_masks.shape]
@@ -561,7 +559,7 @@ class _MotionGAN(object):
             self.euler_out = Lambda(lambda arg: rotmat_to_euler(arg), name=scope+'euler')(x)
 
             def _get_coords(args):
-                rot_mat, bone_len, quats = args
+                rot_mat, bone_len = args
                 base_shape = [int(d) for d in rot_mat.shape]
                 base_shape.pop(1)
                 base_shape[-2] = 1
@@ -581,10 +579,9 @@ class _MotionGAN(object):
 
                     for child_idx in body_graph[joint_idx]:
                         child_bone_idx = bone_idcs[(joint_idx, child_idx)]
-                        # child_bone = coords[joint_idx] + K.batch_dot(rot_mat[:, child_angle_idx, :, :, :],
-                        #                                              parent_bone, axes=[[-2, -1], [-2, -1]])
-                        child_bone = coords[joint_idx] + K.expand_dims(rotate_vector_by_quaternion(quats[:, child_angle_idx, ...], parent_bone[..., 0]), axis=-1)
-                        coords[child_idx] = child_bone * K.reshape(bone_len[:, child_bone_idx], (child_bone.shape[0], 1, 1, 1))
+                        child_bone = K.batch_dot(rot_mat[:, child_angle_idx, :, :, :], parent_bone, axes=[[-2, -1], [-2, -1]])
+                        child_bone = child_bone * K.reshape(bone_len[:, child_bone_idx], (child_bone.shape[0], 1, 1, 1))
+                        coords[child_idx] = child_bone + coords[joint_idx]
                         child_angle_idx += 1
 
                     for child_idx in body_graph[joint_idx]:
@@ -597,7 +594,7 @@ class _MotionGAN(object):
                 coords = K.squeeze(coords, axis=-1)
                 return coords
 
-            x = Lambda(_get_coords, name=scope+'coords')([x, self.stats[scope+'bone_len'], self.quats])
+            x = Lambda(_get_coords, name=scope+'coords')([x, self.stats[scope+'bone_len']])
             x = Lambda(lambda args: args[0] + args[1], name=scope+'add_hip_coords')([x, self.stats[scope+'hip_coords']])
         return x
 

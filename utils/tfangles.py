@@ -112,7 +112,6 @@ def quaternion_between(u, v):
                     _normalize(tf.concat([w, tf.cross(u, v)], axis=-1))
                 )
             )
-
         )
 
 

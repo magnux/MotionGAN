@@ -147,7 +147,7 @@ def get_body_graph(body_members):
         for name in names:
             hierarchy[name] = traverse({}, graph, graph[name])
         return hierarchy
-    # traverse({}, graph, roots)
+    # print(traverse({}, graph, roots))
 
     for key, value in graph.items():
         graph[key] = sorted(list(graph[key]))

@@ -73,7 +73,7 @@ class _MotionGAN(object):
         self.use_diff = config.use_diff
         self.diff_scale = 100.0
         self.use_angles = config.use_angles
-        self.angles_scale = 10.0
+        self.angles_scale = 0.5
         self.stats = {}
 
         # Placeholders for training phase

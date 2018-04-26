@@ -104,7 +104,7 @@ def quaternion_between(u, v):
     one_dim = tf.ones(base_shape)
     w = tf.sqrt(_length_2(u) * _length_2(v)) + _vector_batch_dot(u, v)
 
-    return tf.where(
+    q = tf.where(
             tf.tile(tf.equal(tf.reduce_sum(u, axis=-1, keepdims=True), zero_dim), [1 for _ in u.shape[:-1]] + [4]),
             tf.concat([one_dim, u], axis=-1),
             tf.where(
@@ -112,11 +112,13 @@ def quaternion_between(u, v):
                 tf.concat([one_dim, v], axis=-1),
                 tf.where(
                     tf.tile(tf.less(w, 1e-4), [1 for _ in u.shape[:-1]] + [4]),
-                    tf.concat([zero_dim, _normalize(tf.stack([-u[..., 2], u[..., 1], u[..., 0]], axis=-1))], axis=-1),
-                    _normalize(tf.concat([w, tf.cross(u, v)], axis=-1))
+                    tf.concat([zero_dim, tf.stack([-u[..., 2], u[..., 1], u[..., 0]], axis=-1)], axis=-1),
+                    tf.concat([w, tf.cross(u, v)], axis=-1)
                 )
             )
         )
+
+    return _normalize(q)
 
 
 def quaternion_to_expmap(q):
@@ -199,7 +201,6 @@ def expmap_to_rotmat(r):
                   zero_dim, zero_dim, zero_dim], axis=-1),
         base_shape + [3, 3]
     )
-
     trans_dims = range(len(r0x.shape))
     trans_dims[-1], trans_dims[-2] = trans_dims[-2], trans_dims[-1]
     r0x = r0x - tf.transpose(r0x, trans_dims)
@@ -207,7 +208,7 @@ def expmap_to_rotmat(r):
     tile_eye = tf.constant(np.tile(np.reshape(np.eye(3), [1 for _ in base_shape] + [3, 3]), base_shape + [1, 1]), dtype=tf.float32)
     theta = tf.expand_dims(theta, axis=-1)
 
-    R = tile_eye + tf.sin(theta) * r0x + (1.0 - tf.cos(theta)) * K.batch_dot(r0x, r0x, axes=[-1, -2])
+    R = tile_eye + tf.sin(theta) * r0x + (1.0 - tf.cos(theta)) * K.batch_dot(r0x, tf.transpose(r0x, trans_dims), axes=[-1, -2])
     return R
 
 
@@ -229,13 +230,13 @@ def expmap_to_quaternion(r):
     condition = tf.greater(theta, 2 * np.pi)
     theta = tf.where(condition, tf.mod(theta, 2 * np.pi), theta)
     scl = theta / scl
-    r = tf.where(condition, r * scl, r)
+    r = tf.where(tf.tile(condition, [1 for _ in condition.shape[:-1]] + [3]), r * scl, r)
 
     scl = theta
     condition = tf.greater(theta, np.pi)
     theta = tf.where(condition, 2 * np.pi - theta, theta)
     scl = 1.0 - 2 * np.pi / scl
-    r = tf.where(condition, r * scl, r)
+    r = tf.where(tf.tile(condition, [1 for _ in condition.shape[:-1]] + [3]), r * scl, r)
 
     cosp = tf.cos(.5 * theta)
     sinp = tf.sin(.5 * theta)

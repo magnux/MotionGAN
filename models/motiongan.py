@@ -17,7 +17,8 @@ from layers.comb_matrix import CombMatrix
 from collections import OrderedDict
 from utils.scoping import Scoping
 from utils.tfangles import quaternion_between, quaternion_to_expmap, expmap_to_rotmat, rotmat_to_euler, \
-    vector3d_to_quaternion, quaternion_conjugate, rotate_vector_by_quaternion, rotmat_to_quaternion
+    vector3d_to_quaternion, quaternion_conjugate, rotate_vector_by_quaternion, rotmat_to_quaternion, \
+    expmap_to_quaternion, quaternion_to_rotmat
 from utils.seq_utils import get_body_graph
 
 CONV1D_ARGS = {'padding': 'same', 'kernel_regularizer': l2(5e-4)}
@@ -565,6 +566,8 @@ class _MotionGAN(object):
                 base_shape[-2] = 1
                 base_shape[-1] = 1
                 bone_idcs = {idx_tup: i for i, idx_tup in enumerate([idx_tup for idx_tup in zip(members_from, members_to)])}
+                trans_dims = range(len(base_shape))
+                trans_dims[-1], trans_dims[-2] = trans_dims[-2], trans_dims[-1]
 
                 def _get_coords_for_joint(joint_idx, parent_idx, child_angle_idx, coords):
                     if parent_idx is None:  # joint_idx should be 0
@@ -579,7 +582,7 @@ class _MotionGAN(object):
 
                     for child_idx in body_graph[joint_idx]:
                         child_bone_idx = bone_idcs[(joint_idx, child_idx)]
-                        child_bone = K.batch_dot(rot_mat[:, child_angle_idx, :, :, :], parent_bone, axes=[-1, -2])
+                        child_bone = K.batch_dot(tf.transpose(rot_mat[:, child_angle_idx, :, :, :], trans_dims), parent_bone , axes=[-1, -2])
                         # child_bone = tf.expand_dims(rotate_vector_by_quaternion(rotmat_to_quaternion(rot_mat[:, child_angle_idx, :, :, :]), parent_bone[..., 0]), axis=-1)
                         child_bone = child_bone * K.reshape(bone_len[:, child_bone_idx], (child_bone.shape[0], 1, 1, 1))
                         coords[child_idx] = child_bone + coords[joint_idx]

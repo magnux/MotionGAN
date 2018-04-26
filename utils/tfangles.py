@@ -136,7 +136,7 @@ def quaternion_to_expmap(q):
     theta = 2 * tf.atan2(sinhalftheta, coshalftheta)
     theta = tf.mod(theta + 2*np.pi, 2*np.pi)
 
-    condition = tf.greater(theta, np.pi * tf.ones_like(theta))
+    condition = tf.greater(theta, np.pi)
     theta = tf.where(condition, 2 * np.pi - theta, theta)
     r0 = tf.where(tf.tile(condition, [1 for _ in condition.shape[:-1]] + [3]), -r0, r0)
     r = r0 * theta
@@ -154,7 +154,6 @@ def rotmat_to_quaternion(R):
     Returns:
       q: (..., 4) quaternion Tensor
     """
-    # TODO: FIX stack operations and test code
     trans_dims = range(len(R.shape))
     trans_dims[-1], trans_dims[-2] = trans_dims[-2], trans_dims[-1]
     rotdiff = R - tf.transpose(R, trans_dims)
@@ -164,11 +163,11 @@ def rotmat_to_quaternion(R):
     sintheta = rnorm / 2.0
     r0 = r / rnorm
 
-    costheta = (tf.trace(R) - 1.0) / 2.0
+    costheta = tf.expand_dims((tf.trace(R) - 1.0) / 2.0, axis=-1)
 
     theta = tf.atan2(sintheta, costheta)
 
-    q = tf.stack([tf.cos(theta / 2),  r0 * tf.sin(theta / 2)], axis=-1)
+    q = tf.concat([tf.cos(theta / 2),  r0 * tf.sin(theta / 2)], axis=-1)
 
     return q
 
@@ -202,12 +201,12 @@ def expmap_to_rotmat(r):
 
     trans_dims = range(len(r0x.shape))
     trans_dims[-1], trans_dims[-2] = trans_dims[-2], trans_dims[-1]
-
     r0x = r0x - tf.transpose(r0x, trans_dims)
+
     tile_eye = tf.constant(np.tile(np.reshape(np.eye(3), [1 for _ in base_shape] + [3, 3]), base_shape + [1, 1]), dtype=tf.float32)
     theta = tf.expand_dims(theta, axis=-1)
 
-    R = tile_eye + tf.sin(theta) * r0x + (1.0 - tf.cos(theta)) * K.batch_dot(r0x, r0x, axes=[[-2,-1], [-2,-1]])
+    R = tile_eye + tf.sin(theta) * r0x + (1.0 - tf.cos(theta)) * K.batch_dot(r0x, r0x, axes=[-1, -2])
     return R
 
 

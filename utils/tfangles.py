@@ -5,7 +5,8 @@ import numpy as np
 
 
 def vector3d_to_quaternion(x):
-    """Convert a tensor of 3D vectors to a quaternion.
+    """
+    Convert a tensor of 3D vectors to a quaternion.
     Prepends a 0 to the last dimension, i.e. [[1,2,3]] -> [[0,1,2,3]].
     Args:
         x: A `tf.Tensor` of rank R, the last dimension must be 3.
@@ -26,7 +27,8 @@ def quaternion_to_vector3d(q):
 
 
 def rotate_vector_by_quaternion(q, v, q_ndims=None, v_ndims=None):
-    """Rotate a vector (or tensor with last dimension of 3) by q.
+    """
+    Rotate a vector (or tensor with last dimension of 3) by q.
     This function computes v' = q * v * conjugate(q) but faster.
     Fast version can be found here:
     https://blog.molecular-matters.com/2013/05/24/a-faster-quaternion-vector-multiplication/
@@ -64,8 +66,10 @@ def quaternion_conjugate(q):
 
 
 def quaternion_between(u, v):
-    """Finds the quaternion between two tensor of 3D vectors.
-       http://www.euclideanspace.com/maths/algebra/vectors/angleBetween/index.htm
+    """
+    Finds the quaternion between two tensor of 3D vectors.
+    See:
+    http://www.euclideanspace.com/maths/algebra/vectors/angleBetween/index.htm
     Args:
         u: A `tf.Tensor` of rank R, the last dimension must be 3.
         v: A `tf.Tensor` of rank R, the last dimension must be 3.
@@ -116,7 +120,8 @@ def quaternion_between(u, v):
 
 
 def quaternion_to_expmap(q):
-    """Converts a quaternion to an exponential map
+    """
+    Converts a quaternion to an exponential map
     Tensorflow port and tensorization of code in:
     https://github.com/una-dinosauria/human-motion-prediction/blob/master/src/data_utils.py
     Args:
@@ -172,10 +177,6 @@ def rotmat_to_quaternion(R):
     return q
 
 
-def rotmat_to_expmap(R):
-    return quaternion_to_expmap(rotmat_to_quaternion(R))
-
-
 def expmap_to_rotmat(r):
     """
     Converts an exponential map angle to a rotation matrix
@@ -210,9 +211,45 @@ def expmap_to_rotmat(r):
     return R
 
 
+def expmap_to_quaternion(r):
+    """
+    Converts an exponential map angle to a quaternion
+    See:
+    http://www.cs.cmu.edu/~spiff/exp-map/
+    Args:
+        r: a (..., 3) exponential map tensor
+    Returns:
+        q: A `tf.Tensor` with R+1 dimensions and
+        shape [d_1, ..., d_(R-1), 4], the rotation matrix
+    """
+
+    theta = tf.sqrt(tf.reduce_sum(tf.square(r), axis=-1, keep_dims=True) + 1e-8)
+
+    scl = theta
+    condition = tf.greater(theta, 2 * np.pi)
+    theta = tf.where(condition, tf.mod(theta, 2 * np.pi), theta)
+    scl = theta / scl
+    r = tf.where(condition, r * scl, r)
+
+    scl = theta
+    condition = tf.greater(theta, np.pi)
+    theta = tf.where(condition, 2 * np.pi - theta, theta)
+    scl = 1.0 - 2 * np.pi / scl
+    r = tf.where(condition, r * scl, r)
+
+    cosp = tf.cos(.5 * theta)
+    sinp = tf.sin(.5 * theta)
+
+    q = tf.concat([cosp, tf.where(tf.tile(tf.less(theta, 1e-7), [1 for _ in r.shape[:-1]] + [3]),
+                                  r * (.5 - theta * theta / 48.0),
+                                  r * (sinp / theta))], axis=-1)
+    return q
+
+
 def quaternion_to_rotmat(q):
-    """Calculate the corresponding rotation matrix.
-    See
+    """
+    Calculate the corresponding rotation matrix.
+    See:
     http://www.euclideanspace.com/maths/geometry/rotations/conversions/quaternionToMatrix/
     https://github.com/PhilJd/tf-quaternion/blob/master/tfquaternion/tfquaternion.py
     Args:

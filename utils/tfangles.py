@@ -65,7 +65,7 @@ def quaternion_conjugate(q):
 
 def quaternion_between(u, v):
     """Finds the quaternion between two tensor of 3D vectors.
-
+       http://www.euclideanspace.com/maths/algebra/vectors/angleBetween/index.htm
     Args:
         u: A `tf.Tensor` of rank R, the last dimension must be 3.
         v: A `tf.Tensor` of rank R, the last dimension must be 3.
@@ -85,12 +85,7 @@ def quaternion_between(u, v):
     if u.shape != v.shape:
         raise ValueError("u and v must have the same shape")
 
-    base_shape = [int(d) for d in u.shape]
-    base_shape[-1] = 1
-    zero_dim = tf.zeros(base_shape)
-    one_dim = tf.ones(base_shape)
-
-    def _batch_dot(a, b):
+    def _vector_batch_dot(a, b):
         return tf.reduce_sum(tf.multiply(a, b), axis=-1, keep_dims=True)
 
     def _length_2(a):
@@ -99,34 +94,11 @@ def quaternion_between(u, v):
     def _normalize(a):
         return a / tf.sqrt(_length_2(a) + 1e-8)
 
-    def _perpendicular_vector(a):
-        """ Finds an arbitrary perpendicular vector to *a*.
-            returns 0, 0, 0 for the all zeros singular case
-        """
-        return tf.where(
-            tf.tile(tf.equal(tf.reduce_sum(a, axis=-1, keepdims=True), zero_dim), [1 for _ in a.shape[:-1]] + [3]), a,
-            tf.where(
-                tf.tile(tf.equal(tf.expand_dims(a[..., 0], axis=-1), zero_dim), [1 for _ in a.shape[:-1]] + [3]),
-                tf.concat([one_dim, zero_dim, zero_dim], axis=-1),
-                tf.where(
-                    tf.tile(tf.equal(tf.expand_dims(a[..., 1], axis=-1), zero_dim), [1 for _ in a.shape[:-1]] + [3]),
-                    tf.concat([zero_dim, one_dim, zero_dim], axis=-1),
-                    tf.where(
-                        tf.tile(tf.equal(tf.expand_dims(a[..., 2], axis=-1), zero_dim), [1 for _ in a.shape[:-1]] + [3]),
-                        tf.concat([zero_dim, zero_dim, one_dim], axis=-1),
-                        tf.concat([one_dim, one_dim,
-                                   -1.0 * tf.reduce_sum(u[..., :2], axis=-1, keepdims=True) /
-                                   tf.expand_dims(u[..., 2], axis=-1)], axis=-1)
-                    )
-                )
-            )
-        )
-
-    # w = tf.dot(u, v) + sqrt(length_2(u) * length_2(v))
-    # xyz = cross(u, v)
-
-    k_cos_theta = _batch_dot(u, v)
-    k = tf.sqrt(_length_2(u) * _length_2(v))
+    base_shape = [int(d) for d in u.shape]
+    base_shape[-1] = 1
+    zero_dim = tf.zeros(base_shape)
+    one_dim = tf.ones(base_shape)
+    w = tf.sqrt(_length_2(u) * _length_2(v)) + _vector_batch_dot(u, v)
 
     return tf.where(
             tf.tile(tf.equal(tf.reduce_sum(u, axis=-1, keepdims=True), zero_dim), [1 for _ in u.shape[:-1]] + [4]),
@@ -135,9 +107,9 @@ def quaternion_between(u, v):
                 tf.tile(tf.equal(tf.reduce_sum(v, axis=-1, keepdims=True), zero_dim), [1 for _ in u.shape[:-1]] + [4]),
                 tf.concat([one_dim, v], axis=-1),
                 tf.where(
-                    tf.tile(tf.equal(k_cos_theta / k, -1.0 * one_dim), [1 for _ in u.shape[:-1]] + [4]),
-                    tf.concat([zero_dim, _normalize(_perpendicular_vector(u))], axis=-1),
-                    _normalize(tf.concat([k_cos_theta + k, tf.cross(u, v)], axis=-1))
+                    tf.tile(tf.less(w, 1e-4), [1 for _ in u.shape[:-1]] + [4]),
+                    tf.concat([zero_dim, _normalize(tf.stack([-u[..., 2], u[..., 1], u[..., 0]], axis=-1))], axis=-1),
+                    _normalize(tf.concat([w, tf.cross(u, v)], axis=-1))
                 )
             )
 

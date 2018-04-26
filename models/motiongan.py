@@ -63,9 +63,6 @@ class _MotionGAN(object):
         self.smoothing_basis = 5
         self.time_pres_emb = config.time_pres_emb
         self.use_pose_fae = config.use_pose_fae
-        self.fae_original_dim = self.njoints * 3
-        self.fae_intermediate_dim = self.fae_original_dim
-        self.fae_latent_dim = self.fae_original_dim // 2
         self.rotation_loss = config.rotation_loss
         self.rotation_scale = 10.0
         self.translate_start = config.translate_start
@@ -85,8 +82,8 @@ class _MotionGAN(object):
             self.place_holders.append(true_label)
 
         # Discriminator
-        real_seq = Input(batch_shape=(self.batch_size, self.njoints, self.seq_len, 3),
-                         name='real_seq', dtype='float32')
+        self.org_shape = (self.batch_size, self.njoints, self.seq_len, 3)
+        real_seq = Input(batch_shape=self.org_shape, name='real_seq', dtype='float32')
         self.disc_inputs = [real_seq]
         x = self._proc_disc_inputs(self.disc_inputs)
         self.real_outputs = self._proc_disc_outputs(self.discriminator(x))
@@ -271,9 +268,13 @@ class _MotionGAN(object):
                 gen_losses['gen_loss_rec_acl'] = self.rec_scale * 100 * K.mean(loss_rec_acl)
 
                 if self.use_diff:
-                    loss_rec_diff = K.sum(K.mean(K.square((self.diff_input * self.diff_input_mask) -
-                                                          (self.diff_output * self.diff_input_mask)), axis=-1), axis=(1, 2))
+                    loss_rec_diff = K.sum(K.mean(K.square((self.diff_input * self.diff_mask) -
+                                                          (self.diff_output * self.diff_mask)), axis=-1), axis=(1, 2))
                     gen_losses['gen_loss_rec_diff'] = self.diff_scale * K.mean(loss_rec_diff)
+                if self.use_angles:
+                    loss_rec_angles = K.sum(K.mean(K.square((self.angles_input * self.angles_mask) -
+                                                            (self.angles_output * self.angles_mask)), axis=-1), axis=(1, 2))
+                    gen_losses['gen_loss_rec_angles'] = self.angles_scale * K.mean(loss_rec_angles)
 
             # Optional losses
             if self.action_cond:
@@ -515,7 +516,6 @@ class _MotionGAN(object):
                     for child_idx in body_graph[joint_idx]:
                         child_bone = coords[:, child_idx, :, :] - coords[:, joint_idx, :, :]
                         angle = quaternion_between(parent_bone, child_bone)
-                        angle = quaternion_to_expmap(angle)
                         angles.append(angle)
 
                     for child_idx in body_graph[joint_idx]:
@@ -527,25 +527,28 @@ class _MotionGAN(object):
                 return K.stack(angles, axis=1)
 
             x = Lambda(_get_angles, name=scope+'angles')(x)
+            self.quats = x
+            x = Lambda(lambda arg: K.stack([quaternion_to_expmap(arg[:, i, ...]) for i in range(arg.shape[1])], axis=1),
+                       name=scope+'exp_map_angles')(x)
 
-            def _get_angle_masks(coord_masks):
+            def _get_angles_mask(coord_masks):
                 base_shape = [int(dim) for dim in coord_masks.shape]
                 base_shape.pop(1)
                 base_shape[-1] = 1
 
-                def _get_angle_mask_for_joint(joint_idx, parent_idx, angle_masks):
+                def _get_angle_mask_for_joint(joint_idx, angles_mask):
                     for child_idx in body_graph[joint_idx]:
-                        angle_masks.append(coord_masks[:, child_idx, :, :] * coord_masks[:, joint_idx, :, :])
+                        angles_mask.append(coord_masks[:, child_idx, :, :] * coord_masks[:, joint_idx, :, :])
 
                     for child_idx in body_graph[joint_idx]:
-                        angle_masks = _get_angle_mask_for_joint(child_idx, joint_idx, angle_masks)
+                        angles_mask = _get_angle_mask_for_joint(child_idx, angles_mask)
 
-                    return angle_masks
+                    return angles_mask
 
-                angle_masks = _get_angle_mask_for_joint(0, None, [])
-                return K.stack(angle_masks, axis=1)
+                angles_mask = _get_angle_mask_for_joint(0, [])
+                return K.stack(angles_mask, axis=1)
 
-            x_mask = Lambda(_get_angle_masks, name=scope + 'angle_masks')(x_mask)
+            x_mask = Lambda(_get_angles_mask, name=scope+'angles_mask')(x_mask)
         return x, x_mask
 
     def _seq_to_angles_out(self, x):
@@ -558,7 +561,7 @@ class _MotionGAN(object):
             self.euler_out = Lambda(lambda arg: rotmat_to_euler(arg), name=scope+'euler')(x)
 
             def _get_coords(args):
-                rot_mat, bone_len = args
+                rot_mat, bone_len, quats = args
                 base_shape = [int(d) for d in rot_mat.shape]
                 base_shape.pop(1)
                 base_shape[-2] = 1
@@ -573,14 +576,15 @@ class _MotionGAN(object):
                                                                  np.zeros(base_shape)], axis=-2))
                     else:
                         parent_bone = coords[parent_idx] - coords[joint_idx]
-                        parent_bone_norm = K.sqrt(K.sum(K.square(parent_bone), axis=-1, keepdims=True) + K.epsilon())
+                        parent_bone_norm = K.sqrt(K.sum(K.square(parent_bone), axis=-2, keepdims=True) + K.epsilon())
                         parent_bone = parent_bone / parent_bone_norm
 
                     for child_idx in body_graph[joint_idx]:
                         child_bone_idx = bone_idcs[(joint_idx, child_idx)]
-                        child_bone = parent_bone * K.reshape(bone_len[:, child_bone_idx], (parent_bone.shape[0], 1, 1, 1))
-                        coords[child_idx] = coords[joint_idx] + K.batch_dot(rot_mat[:, child_angle_idx, :, :, :],
-                                                                            child_bone, axes=[[-2, -1], [-2, -1]])
+                        # child_bone = coords[joint_idx] + K.batch_dot(rot_mat[:, child_angle_idx, :, :, :],
+                        #                                              parent_bone, axes=[[-2, -1], [-2, -1]])
+                        child_bone = coords[joint_idx] + K.expand_dims(rotate_vector_by_quaternion(quats[:, child_angle_idx, ...], parent_bone[..., 0]), axis=-1)
+                        coords[child_idx] = child_bone * K.reshape(bone_len[:, child_bone_idx], (child_bone.shape[0], 1, 1, 1))
                         child_angle_idx += 1
 
                     for child_idx in body_graph[joint_idx]:
@@ -588,12 +592,12 @@ class _MotionGAN(object):
 
                     return child_angle_idx, coords
 
-                child_angle_idx, coords = _get_coords_for_joint(0, None, 0, range(self.njoints))
-                coords = K.stack(coords, axis=1)
+                child_angle_idx, coords = _get_coords_for_joint(0, None, 0, {})
+                coords = K.stack([t for i, t in sorted(coords.iteritems())], axis=1)
                 coords = K.squeeze(coords, axis=-1)
                 return coords
 
-            x = Lambda(_get_coords, name=scope+'coords')([x, self.stats[scope+'bone_len']])
+            x = Lambda(_get_coords, name=scope+'coords')([x, self.stats[scope+'bone_len'], self.quats])
             x = Lambda(lambda args: args[0] + args[1], name=scope+'add_hip_coords')([x, self.stats[scope+'hip_coords']])
         return x
 
@@ -653,9 +657,10 @@ class _MotionGAN(object):
                 x = self._remove_hip_in(x)
             if self.use_diff:
                 x, x_mask = self._seq_to_diff_in(x, x_mask)
-                self.diff_input, self.diff_input_mask = x, x_mask
+                self.diff_input, self.diff_mask = x, x_mask
             if self.use_angles:
                 x, x_mask = self._seq_to_angles_in(x, x_mask)
+                self.angles_input, self.angles_mask = x, x_mask
                 self.aux_out = self._seq_to_angles_out(x)
 
             x = Multiply(name=scope+'mask_mult')([x, x_mask])
@@ -714,12 +719,15 @@ class _MotionGAN(object):
 
             else:
                 x = Permute((3, 2, 1), name=scope+'joint_permute')(x)  # filters, time, joints
-                x = Conv2D(self.njoints, 3, 1, name=scope+'joint_reshape', **CONV2D_ARGS)(x)
+                x = Conv2D(self.org_shape[1], 3, 1, name=scope+'joint_reshape', **CONV2D_ARGS)(x)
                 x = Permute((1, 3, 2), name=scope+'time_permute')(x)  # filters, joints, time
-                x = Conv2D(self.seq_len, 3, 1, name=scope+'time_reshape', **CONV2D_ARGS)(x)
+                x = Conv2D(self.org_shape[2], 3, 1, name=scope+'time_reshape', **CONV2D_ARGS)(x)
                 x = Permute((2, 3, 1), name=scope+'coords_permute')(x)  # joints, time, filters
-                x = Conv2D(3, 3, 1, name=scope+'coords_reshape', **CONV2D_ARGS)(x)
+                x = Conv2D(self.org_shape[3], 3, 1, name=scope+'coords_reshape', **CONV2D_ARGS)(x)
 
+            if self.use_angles:
+                self.angles_output = x
+                x = self._seq_to_angles_out(x)
             if self.use_diff:
                 self.diff_output = x
                 x = self._seq_to_diff_out(x)
@@ -739,25 +747,26 @@ class _MotionGAN(object):
     def _pose_encoder(self, seq):
         scope = Scoping.get_global_scope()
         with scope.name_scope('encoder'):
+            fae_dim = int(seq.shape[1]) * 3
 
             h = Permute((2, 1, 3), name=scope+'perm_in')(seq)
             h = Reshape((int(seq.shape[2]), int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
 
-            h = Conv1D(self.fae_intermediate_dim, 1, 1,
+            h = Conv1D(fae_dim, 1, 1,
                        name=scope+'conv_in', **CONV1D_ARGS)(h)
             for i in range(3):
                 with scope.name_scope('block_%d' % i):
-                    pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
+                    pi = Conv1D(fae_dim, 1, 1, activation='relu',
                                 name=scope+'pi_0', **CONV1D_ARGS)(h)
-                    pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
+                    pi = Conv1D(fae_dim, 1, 1, activation='relu',
                                 name=scope+'pi_1', **CONV1D_ARGS)(pi)
-                    tau = Conv1D(self.fae_intermediate_dim, 1, 1, activation='sigmoid',
+                    tau = Conv1D(fae_dim, 1, 1, activation='sigmoid',
                                  name=scope+'tau_0', **CONV1D_ARGS)(h)
                     h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                                name=scope+'attention')([h, pi, tau])
 
-            z = Conv1D(self.fae_latent_dim, 1, 1, name=scope+'z_mean', **CONV1D_ARGS)(h)
-            z_attention = Conv1D(self.fae_latent_dim, 1, 1, activation='sigmoid',
+            z = Conv1D(fae_dim // 2, 1, 1, name=scope+'z_mean', **CONV1D_ARGS)(h)
+            z_attention = Conv1D(fae_dim // 2, 1, 1, activation='sigmoid',
                                  name=scope+'attention_mask', **CONV1D_ARGS)(h)
 
             # We are only expecting half of the latent features to be activated
@@ -768,23 +777,23 @@ class _MotionGAN(object):
     def _pose_decoder(self, gen_z):
         scope = Scoping.get_global_scope()
         with scope.name_scope('decoder'):
+            fae_dim = int(gen_z.shape[2]) * 2
 
-            dec_h = Conv1D(self.fae_intermediate_dim, 1, 1,
+            dec_h = Conv1D(fae_dim, 1, 1,
                            name=scope+'conv_in', **CONV1D_ARGS)(gen_z)
             for i in range(3):
                 with scope.name_scope('block_%d' % i):
-                    pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
+                    pi = Conv1D(fae_dim, 1, 1, activation='relu',
                                 name=scope+'pi_0', **CONV1D_ARGS)(dec_h)
-                    pi = Conv1D(self.fae_intermediate_dim, 1, 1, activation='relu',
+                    pi = Conv1D(fae_dim, 1, 1, activation='relu',
                                 name=scope+'pi_1', **CONV1D_ARGS)(pi)
-                    tau = Conv1D(self.fae_intermediate_dim, 1, 1, activation='sigmoid',
+                    tau = Conv1D(fae_dim, 1, 1, activation='sigmoid',
                                  name=scope+'tau_0', **CONV1D_ARGS)(dec_h)
                     dec_h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                                    name=scope+'attention')([dec_h, pi, tau])
 
-            dec_x = Conv1D(self.fae_original_dim, 1, 1, name=scope+'conv_out', **CONV1D_ARGS)(dec_h)
-
-            dec_x = Reshape((int(gen_z.shape[1]), self.njoints, 3), name=scope+'resh_out')(dec_x)
+            dec_x = Conv1D(fae_dim, 1, 1, name=scope+'conv_out', **CONV1D_ARGS)(dec_h)
+            dec_x = Reshape((int(gen_z.shape[1]), fae_dim // 3, 3), name=scope+'resh_out')(dec_x)
             dec_x = Permute((2, 1, 3), name=scope+'perm_out')(dec_x)
 
         return dec_x

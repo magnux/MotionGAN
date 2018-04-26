@@ -3,6 +3,7 @@ from __future__ import absolute_import, division, print_function
 import os
 import pickle
 import tensorflow as tf
+from collections import OrderedDict
 
 
 class Config(object):
@@ -96,5 +97,7 @@ def get_config(flags):
             new_body_members[key] = value.copy()
             new_body_members[key]['joints'] = [config.used_joints.index(j) for j in new_body_members[key]['joints']]
         config.body_members = new_body_members
+
+    config.body_members = OrderedDict(sorted(config.body_members.iteritems()))  # Ordering might be important for iter
 
     return config

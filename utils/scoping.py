@@ -39,6 +39,18 @@ class Scoping:
         return str(self) + '/' + str(other)
 
 
+def scope_wrapper(func, *args, **kwargs):
+    """Create a name scope around the function with its name.
+       Note: This decorator requires the scope keyword argument
+       in the signature of the target function"""
+    def scoped_func(*args, **kwargs):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope(func.__name__):
+            kwargs['scope'] = scope
+            return func(*args, **kwargs)
+    return scoped_func
+
+
 if __name__ == "__main__":
     scope = Scoping.get_global_scope()
 

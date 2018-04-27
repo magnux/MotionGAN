@@ -11,7 +11,7 @@ def gen_mask(mask_type, keep_prob, batch_size, njoints, seq_len, body_members, t
     if mask_type == 1:  # Future Prediction
         mask[:, :, np.int(seq_len * keep_prob):, :] = 0.0
     elif mask_type == 2:  # Missing Frames
-        occ_frames = np.random.randint(0, seq_len - 1, size=(seq_len * keep_prob))
+        occ_frames = np.random.randint(seq_len - 1, size=np.int(seq_len * keep_prob))
         mask[:, :, occ_frames, :] = 0.0
     elif mask_type == 3:  # Occlusion Simulation
         rand_joints = np.random.randint(njoints, size=np.int(njoints * (1.0 - keep_prob)))

@@ -20,7 +20,7 @@ flags.DEFINE_multi_string("model_path", None, "Model output directory")
 flags.DEFINE_string("test_mode", "show_images", "Test modes: show_images, write_images, write_data, dmnn_score, dmnn_score_table")
 flags.DEFINE_string("dmnn_path", None, "Path to trained DMNN model")
 flags.DEFINE_string("images_mode", "gif", "Image modes: gif, png")
-flags.DEFINE_integer("mask_mode", 3, "Mask modes: 0:%s, 1:%s, 2:%s, 3:%s, 4:%s" % MASK_MODES)
+flags.DEFINE_integer("mask_mode", 3, "Mask modes: " + ' '.join(['%d:%s' % tup for tup in enumerate(MASK_MODES)]))
 flags.DEFINE_float("keep_prob", 0.8, "Probability of keeping input data. (1 == Keep All)")
 FLAGS = flags.FLAGS
 

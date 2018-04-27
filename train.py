@@ -105,7 +105,7 @@ if __name__ == "__main__":
                     labs_batch, poses_batch = train_generator.next()
 
                     mask_batch = poses_batch[..., 3, np.newaxis]
-                    mask_batch = mask_batch * gen_mask(np.random.randint(5), keep_prob, config.batch_size,
+                    mask_batch = mask_batch * gen_mask(np.random.randing(len(MASK_MODES)), keep_prob, config.batch_size,
                                                        config.njoints, model_wrap.seq_len, config.body_members)
                     poses_batch = poses_batch[..., :3]
 
@@ -131,7 +131,7 @@ if __name__ == "__main__":
                 labs_batch, poses_batch = train_generator.next()
 
                 mask_batch = poses_batch[..., 3, np.newaxis]
-                mask_batch = mask_batch * gen_mask(np.random.randint(5), keep_prob, config.batch_size,
+                mask_batch = mask_batch * gen_mask(np.random.randing(len(MASK_MODES)), keep_prob, config.batch_size,
                                                    config.njoints, model_wrap.seq_len, config.body_members)
                 poses_batch = poses_batch[..., :3]
 
@@ -179,7 +179,7 @@ if __name__ == "__main__":
             labs_batch, poses_batch = val_generator.next()
 
             mask_batch = poses_batch[..., 3, np.newaxis]
-            mask_mode = np.random.randint(5)
+            mask_mode = np.random.randing(len(MASK_MODES))
             mask_batch = mask_batch * gen_mask(mask_mode, keep_prob, config.batch_size,
                                                config.njoints, model_wrap.seq_len, config.body_members)
             poses_batch = poses_batch[..., :3]

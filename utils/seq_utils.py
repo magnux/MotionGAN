@@ -2,7 +2,7 @@ from __future__ import absolute_import, division, print_function
 import numpy as np
 
 
-MASK_MODES = ('No mask', 'Future Prediction', 'Occlusion Simulation', 'Structured Occlusion', 'Noisy Transmission')
+MASK_MODES = ('No mask', 'Future Prediction', 'Missing Frames', 'Occlusion Simulation', 'Structured Occlusion', 'Noisy Transmission')
 
 
 def gen_mask(mask_type, keep_prob, batch_size, njoints, seq_len, body_members, test_mode=False):
@@ -10,10 +10,13 @@ def gen_mask(mask_type, keep_prob, batch_size, njoints, seq_len, body_members, t
     mask = np.ones(shape=(batch_size, njoints, seq_len, 1))
     if mask_type == 1:  # Future Prediction
         mask[:, :, np.int(seq_len * keep_prob):, :] = 0.0
-    elif mask_type == 2:  # Occlusion Simulation
+    elif mask_type == 2:  # Missing Frames
+        occ_frames = np.random.randint(0, seq_len - 1, size=(seq_len * keep_prob))
+        mask[:, :, occ_frames, :] = 0.0
+    elif mask_type == 3:  # Occlusion Simulation
         rand_joints = np.random.randint(njoints, size=np.int(njoints * (1.0 - keep_prob)))
         mask[:, rand_joints, :, :] = 0.0
-    elif mask_type == 3:  # Structured Occlusion Simulation
+    elif mask_type == 4:  # Structured Occlusion Simulation
         rand_joints = set()
         while ((njoints - len(rand_joints)) >
                (njoints * keep_prob)):
@@ -21,7 +24,7 @@ def gen_mask(mask_type, keep_prob, batch_size, njoints, seq_len, body_members, t
             for joint in joints_to_add:
                 rand_joints.add(joint)
         mask[:, list(rand_joints), :, :] = 0.0
-    elif mask_type == 4:  # Noisy transmission
+    elif mask_type == 5:  # Noisy transmission
         mask = np.random.binomial(1, keep_prob, size=mask.shape)
 
     if test_mode:

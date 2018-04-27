@@ -409,9 +409,10 @@ class _MotionGAN(object):
             base_shape[2] = 1
 
             def _get_rotation(arg):
-                torso_rot = tf.cross(arg[:, left_shoulder, 0, :] - arg[:, hip, 0, :],
-                                     arg[:, right_shoulder, 0, :] - arg[:, hip, 0, :])
-                side_rot = K.reshape(tf.cross(arg[:, head_top, 0, :] - arg[:, hip, 0, :], torso_rot), base_shape)
+                coords_list = tf.unstack(arg[:, :, 0, :], axis=1)
+                torso_rot = tf.cross(coords_list[left_shoulder] - coords_list[hip],
+                                     coords_list[right_shoulder] - coords_list[hip])
+                side_rot = K.reshape(tf.cross(coords_list[head_top] - coords_list[hip], torso_rot), base_shape)
                 theta_diff = ((np.pi / 2) - tf.atan2(side_rot[..., 1], side_rot[..., 0])) / 2
                 cos_theta_diff = tf.cos(theta_diff)
                 sin_theta_diff = tf.sin(theta_diff)
@@ -438,13 +439,12 @@ class _MotionGAN(object):
 
             members_from, members_to, _ = get_body_graph(self.body_members)
 
-            def _len(bone):
-                return K.sqrt(K.sum(K.square(bone), axis=-1, keepdims=True) + K.epsilon())
-
             def _get_avg_bone_len(arg):
-                bones = [arg[:, i, 0, :] - arg[:, j, 0, :] for i, j in zip(members_from, members_to)]
+                bone_list = tf.unstack(arg[:, :, 0, :], axis=1)
+                bones = [bone_list[j] - bone_list[i] for i, j in zip(members_from, members_to)]
                 bones = K.expand_dims(K.stack(bones, axis=1), axis=2)
-                return K.mean(_len(bones), axis=1, keepdims=True)
+                bone_len = K.sqrt(K.sum(K.square(bones), axis=-1, keepdims=True) + K.epsilon())
+                return K.mean(bone_len, axis=1, keepdims=True)
 
             self.stats[scope+'bone_len'] = Lambda(_get_avg_bone_len, name=scope+'bone_len')(x)
 
@@ -476,9 +476,10 @@ class _MotionGAN(object):
 
             def _diff_to_seq(args):
                 diffs, start_pose = args
+                diffs_list = tf.unstack(diffs, axis=2)
                 poses = [start_pose]
                 for p in range(diffs.shape[2]):
-                    poses.append(poses[p] + diffs[:, :, p, :])
+                    poses.append(poses[p] + diffs_list[p])
                 return K.stack(poses, axis=2)
 
             x = Lambda(_diff_to_seq, name=scope+'seq_to_diff_out')([x, self.stats[scope+'start_pose']])
@@ -538,9 +539,11 @@ class _MotionGAN(object):
                 base_shape.pop(1)
                 base_shape[-1] = 1
 
+                coord_masks_list = tf.unstack(coord_masks, axis=1)
+
                 def _get_angle_mask_for_joint(joint_idx, angles_mask):
                     for child_idx in body_graph[joint_idx]:
-                        angles_mask.append(coord_masks[:, child_idx, :, :] * coord_masks[:, joint_idx, :, :])
+                        angles_mask.append(coord_masks_list[child_idx] * coord_masks_list[joint_idx])
 
                     for child_idx in body_graph[joint_idx]:
                         angles_mask = _get_angle_mask_for_joint(child_idx, angles_mask)

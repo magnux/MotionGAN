@@ -4,6 +4,15 @@ import tensorflow.contrib.keras.api.keras.backend as K
 import numpy as np
 
 
+def tf_scope_wrapper(func, *args, **kwargs):
+    """Create a name scope around the function with its name."""
+    def scoped_func(*args, **kwargs):
+        with tf.name_scope(func.__name__):
+            return func(*args, **kwargs)
+    return scoped_func
+
+
+@tf_scope_wrapper
 def vector3d_to_quaternion(x):
     """
     Convert a tensor of 3D vectors to a quaternion.
@@ -21,11 +30,13 @@ def vector3d_to_quaternion(x):
     return tf.pad(x, (len(x.shape) - 1) * [[0, 0]] + [[1, 0]])
 
 
+@tf_scope_wrapper
 def quaternion_to_vector3d(q):
     """Remove the w component(s) of quaternion(s) q."""
     return q[..., 1:]
 
 
+@tf_scope_wrapper
 def rotate_vector_by_quaternion(q, v, q_ndims=None, v_ndims=None):
     """
     Rotate a vector (or tensor with last dimension of 3) by q.
@@ -60,11 +71,13 @@ def rotate_vector_by_quaternion(q, v, q_ndims=None, v_ndims=None):
     return v + tf.expand_dims(w, axis=-1) * t + tf.cross(q_xyz, t)
 
 
+@tf_scope_wrapper
 def quaternion_conjugate(q):
     """Compute the conjugate of q, i.e. [q.w, -q.x, -q.y, -q.z]."""
     return tf.multiply(q, [1.0, -1.0, -1.0, -1.0])
 
 
+@tf_scope_wrapper
 def quaternion_between(u, v):
     """
     Finds the quaternion between two tensor of 3D vectors.
@@ -121,6 +134,7 @@ def quaternion_between(u, v):
     return _normalize(q)
 
 
+@tf_scope_wrapper
 def quaternion_to_expmap(q):
     """
     Converts a quaternion to an exponential map
@@ -151,6 +165,7 @@ def quaternion_to_expmap(q):
     return r
 
 
+@tf_scope_wrapper
 def rotmat_to_quaternion(R):
     """
     Converts a rotation matrix to a quaternion
@@ -179,6 +194,7 @@ def rotmat_to_quaternion(R):
     return q
 
 
+@tf_scope_wrapper
 def expmap_to_rotmat(r):
     """
     Converts an exponential map angle to a rotation matrix
@@ -212,6 +228,7 @@ def expmap_to_rotmat(r):
     return R
 
 
+@tf_scope_wrapper
 def expmap_to_quaternion(r):
     """
     Converts an exponential map angle to a quaternion
@@ -247,6 +264,7 @@ def expmap_to_quaternion(r):
     return q
 
 
+@tf_scope_wrapper
 def quaternion_to_rotmat(q):
     """
     Calculate the corresponding rotation matrix.
@@ -278,6 +296,7 @@ def quaternion_to_rotmat(q):
     return tf.stack([tf.stack(m[i], axis=-1) for i in range(3)], axis=-2)
 
 
+@tf_scope_wrapper
 def rotmat_to_euler(R):
     """
     Converts a rotation matrix to Euler angles

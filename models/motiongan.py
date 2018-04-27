@@ -146,7 +146,7 @@ class _MotionGAN(object):
             gen_f_outs = self.gen_losses.values()
             if self.use_pose_fae:
                 gen_f_outs.append(self.fae_z)
-            gen_f_outs.append(self.aux_out)
+            # gen_f_outs.append(self.aux_out)
             gen_f_outs += self.gen_outputs
             self.gen_eval_f = K.function(self.gen_inputs + self.place_holders, gen_f_outs)
 
@@ -184,7 +184,7 @@ class _MotionGAN(object):
         keys = ['val/%s' % key for key in keys]
         if self.use_pose_fae:
             keys.append('fae_z')
-        keys.append('aux_out')
+        # keys.append('aux_out')
         keys.append('gen_outputs')
         losses_dict = OrderedDict(zip(keys, eval_outs))
         return losses_dict
@@ -495,7 +495,8 @@ class _MotionGAN(object):
             self.stats[scope+'hip_coords'] = Lambda(_get_hips, name=scope+'hip_coords')(x)
 
             def _get_bone_len(arg):
-                bones = [arg[:, j, 0, :] - arg[:, i, 0, :] for i, j in zip(members_from, members_to)]
+                bone_list = tf.unstack(arg[:, :, 0, :], axis=1)
+                bones = [bone_list[j] - bone_list[i] for i, j in zip(members_from, members_to)]
                 bones = K.stack(bones, axis=1)
                 return K.sqrt(K.sum(K.square(bones), axis=-1) + K.epsilon())
 
@@ -506,16 +507,18 @@ class _MotionGAN(object):
                 base_shape.pop(1)
                 base_shape[-1] = 1
 
+                coords_list = tf.unstack(coords, axis=1)
+
                 def _get_angle_for_joint(joint_idx, parent_idx, angles):
                     if parent_idx is None:  # joint_idx should be 0
                         parent_bone = K.constant(np.concatenate([np.ones(base_shape),
                                                                  np.zeros(base_shape),
                                                                  np.zeros(base_shape)], axis=-1))
                     else:
-                        parent_bone = coords[:, parent_idx, :, :] - coords[:, joint_idx, :, :]
+                        parent_bone = coords_list[parent_idx] - coords_list[joint_idx]
 
                     for child_idx in body_graph[joint_idx]:
-                        child_bone = coords[:, child_idx, :, :] - coords[:, joint_idx, :, :]
+                        child_bone = coords_list[child_idx] - coords_list[joint_idx]
                         angle = quaternion_between(parent_bone, child_bone)
                         angle = quaternion_to_expmap(angle)
                         angles.append(angle)
@@ -560,8 +563,11 @@ class _MotionGAN(object):
             self.euler_out = Lambda(lambda arg: rotmat_to_euler(arg), name=scope+'euler')(x)
 
             def _get_coords(args):
-                rot_mat, bone_len = args
-                base_shape = [int(d) for d in rot_mat.shape]
+                rotmat, bone_len = args
+                rotmat_list = tf.unstack(rotmat, axis=1)
+                bone_len_list = tf.unstack(bone_len, axis=1)
+
+                base_shape = [int(d) for d in rotmat.shape]
                 base_shape.pop(1)
                 base_shape[-2] = 1
                 base_shape[-1] = 1
@@ -581,10 +587,9 @@ class _MotionGAN(object):
                         parent_bone = parent_bone / parent_bone_norm
 
                     for child_idx in body_graph[joint_idx]:
+                        child_bone = K.batch_dot(tf.transpose(rotmat_list[child_angle_idx], trans_dims), parent_bone , axes=[-1, -2])
                         child_bone_idx = bone_idcs[(joint_idx, child_idx)]
-                        child_bone = K.batch_dot(tf.transpose(rot_mat[:, child_angle_idx, :, :, :], trans_dims), parent_bone , axes=[-1, -2])
-                        # child_bone = tf.expand_dims(rotate_vector_by_quaternion(rotmat_to_quaternion(rot_mat[:, child_angle_idx, :, :, :]), parent_bone[..., 0]), axis=-1)
-                        child_bone = child_bone * K.reshape(bone_len[:, child_bone_idx], (child_bone.shape[0], 1, 1, 1))
+                        child_bone = child_bone * K.reshape(bone_len_list[child_bone_idx], (child_bone.shape[0], 1, 1, 1))
                         coords[child_idx] = child_bone + coords[joint_idx]
                         child_angle_idx += 1
 
@@ -650,8 +655,8 @@ class _MotionGAN(object):
                 x = self._translate_start_in(x)
             if self.rotate_start:
                 x = self._rotate_start_in(x)
-                # self.aux_out = x
-                # self.aux_out = self._rotate_start_out(x)
+                # self.aux_out = x  # Uncomment to visualize rotated sequence
+                # self.aux_out = self._rotate_start_out(x)  # Uncomment to visualize re-rotated sequence
             if self.rescale_coords:
                 x = self._rescale_in(x)
             if self.remove_hip:
@@ -662,7 +667,7 @@ class _MotionGAN(object):
             if self.use_angles:
                 x, x_mask = self._seq_to_angles_in(x, x_mask)
                 self.angles_input, self.angles_mask = x, x_mask
-                self.aux_out = self._seq_to_angles_out(x)
+                # self.aux_out = self._seq_to_angles_out(x)  # Uncomment to visualize reconstructed sequence
 
             x = Multiply(name=scope+'mask_mult')([x, x_mask])
             x_occ = Lambda(lambda arg: 1 - arg, name=scope+'mask_occ')(x_mask)

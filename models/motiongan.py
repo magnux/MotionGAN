@@ -756,26 +756,27 @@ class _MotionGAN(object):
     def _pose_encoder(self, seq):
         scope = Scoping.get_global_scope()
         with scope.name_scope('encoder'):
-            fae_dim = int(seq.shape[1]) * 3
+
+            self.fae_dim = int(seq.shape[1]) * 3
 
             h = Permute((2, 1, 3), name=scope+'perm_in')(seq)
             h = Reshape((int(seq.shape[2]), int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
 
-            h = Conv1D(fae_dim, 1, 1,
+            h = Conv1D(self.fae_dim, 1, 1,
                        name=scope+'conv_in', **CONV1D_ARGS)(h)
             for i in range(3):
                 with scope.name_scope('block_%d' % i):
-                    pi = Conv1D(fae_dim, 1, 1, activation='relu',
+                    pi = Conv1D(self.fae_dim, 1, 1, activation='relu',
                                 name=scope+'pi_0', **CONV1D_ARGS)(h)
-                    pi = Conv1D(fae_dim, 1, 1, activation='relu',
+                    pi = Conv1D(self.fae_dim, 1, 1, activation='relu',
                                 name=scope+'pi_1', **CONV1D_ARGS)(pi)
-                    tau = Conv1D(fae_dim, 1, 1, activation='sigmoid',
+                    tau = Conv1D(self.fae_dim, 1, 1, activation='sigmoid',
                                  name=scope+'tau_0', **CONV1D_ARGS)(h)
                     h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                                name=scope+'attention')([h, pi, tau])
 
-            z = Conv1D(fae_dim // 2, 1, 1, name=scope+'z_mean', **CONV1D_ARGS)(h)
-            z_attention = Conv1D(fae_dim // 2, 1, 1, activation='sigmoid',
+            z = Conv1D(self.fae_dim // 2, 1, 1, name=scope+'z_mean', **CONV1D_ARGS)(h)
+            z_attention = Conv1D(self.fae_dim // 2, 1, 1, activation='sigmoid',
                                  name=scope+'attention_mask', **CONV1D_ARGS)(h)
 
             # We are only expecting half of the latent features to be activated
@@ -786,23 +787,22 @@ class _MotionGAN(object):
     def _pose_decoder(self, gen_z):
         scope = Scoping.get_global_scope()
         with scope.name_scope('decoder'):
-            fae_dim = int(gen_z.shape[2]) * 2
 
-            dec_h = Conv1D(fae_dim, 1, 1,
+            dec_h = Conv1D(self.fae_dim, 1, 1,
                            name=scope+'conv_in', **CONV1D_ARGS)(gen_z)
             for i in range(3):
                 with scope.name_scope('block_%d' % i):
-                    pi = Conv1D(fae_dim, 1, 1, activation='relu',
+                    pi = Conv1D(self.fae_dim, 1, 1, activation='relu',
                                 name=scope+'pi_0', **CONV1D_ARGS)(dec_h)
-                    pi = Conv1D(fae_dim, 1, 1, activation='relu',
+                    pi = Conv1D(self.fae_dim, 1, 1, activation='relu',
                                 name=scope+'pi_1', **CONV1D_ARGS)(pi)
-                    tau = Conv1D(fae_dim, 1, 1, activation='sigmoid',
+                    tau = Conv1D(self.fae_dim, 1, 1, activation='sigmoid',
                                  name=scope+'tau_0', **CONV1D_ARGS)(dec_h)
                     dec_h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                                    name=scope+'attention')([dec_h, pi, tau])
 
-            dec_x = Conv1D(fae_dim, 1, 1, name=scope+'conv_out', **CONV1D_ARGS)(dec_h)
-            dec_x = Reshape((int(gen_z.shape[1]), fae_dim // 3, 3), name=scope+'resh_out')(dec_x)
+            dec_x = Conv1D(self.fae_dim, 1, 1, name=scope+'conv_out', **CONV1D_ARGS)(dec_h)
+            dec_x = Reshape((int(gen_z.shape[1]), self.fae_dim // 3, 3), name=scope+'resh_out')(dec_x)
             dec_x = Permute((2, 1, 3), name=scope+'perm_out')(dec_x)
 
         return dec_x

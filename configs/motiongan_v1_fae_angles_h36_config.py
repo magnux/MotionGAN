@@ -9,6 +9,8 @@
     'use_pose_fae': True,
     # Transform euclidean coordinates input to angles in exponential maps
     'use_angles': True,
+    # Body shape conservation loss
+    'shape_loss': False,
 
     # It's the batch size
     # 'batch_size': 10,

@@ -540,7 +540,7 @@ class _MotionGAN(object):
 
                 def _get_angle_mask_for_joint(joint_idx, angles_mask):
                     for child_idx in body_graph[joint_idx]:
-                        angles_mask.append(coord_masks_list[child_idx] * coord_masks_list[joint_idx])
+                        angles_mask.append(coord_masks_list[child_idx])  # * coord_masks_list[joint_idx]
 
                     for child_idx in body_graph[joint_idx]:
                         angles_mask = _get_angle_mask_for_joint(child_idx, angles_mask)

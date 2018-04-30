@@ -1,5 +1,7 @@
 from __future__ import absolute_import, division, print_function
 import numpy as np
+import tensorflow as tf
+from utils.tfangles import quaternion_between, quaternion_to_expmap, expmap_to_rotmat, rotmat_to_euler
 
 
 MASK_MODES = ('No mask', 'Future Prediction', 'Missing Frames', 'Occlusion Simulation', 'Structured Occlusion', 'Noisy Transmission')
@@ -181,3 +183,47 @@ def post_process(real_seq, gen_seq, mask, body_members):
         _post_process_joint(f, 0, None)
 
     return blend_seq
+
+
+def seq_to_angles_transformer(body_members, shape):
+    _, _, body_graph = get_body_graph(body_members)
+
+    def _get_angles(coords):
+        base_shape = [int(dim) for dim in coords.shape]
+        base_shape.pop(1)
+        base_shape[-1] = 1
+
+        coords_list = tf.unstack(coords, axis=1)
+
+        def _get_angle_for_joint(joint_idx, parent_idx, angles):
+            if parent_idx is None:  # joint_idx should be 0
+                parent_bone = tf.constant(np.concatenate([np.ones(base_shape),
+                                                         np.zeros(base_shape),
+                                                         np.zeros(base_shape)], axis=-1), dtype=tf.float32)
+            else:
+                parent_bone = coords_list[parent_idx] - coords_list[joint_idx]
+
+            for child_idx in body_graph[joint_idx]:
+                child_bone = coords_list[child_idx] - coords_list[joint_idx]
+                angle = quaternion_between(parent_bone, child_bone)
+                angle = quaternion_to_expmap(angle)
+                angle = expmap_to_rotmat(angle)
+                angle = rotmat_to_euler(angle)
+                angles.append(angle)
+
+            for child_idx in body_graph[joint_idx]:
+                angles = _get_angle_for_joint(child_idx, joint_idx, angles)
+
+            return angles
+
+        angles = _get_angle_for_joint(0, None, [])
+        return tf.stack(angles, axis=1)
+
+    seq_ph = tf.placeholder(tf.float32, shape=shape)
+    angles = _get_angles(seq_ph)
+
+    def _run_ops(seq):
+        with tf.Session() as sess:
+            return sess.run(angles, feed_dict={seq_ph: seq})
+
+    return _run_ops

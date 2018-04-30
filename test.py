@@ -8,7 +8,7 @@ from models.motiongan import MotionGANV1, MotionGANV2, MotionGANV3, MotionGANV4
 from models.dmnn import DMNNv1
 from utils.restore_keras_model import restore_keras_model
 from utils.viz import plot_seq_gif, plot_seq_pano
-from utils.seq_utils import MASK_MODES, gen_mask, gen_latent_noise, linear_baseline, burke_baseline, post_process
+from utils.seq_utils import MASK_MODES, gen_mask, linear_baseline, burke_baseline, post_process, seq_to_angles_transformer
 import h5py as h5
 from tqdm import trange
 from collections import OrderedDict
@@ -83,6 +83,8 @@ if __name__ == "__main__":
     seq_len = model_wraps[0].seq_len
     body_members = configs[0].body_members
 
+    angle_trans = seq_to_angles_transformer(body_members, (1, njoints, seq_len, 3))
+
     def get_inputs():
         labs_batch, poses_batch = val_generator.next()
 
@@ -135,7 +137,7 @@ if __name__ == "__main__":
                 if FLAGS.images_mode == "gif":
                     plot_func = plot_seq_gif
                     figwidth = 384 * 3
-                    figheight = 384
+                    figheight = 384 * (len(configs) + 1)
                 elif FLAGS.images_mode == "png":
                     plot_func = plot_seq_pano
                     figwidth = 768

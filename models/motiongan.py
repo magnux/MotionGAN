@@ -351,7 +351,7 @@ class _MotionGAN(object):
         model.metrics = None
         return model
 
-    def _remove_hip_in(self, x):
+    def _remove_hip_in(self, x, x_mask):
         scope = Scoping.get_global_scope()
         with scope.name_scope('remove_hip'):
 
@@ -362,7 +362,8 @@ class _MotionGAN(object):
 
             x = Lambda(lambda args: (args[0] - args[1])[:, 1:, ...], name=scope+'remove_hip_in')(
                 [x, self.stats[scope+'hip_coords']])
-        return x
+            x_mask = Lambda(lambda arg: arg[:, 1:, ...], name=scope+'remove_hip_mask_in')(x_mask)
+        return x, x_mask
 
     def _remove_hip_out(self, x):
         scope = Scoping.get_global_scope()
@@ -670,7 +671,7 @@ class _MotionGAN(object):
             if self.rescale_coords:
                 x = self._rescale_in(x)
             if self.remove_hip:
-                x = self._remove_hip_in(x)
+                x, x_mask = self._remove_hip_in(x, x_mask)
             if self.use_diff:
                 x, x_mask = self._seq_to_diff_in(x, x_mask)
                 self.diff_input, self.diff_mask = x, x_mask

@@ -680,11 +680,11 @@ class _MotionGAN(object):
                 self.angles_input, self.angles_mask = x, x_mask
                 # self.aux_out = self._seq_to_angles_out(x)  # Uncomment to visualize reconstructed sequence
 
+            self.org_shape = [int(dim) for dim in x.shape]
+
             x = Multiply(name=scope+'mask_mult')([x, x_mask])
             x_occ = Lambda(lambda arg: 1 - arg, name=scope+'mask_occ')(x_mask)
             x = Concatenate(axis=-1, name=scope+'cat_occ')([x, x_occ])
-
-            self.org_shape = [int(dim) for dim in x.shape]
 
             if self.use_pose_fae:
 

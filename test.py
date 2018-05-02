@@ -8,7 +8,7 @@ from models.motiongan import MotionGANV1, MotionGANV2, MotionGANV3, MotionGANV4
 from models.dmnn import DMNNv1
 from utils.restore_keras_model import restore_keras_model
 from utils.viz import plot_seq_gif, plot_seq_pano
-from utils.seq_utils import MASK_MODES, gen_mask, linear_baseline, burke_baseline, post_process, seq_to_angles_transformer
+from utils.seq_utils import MASK_MODES, gen_mask, linear_baseline, burke_baseline, post_process, seq_to_angles_transformer, get_angles_mask
 import h5py as h5
 from tqdm import trange
 from collections import OrderedDict
@@ -240,13 +240,13 @@ if __name__ == "__main__":
                 return batch
 
             def p2pd(x, y):
-                return np.mean(np.sqrt(np.sum(np.square(x - y), axis=-1)))
+                return np.sqrt(np.sum(np.square(x - y), axis=-1, keepdims=True))
 
             def edm(x, y=None):
                 y = x if y is None else y
                 x = np.expand_dims(x, axis=1)
                 y = np.expand_dims(y, axis=2)
-                return np.sqrt(np.sum(np.square(x - y), axis=-1))
+                return np.sqrt(np.sum(np.square(x - y), axis=-1, keepdims=True))
 
             t = trange(val_batches)
             for i in t:
@@ -257,19 +257,25 @@ if __name__ == "__main__":
                 unorm_poses_batch_edm = edm(unorm_poses_batch)
                 unorm_poses_batch_angles = angle_trans(unorm_poses_batch)
 
+                p2ps_occ_num = np.sum(1.0 - mask_batch) + 1e-8
+                dms_mask_batch = np.expand_dims(mask_batch, axis=1) * np.expand_dims(mask_batch, axis=2)
+                dms_occ_num = np.sum(1.0 - dms_mask_batch) + 1e-8
+                angles_mask_batch = get_angles_mask(mask_batch, body_members)
+                angles_occ_num = np.sum(1.0 - angles_mask_batch) + 1e-8
+
                 for m, model_wrap in enumerate(model_wraps):
                     gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
-                    for j in range(batch_size):
-                        gen_output[j, ...] = post_process(poses_batch[j, ...], gen_output[j, ...],
-                                                          mask_batch[j, ...], body_members)
+                    # for j in range(batch_size):
+                    #     gen_output[j, ...] = post_process(poses_batch[j, ...], gen_output[j, ...],
+                    #                                       mask_batch[j, ...], body_members)
                     if FLAGS.dmnn_path is not None:
                         _, gen_acc = model_wrap_dmnn.model.evaluate(gen_output, labs_batch[:, 2], batch_size=batch_size, verbose=2)
                         accs[FLAGS.model_path[m] + '_acc'] += gen_acc
 
                     gen_output = unnormalize_batch(gen_output, m)
-                    p2ps[FLAGS.model_path[m] + '_p2p'] += p2pd(unorm_poses_batch, gen_output)
-                    dms[FLAGS.model_path[m] + '_dm'] += np.mean(np.abs(unorm_poses_batch_edm - edm(gen_output)))
-                    angles[FLAGS.model_path[m] + '_angle'] += p2pd(unorm_poses_batch_angles, angle_trans(gen_output))
+                    p2ps[FLAGS.model_path[m] + '_p2p'] += np.sum(p2pd(unorm_poses_batch, gen_output) * (1.0 - mask_batch)) / p2ps_occ_num
+                    dms[FLAGS.model_path[m] + '_dm'] += np.sum(np.abs(unorm_poses_batch_edm - edm(gen_output)) * (1.0 - dms_mask_batch)) / dms_occ_num
+                    angles[FLAGS.model_path[m] + '_angle'] += np.sum(p2pd(unorm_poses_batch_angles, angle_trans(gen_output)) * (1.0 - angles_mask_batch)) / angles_occ_num
 
                 if FLAGS.dmnn_path is not None:
                     _, real_acc = model_wrap_dmnn.model.evaluate(poses_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
@@ -286,18 +292,18 @@ if __name__ == "__main__":
                     accs['linear_acc'] += linear_acc
 
                 linear_batch = unnormalize_batch(linear_batch)
-                p2ps['linear_p2p'] += p2pd(unorm_poses_batch, linear_batch)
-                dms['linear_dm'] += np.mean(np.abs(unorm_poses_batch_edm - edm(linear_batch)))
-                angles['linear_angle'] += p2pd(unorm_poses_batch_angles, angle_trans(linear_batch))
+                p2ps['linear_p2p'] += np.sum(p2pd(unorm_poses_batch, linear_batch) * (1.0 - mask_batch)) / p2ps_occ_num
+                dms['linear_dm'] += np.sum(np.abs(unorm_poses_batch_edm - edm(linear_batch)) * (1.0 - dms_mask_batch)) / dms_occ_num
+                angles['linear_angle'] += np.sum(p2pd(unorm_poses_batch_angles, angle_trans(linear_batch)) * (1.0 - angles_mask_batch)) / angles_occ_num
 
                 if FLAGS.dmnn_path is not None:
                     _, burke_acc = model_wrap_dmnn.model.evaluate(burke_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
                     accs['burke_acc'] += burke_acc
 
                 burke_batch = unnormalize_batch(burke_batch)
-                p2ps['burke_p2p'] += p2pd(unorm_poses_batch, burke_batch)
-                dms['burke_dm'] += np.mean(np.abs(unorm_poses_batch_edm - edm(burke_batch)))
-                angles['burke_angle'] += p2pd(unorm_poses_batch_angles, angle_trans(burke_batch))
+                p2ps['burke_p2p'] += np.sum(p2pd(unorm_poses_batch, burke_batch) * (1.0 - mask_batch)) / p2ps_occ_num
+                dms['burke_dm'] += np.sum(np.abs(unorm_poses_batch_edm - edm(burke_batch)) * (1.0 - dms_mask_batch)) / dms_occ_num
+                angles['burke_angle'] += np.sum(p2pd(unorm_poses_batch_angles, angle_trans(burke_batch)) * (1.0 - angles_mask_batch)) / angles_occ_num
 
                 mean_accs = {}
                 for key, value in accs.items():

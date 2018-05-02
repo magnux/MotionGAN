@@ -2,8 +2,6 @@ from __future__ import absolute_import, division, print_function
 
 import os
 
-os.environ["CDF_LIB"] = "/usr/local/cdf"
-from spacepy import pycdf
 import numpy as np
 import h5py as h5
 import re
@@ -27,7 +25,7 @@ def read_pose(x):
     return np.reshape(np.transpose(np.array(x), [2, 0, 1]), [32, 3, -1])
 
 
-dataset = 'Human36'
+dataset = 'Human36_expmaps'
 h5file = h5.File(dataset + "v1.h5", "w")
 max_len = 0
 for f, found_file in enumerate(tqdm(found_files)):

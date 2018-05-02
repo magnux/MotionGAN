@@ -13,7 +13,7 @@ def gen_mask(mask_type, keep_prob, batch_size, njoints, seq_len, body_members, t
     if mask_type == 1:  # Future Prediction
         mask[:, :, np.int(seq_len * keep_prob):, :] = 0.0
     elif mask_type == 2:  # Missing Frames
-        occ_frames = np.random.randint(seq_len - 1, size=np.int(seq_len * keep_prob))
+        occ_frames = np.random.randint(seq_len - 1, size=np.int(seq_len * (1.0 - keep_prob)))
         mask[:, :, occ_frames, :] = 0.0
     elif mask_type == 3:  # Occlusion Simulation
         rand_joints = np.random.randint(njoints, size=np.int(njoints * (1.0 - keep_prob)))
@@ -222,8 +222,32 @@ def seq_to_angles_transformer(body_members, shape):
     seq_ph = tf.placeholder(tf.float32, shape=shape)
     angles = _get_angles(seq_ph)
 
+    sess = tf.Session()
+
     def _run_ops(seq):
-        with tf.Session() as sess:
-            return sess.run(angles, feed_dict={seq_ph: seq})
+        return sess.run(angles, feed_dict={seq_ph: seq})
 
     return _run_ops
+
+
+def get_angles_mask(coord_masks, body_members):
+
+    _, _, body_graph = get_body_graph(body_members)
+
+    base_shape = [int(dim) for dim in coord_masks.shape]
+    base_shape.pop(1)
+    base_shape[-1] = 1
+
+    coord_masks_list = np.split(coord_masks, int(coord_masks.shape[1]), axis=1)
+
+    def _get_angle_mask_for_joint(joint_idx, angles_mask):
+        for child_idx in body_graph[joint_idx]:
+            angles_mask.append(np.squeeze(coord_masks_list[child_idx], axis=1))
+
+        for child_idx in body_graph[joint_idx]:
+            angles_mask = _get_angle_mask_for_joint(child_idx, angles_mask)
+
+        return angles_mask
+
+    angles_mask = _get_angle_mask_for_joint(0, [])
+    return np.stack(angles_mask, axis=1)

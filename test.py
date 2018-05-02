@@ -83,7 +83,7 @@ if __name__ == "__main__":
     seq_len = model_wraps[0].seq_len
     body_members = configs[0].body_members
 
-    angle_trans = seq_to_angles_transformer(body_members, (1, njoints, seq_len, 3))
+    angle_trans = seq_to_angles_transformer(body_members, (batch_size, njoints, seq_len, 3))
 
     def get_inputs():
         labs_batch, poses_batch = val_generator.next()
@@ -226,11 +226,13 @@ if __name__ == "__main__":
             accs = OrderedDict({'real_acc': 0, 'linear_acc': 0, 'burke_acc': 0})
             p2ps = OrderedDict({'linear_p2p': 0, 'burke_p2p': 0})
             dms = OrderedDict({'linear_dm': 0, 'burke_dm': 0})
+            angles = OrderedDict({'linear_angle': 0, 'burke_angle': 0})
 
             for m in range(len(model_wraps)):
                 accs[FLAGS.model_path[m] + '_acc'] = 0
                 p2ps[FLAGS.model_path[m] + '_p2p'] = 0
                 dms[FLAGS.model_path[m] + '_dm'] = 0
+                angles[FLAGS.model_path[m] + '_angle'] = 0
 
             def unnormalize_batch(batch, m=0):
                 if configs[m].normalize_data:
@@ -253,6 +255,7 @@ if __name__ == "__main__":
 
                 unorm_poses_batch = unnormalize_batch(poses_batch)
                 unorm_poses_batch_edm = edm(unorm_poses_batch)
+                unorm_poses_batch_angles = angle_trans(unorm_poses_batch)
 
                 for m, model_wrap in enumerate(model_wraps):
                     gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
@@ -266,6 +269,7 @@ if __name__ == "__main__":
                     gen_output = unnormalize_batch(gen_output, m)
                     p2ps[FLAGS.model_path[m] + '_p2p'] += p2pd(unorm_poses_batch, gen_output)
                     dms[FLAGS.model_path[m] + '_dm'] += np.mean(np.abs(unorm_poses_batch_edm - edm(gen_output)))
+                    angles[FLAGS.model_path[m] + '_angle'] += p2pd(unorm_poses_batch_angles, angle_trans(gen_output))
 
                 if FLAGS.dmnn_path is not None:
                     _, real_acc = model_wrap_dmnn.model.evaluate(poses_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
@@ -284,6 +288,7 @@ if __name__ == "__main__":
                 linear_batch = unnormalize_batch(linear_batch)
                 p2ps['linear_p2p'] += p2pd(unorm_poses_batch, linear_batch)
                 dms['linear_dm'] += np.mean(np.abs(unorm_poses_batch_edm - edm(linear_batch)))
+                angles['linear_angle'] += p2pd(unorm_poses_batch_angles, angle_trans(linear_batch))
 
                 if FLAGS.dmnn_path is not None:
                     _, burke_acc = model_wrap_dmnn.model.evaluate(burke_batch, labs_batch[:, 2], batch_size=batch_size, verbose=2)
@@ -292,6 +297,7 @@ if __name__ == "__main__":
                 burke_batch = unnormalize_batch(burke_batch)
                 p2ps['burke_p2p'] += p2pd(unorm_poses_batch, burke_batch)
                 dms['burke_dm'] += np.mean(np.abs(unorm_poses_batch_edm - edm(burke_batch)))
+                angles['burke_angle'] += p2pd(unorm_poses_batch_angles, angle_trans(burke_batch))
 
                 mean_accs = {}
                 for key, value in accs.items():
@@ -304,7 +310,7 @@ if __name__ == "__main__":
                     my_dict[key] = value / val_batches
                 return my_dict
 
-            return make_mean(accs), make_mean(p2ps), make_mean(dms)
+            return make_mean(accs), make_mean(p2ps), make_mean(dms), make_mean(angles)
 
         if FLAGS.test_mode == "dmnn_score_table":
 
@@ -314,18 +320,21 @@ if __name__ == "__main__":
                 accs_table = np.zeros((len(PROBS), len(model_wraps) + 3))
                 p2ps_table = np.zeros((len(PROBS), len(model_wraps) + 2))
                 dms_table = np.zeros((len(PROBS), len(model_wraps) + 2))
+                angles_table = np.zeros((len(PROBS), len(model_wraps) + 2))
                 for p, prob in enumerate(PROBS):
                     FLAGS.mask_mode = m
                     FLAGS.keep_prob = prob
 
-                    accs, p2ps, dms = run_dmnn_score()
+                    accs, p2ps, dms, angles = run_dmnn_score()
                     accs_table[p, :] = accs.values()
                     p2ps_table[p, :] = p2ps.values()
                     dms_table[p, :] = dms.values()
+                    angles_table[p, :] = angles.values()
 
                 np.savetxt('save/test_accs_%d.txt' % m, accs_table, '%.8e', ',', '\n', ','.join(accs.keys()))
                 np.savetxt('save/test_p2ps_%d.txt' % m, p2ps_table, '%.8e', ',', '\n', ','.join(p2ps.keys()))
                 np.savetxt('save/test_dms_%d.txt' % m, dms_table, '%.8e', ',', '\n', ','.join(dms.keys()))
+                np.savetxt('save/test_angles_%d.txt' % m, angles_table, '%.8e', ',', '\n', ','.join(angles.keys()))
 
         else:
             run_dmnn_score()

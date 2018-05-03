@@ -21,11 +21,11 @@
     # Latent factor conditional model, size (0 means no condition)
     'latent_cond_dim': 0,
     # Body shape conservation loss
-    'shape_loss': True,
+    'shape_loss': False,
     # Body rotation loss
     'rotation_loss': False,
     # Sequence smoothing loss
-    'smoothing_loss': True,
+    'smoothing_loss': False,
     # Time preserving embedding (NOT COMPATIBLE with latent or FAE)
     'time_pres_emb': False,
     # Joint unfolding
@@ -39,7 +39,7 @@
     # Rescale coords using skeleton average bone len
     'rescale_coords': False,
     # Translate sequence starting point to 0,0,0
-    'translate_start': True,
+    'translate_start': False,
     # Rotate sequence starting point
     'rotate_start': False,
     # Transform euclidean coordinates input to differences

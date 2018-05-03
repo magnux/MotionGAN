@@ -8,21 +8,21 @@ import re
 from glob import glob
 from tqdm import tqdm
 
-found_files = [file for file in glob('extracted/S*/MyPoseFeatures/D3_Positions/*.cdf')]
+found_files = [file for file in glob('extracted_expmaps/S*/*.txt')]
 
 print('Processing {} files...'.format(len(found_files)))
 
 subjects = ['S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S11']
 cameras = ['54138969', '55011271', '58860488', '60457274']
-actions = ['Directions', 'Discussion', 'Eating', 'Greeting', 'Phoning',
-           'Posing', 'Purchases', 'Sitting', 'SittingDown', 'Smoking',
-           'Photo', 'Waiting', 'Walking', 'WalkDog', 'WalkTogether']
+actions = ['directions', 'discussion', 'eating', 'greeting', 'phoning',
+           'posing', 'purchases', 'sitting', 'sittingdown', 'smoking',
+           'takingphoto', 'waiting', 'walking', 'walkingdog', 'walkingtogether']
 
-prog = re.compile('(S\d+)/MyPoseFeatures/D3_Positions/([^.]+).cdf')
+prog = re.compile('(S\d+)/([^_]+)_(\d).txt')
 
 
 def read_pose(x):
-    return np.reshape(np.transpose(np.array(x), [2, 0, 1]), [32, 3, -1])
+    return np.reshape(np.transpose(np.array(x), [1, 0]), [33, 3, -1])
 
 
 dataset = 'Human36_expmaps'
@@ -32,17 +32,22 @@ for f, found_file in enumerate(tqdm(found_files)):
     confpars = prog.findall(found_file)[0]
     subject = [i for i, x in enumerate(subjects) if x == confpars[0]][0]
     action = [i for i, x in enumerate(actions) if x in confpars[1]][0]
+    subaction = int(confpars[2])
 
     # print(found_file)
-    # print(subject, action, camera)
+    # print(subject, action, subaction)
 
     subarray = np.array(subject + 1)
     actarray = np.array(action + 1)
 
-    pose3dcdf = pycdf.CDF(found_file)
+    posearray = []
+    lines = open(found_file).readlines()
+    for line in lines:
+        line = line.strip().split(',')
+        if len(line) > 0:
+            posearray.append(np.array([np.float32(x) for x in line]))
 
-    posearray = read_pose(pose3dcdf['Pose'])
-    pose3dcdf.close()
+    posearray = read_pose(posearray)
 
     # S5 will be the Validate split the rest of the subjects are the training set
     datasplit = 'Validate' if subjects[subject] == 'S5' else 'Train'

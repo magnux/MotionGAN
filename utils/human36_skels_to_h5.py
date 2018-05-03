@@ -36,7 +36,7 @@ for f, found_file in enumerate(tqdm(found_files)):
     action = [i for i, x in enumerate(actions) if x in confpars[1]][0]
 
     # print(found_file)
-    # print(subject, action, camera)
+    # print(subject, action)
 
     subarray = np.array(subject + 1)
     actarray = np.array(action + 1)

@@ -221,7 +221,6 @@ def seq_to_angles_transformer(body_members, shape):
 
     seq_ph = tf.placeholder(tf.float32, shape=shape)
     angles = _get_angles(seq_ph)
-
     sess = tf.Session()
 
     def _run_ops(seq):

@@ -156,6 +156,8 @@ class DataInput(object):
         elif self.data_set == 'Human36':
             pose = pose[self.used_joints, ...]
             # pose[:, :3, :] = pose[:, :3, :] / 1.0e3 # Rescale to meters
+        elif self.data_set == 'Human36_expmaps':
+            pass
 
         pose = np.transpose(pose, (0, 2, 1))
 

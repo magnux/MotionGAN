@@ -203,7 +203,8 @@ if __name__ == "__main__":
             logs.update(gen_losses)
 
             # Generating images
-            if (config.epoch % (config.num_epochs // 10)) == 0 or config.epoch == (config.num_epochs - 1):
+            if config.data_set != 'Human36_expmaps' and (
+                    (config.epoch % (config.num_epochs // 10)) == 0 or config.epoch == (config.num_epochs - 1)):
                 if config.normalize_data:
                     poses_batch = data_input.unnormalize_poses(poses_batch)
                     gen_outputs = data_input.unnormalize_poses(gen_outputs)

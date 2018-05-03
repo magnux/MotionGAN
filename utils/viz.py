@@ -8,8 +8,10 @@ from PIL import Image
 
 
 NTU_BODY_MEMBERS = {
-    'left_arm': {'joints': [20, 8, 9, 10, 11, 23, 11, 24], 'side': 'left'},
-    'right_arm': {'joints': [20, 4, 5, 6, 7, 21, 7, 22], 'side': 'right'},
+    'left_arm': {'joints': [20, 8, 9, 10, 11, 23], 'side': 'left'},
+    'left_fingers': {'joints': [11, 24], 'side': 'left'},
+    'right_arm': {'joints': [20, 4, 5, 6, 7, 21], 'side': 'right'},
+    'right_fingers': {'joints': [7, 22], 'side': 'right'},
     'head': {'joints': [20, 2, 3], 'side': 'right'},
     'torso': {'joints': [0, 1, 20], 'side': 'right'},
     'left_leg': {'joints': [0, 16, 17, 18, 19], 'side': 'left'},
@@ -57,10 +59,12 @@ MSRC_ACTIONS = ["Start system", "Duck", "Push right",
                 "Change weapon", "Beat both", "Kick"]
 
 H36_BODY_MEMBERS_FULL = {
-    'left_arm': {'joints': [21, 20, 19, 22, 23, 22, 19, 18, 17, 16, 13], 'side': 'left'},
-    'right_arm': {'joints': [29, 28, 27, 30, 31, 30, 27, 26, 25, 24, 13], 'side': 'right'},
-    'head': {'joints': [15, 14, 13, 12], 'side': 'right'},
-    'torso': {'joints': [0, 11, 12], 'side': 'right'},
+    'left_arm': {'joints': [13, 16, 17, 18, 19, 20, 21], 'side': 'left'},
+    'left_fingers': {'joints': [19, 22, 23], 'side': 'left'},
+    'right_arm': {'joints': [13, 24, 25, 26, 27, 28, 29], 'side': 'right'},
+    'right_fingers': {'joints': [27, 30, 31], 'side': 'right'},
+    'head': {'joints': [13, 14, 15], 'side': 'right'},
+    'torso': {'joints': [0, 11, 12, 13], 'side': 'right'},
     'left_leg': {'joints': [0, 6, 7, 8, 9, 10], 'side': 'left'},
     'right_leg': {'joints': [0, 1, 2, 3, 4, 5], 'side': 'right'},
 }

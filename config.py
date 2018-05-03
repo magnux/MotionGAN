@@ -56,8 +56,10 @@ def get_config(flags):
         config.njoints = 25  # *2, Note: only taking first skeleton
         config.max_plen = 300
         config.body_members = {
-            'left_arm': {'joints': [20, 8, 9, 10, 11, 23, 11, 24], 'side': 'left'},
-            'right_arm': {'joints': [20, 4, 5, 6, 7, 21, 7, 22], 'side': 'right'},
+            'left_arm': {'joints': [20, 8, 9, 10, 11, 23], 'side': 'left'},
+            'left_fingers': {'joints': [11, 24], 'side': 'left'},
+            'right_arm': {'joints': [20, 4, 5, 6, 7, 21], 'side': 'right'},
+            'right_fingers': {'joints': [7, 22], 'side': 'right'},
             'head': {'joints': [20, 2, 3], 'side': 'right'},
             'torso': {'joints': [0, 1, 20], 'side': 'right'},
             'left_leg': {'joints': [0, 16, 17, 18, 19], 'side': 'left'},
@@ -96,6 +98,29 @@ def get_config(flags):
         for key, value in config.body_members.items():
             new_body_members[key] = value.copy()
             new_body_members[key]['joints'] = [config.used_joints.index(j) for j in new_body_members[key]['joints']]
+        config.body_members = new_body_members
+
+    elif config.data_set == 'Human36_expmaps':
+        config.num_actions = 15
+        config.num_subjects = 7
+        config.njoints = 33
+        config.max_plen = 6343
+
+        config.body_members = {
+            'left_arm': {'joints': [13, 16, 17, 18, 19, 20, 21], 'side': 'left'},
+            'left_fingers': {'joints': [19, 22, 23], 'side': 'left'},
+            'right_arm': {'joints': [13, 24, 25, 26, 27, 28, 29], 'side': 'right'},
+            'right_fingers': {'joints': [27, 30, 31], 'side': 'right'},
+            'head': {'joints': [13, 14, 15], 'side': 'right'},
+            'torso': {'joints': [0, 11, 12, 13], 'side': 'right'},
+            'left_leg': {'joints': [0, 6, 7, 8, 9, 10], 'side': 'left'},
+            'right_leg': {'joints': [0, 1, 2, 3, 4, 5], 'side': 'right'},
+        }
+
+        new_body_members = {}
+        for key, value in config.body_members.items():
+            new_body_members[key] = value.copy()
+            new_body_members[key]['joints'] = [j + 1 for j in new_body_members[key]['joints']]
         config.body_members = new_body_members
 
     config.body_members = OrderedDict(sorted(config.body_members.iteritems()))  # Ordering might be important for iter

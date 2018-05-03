@@ -344,6 +344,59 @@ if __name__ == "__main__":
 
         else:
             run_dmnn_score()
+    elif FLAGS.test_mode == "hmp_compare":
+        from utils.human36_expmaps_to_h5 import actions
+        import sys
+        sys.path.append('../human-motion-prediction/src')
+        import data_utils
+
+        def em2eul(a, j, k):
+            return data_utils.rotmat2euler(data_utils.expmap2rotmat(a[j, k:k + 3]))
+
+        def euc_error(x, y):
+            return np.sqrt(np.sum(np.square(x - y), 1))
+
+        with h5.File(FLAGS.sample_file, "r") as sample_file:
+            for action in actions:
+                mean_errors_hmp = np.zeros((8, 100))
+                mean_errors_mg = np.zeros((8, 100))
+                for i in np.arange(8):
+                    expmap_gt = np.array(sample_file['expmap/gt/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    expmap_hmp = np.array(sample_file['expmap/preds/{1}_{0}'.format(i, action)], dtype=np.float32)
+
+                    print(expmap_gt.shape)
+
+                    mask_batch = np.ones((33, 100, 1), dtype=np.float32)
+                    mask_batch[:, 50:, :] = 0.0
+                    poses_batch = np.transpose(np.reshape(expmap_gt, (100, 33, 3)), (1, 0, 2))
+                    poses_batch = np.expand_dims(poses_batch, 0)
+
+                    gen_inputs = [poses_batch, mask_batch]
+                    gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
+                    gen_output = data_input.unnormalize_poses(gen_output)
+                    expmap_mg = np.reshape(np.transpose(gen_output, (1, 0, 2)), (100, 99))
+
+                    for j in np.arange(expmap_hmp.shape[0]):
+                        for k in np.arange(3, 97, 3):
+                            expmap_gt[j, k:k + 3] = em2eul(expmap_gt, j, k)
+                            expmap_hmp[j, k:k + 3] = em2eul(expmap_hmp, j, k)
+                            expmap_mg[j, k:k + 3] = em2eul(expmap_mg, j, k)
+
+                    expmap_hmp[:, 0:6] = 0
+                    expmap_mg[:, 0:6] = 0
+                    idx_to_use = np.where(np.std(expmap_hmp, 0) > 1e-4)[0]
+
+                    mean_errors_hmp[i, :] = euc_error(expmap_gt[:, idx_to_use], expmap_hmp[:, idx_to_use])
+                    mean_errors_mg[i, :] = euc_error(expmap_gt[:, idx_to_use], expmap_mg[:, idx_to_use])
+
+                rec_mean_error = np.array(sample_file['mean_{0}_error'.format(action)], dtype=np.float32)
+                mean_mean_errors_hmp = np.mean(mean_errors_hmp, 0)
+                mean_mean_errors_mg = np.mean(mean_errors_hmp, 0)
+
+                print(rec_mean_error, mean_errors_hmp, mean_errors_mg)
+
+
+
 
 
 

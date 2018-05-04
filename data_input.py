@@ -214,7 +214,7 @@ class DataInput(object):
                     yield self.sub_sample_batch(batches[slice_idx])
 
     def normalize_poses(self, poses):
-        return (poses - self.poses_mean) / self.poses_std
+        return (poses - self.poses_mean) / (self.poses_std + 1e-8)
 
     def unnormalize_poses(self, poses):
-        return (poses * self.poses_std) + self.poses_mean
+        return (poses * (self.poses_std + 1e-8)) + self.poses_mean

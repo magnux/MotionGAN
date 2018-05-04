@@ -5,7 +5,7 @@
     'data_set': 'NTURGBD',
     'data_set_version': 'v1',
     # Normalize skeletons offline
-    'normalize_data': True,
+    'normalize_data': False,
 
     ## Model Options
     # Model type to train
@@ -16,24 +16,26 @@
     'dropout': 0.0,
     # Lambda for gradient penalty
     'lambda_grads': 10,
-    # Action label conditional model
-    'action_cond': False,
-    # Latent factor conditional model, size (0 means no condition)
-    'latent_cond_dim': 0,
+    # General loss factor
+    'loss_factor': 1.0,
     # Body shape conservation loss
     'shape_loss': False,
     # Body rotation loss
     'rotation_loss': False,
     # Sequence smoothing loss
     'smoothing_loss': False,
+    # Disable GAN loss on the generator
+    'no_gan_loss': False,
+    # Action label conditional model
+    'action_cond': False,
+    # Latent factor conditional model, size (0 means no condition)
+    'latent_cond_dim': 0,
     # Time preserving embedding (NOT COMPATIBLE with latent or FAE)
     'time_pres_emb': False,
     # Joint unfolding
     'unfold': False,
     # Use pose FAE
     'use_pose_fae': False,
-    # Disable GAN loss on the generator
-    'no_gan_loss': False,
     # Remove Hip, use hip relative coordinates
     'remove_hip': False,
     # Rescale coords using skeleton average bone len

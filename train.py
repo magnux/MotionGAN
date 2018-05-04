@@ -203,30 +203,30 @@ if __name__ == "__main__":
             logs.update(gen_losses)
 
             # Generating images
-            if config.data_set != 'Human36_expmaps' and (
-                    (config.epoch % (config.num_epochs // 10)) == 0 or config.epoch == (config.num_epochs - 1)):
+            if (config.epoch % (config.num_epochs // 10)) == 0 or config.epoch == (config.num_epochs - 1):
                 if config.normalize_data:
                     poses_batch = data_input.unnormalize_poses(poses_batch)
                     gen_outputs = data_input.unnormalize_poses(gen_outputs)
                     # aux_out = data_input.unnormalize_poses(aux_out)
                 for i in range(10):  # config.batch_size
-                    gif_name = '%s_tmp.gif' % config.save_path
-                    gif_height, gif_width = plot_seq_gif(
-                        np.concatenate([poses_batch[np.newaxis, i, ...],
-                                        # aux_out[np.newaxis, i, ...],
-                                        gen_outputs[np.newaxis, i, ...]]),
-                        labs_batch[i, ...],
-                        config.data_set,
-                        seq_masks=mask_batch[i, ...],
-                        extra_text='mask mode: %s' % MASK_MODES[mask_mode],
-                        save_path=gif_name)
+                    if config.data_set != 'Human36_expmaps':
+                        gif_name = '%s_tmp.gif' % config.save_path
+                        gif_height, gif_width = plot_seq_gif(
+                            np.concatenate([poses_batch[np.newaxis, i, ...],
+                                            # aux_out[np.newaxis, i, ...],
+                                            gen_outputs[np.newaxis, i, ...]]),
+                            labs_batch[i, ...],
+                            config.data_set,
+                            seq_masks=mask_batch[i, ...],
+                            extra_text='mask mode: %s' % MASK_MODES[mask_mode],
+                            save_path=gif_name)
 
-                    with open(gif_name, 'rb') as f:
-                        encoded_image_string = f.read()
+                        with open(gif_name, 'rb') as f:
+                            encoded_image_string = f.read()
 
-                    logs['custom_img_%d' % i] = {'height': gif_height,
-                                                 'width': gif_width,
-                                                 'enc_string': encoded_image_string}
+                        logs['custom_img_%d' % i] = {'height': gif_height,
+                                                     'width': gif_width,
+                                                     'enc_string': encoded_image_string}
 
                     if config.use_pose_fae:
                         png_name = '%s_mask_tmp.png' % config.save_path

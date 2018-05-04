@@ -12,12 +12,13 @@ from utils.seq_utils import MASK_MODES, gen_mask, linear_baseline, burke_baselin
 import h5py as h5
 from tqdm import trange
 from collections import OrderedDict
+from colorama import Fore, Back, Style
 
 logging = tf.logging
 flags = tf.flags
 flags.DEFINE_bool("verbose", False, "To talk or not to talk")
 flags.DEFINE_multi_string("model_path", None, "Model output directory")
-flags.DEFINE_string("test_mode", "show_images", "Test modes: show_images, write_images, write_data, dmnn_score, dmnn_score_table")
+flags.DEFINE_string("test_mode", "show_images", "Test modes: show_images, write_images, write_data, dmnn_score, dmnn_score_table, hmp_compare")
 flags.DEFINE_string("dmnn_path", None, "Path to trained DMNN model")
 flags.DEFINE_string("images_mode", "gif", "Image modes: gif, png")
 flags.DEFINE_integer("mask_mode", 3, "Mask modes: " + ' '.join(['%d:%s' % tup for tup in enumerate(MASK_MODES)]))
@@ -83,7 +84,8 @@ if __name__ == "__main__":
     seq_len = model_wraps[0].seq_len
     body_members = configs[0].body_members
 
-    angle_trans = seq_to_angles_transformer(body_members, (batch_size, njoints, seq_len, 3))
+    if FLAGS.test_mode != 'hmp_compare':
+        angle_trans = seq_to_angles_transformer(body_members, (batch_size, njoints, seq_len, 3))
 
     def get_inputs():
         labs_batch, poses_batch = val_generator.next()
@@ -356,25 +358,27 @@ if __name__ == "__main__":
         def euc_error(x, y):
             return np.sqrt(np.sum(np.square(x - y), 1))
 
-        with h5.File(FLAGS.sample_file, "r") as sample_file:
+        with h5.File('../human-motion-prediction/samples.h5', "r") as sample_file:
             for action in actions:
-                mean_errors_hmp = np.zeros((8, 100))
-                mean_errors_mg = np.zeros((8, 100))
+                mean_errors_hmp = np.zeros((8, 50))
+                mean_errors_mg = np.zeros((8, 50))
                 for i in np.arange(8):
+                    encoder_inputs = np.array(sample_file['expmap/encoder_inputs/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    decoder_inputs = np.array(sample_file['expmap/decoder_inputs/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    decoder_outputs = np.array(sample_file['expmap/decoder_outputs/{1}_{0}'.format(i, action)], dtype=np.float32)
+
                     expmap_gt = np.array(sample_file['expmap/gt/{1}_{0}'.format(i, action)], dtype=np.float32)
                     expmap_hmp = np.array(sample_file['expmap/preds/{1}_{0}'.format(i, action)], dtype=np.float32)
 
-                    print(expmap_gt.shape)
-
-                    mask_batch = np.ones((33, 100, 1), dtype=np.float32)
-                    mask_batch[:, 50:, :] = 0.0
-                    poses_batch = np.transpose(np.reshape(expmap_gt, (100, 33, 3)), (1, 0, 2))
-                    poses_batch = np.expand_dims(poses_batch, 0)
+                    mask_batch = np.ones((1, 33, 100, 1), dtype=np.float32)
+                    mask_batch[:, :, 50:, :] = 0.0
+                    poses_batch = np.concatenate([encoder_inputs, decoder_inputs[np.newaxis, 0, :], decoder_outputs], axis=0)[:100, :]
+                    poses_batch = np.transpose(np.reshape(poses_batch, (1, 100, 33, 3)), (0, 2, 1, 3))
 
                     gen_inputs = [poses_batch, mask_batch]
                     gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
                     gen_output = data_input.unnormalize_poses(gen_output)
-                    expmap_mg = np.reshape(np.transpose(gen_output, (1, 0, 2)), (100, 99))
+                    expmap_mg = np.reshape(np.transpose(gen_output, (0, 2, 1, 3)), (100, 99))
 
                     for j in np.arange(expmap_hmp.shape[0]):
                         for k in np.arange(3, 97, 3):
@@ -386,14 +390,31 @@ if __name__ == "__main__":
                     expmap_mg[:, 0:6] = 0
                     idx_to_use = np.where(np.std(expmap_hmp, 0) > 1e-4)[0]
 
-                    mean_errors_hmp[i, :] = euc_error(expmap_gt[:, idx_to_use], expmap_hmp[:, idx_to_use])
-                    mean_errors_mg[i, :] = euc_error(expmap_gt[:, idx_to_use], expmap_mg[:, idx_to_use])
+                    mean_errors_hmp[i, :] = euc_error(expmap_gt[:50, idx_to_use], expmap_hmp[:50, idx_to_use])
+                    mean_errors_mg[i, :] = euc_error(expmap_gt[:50, idx_to_use], expmap_mg[50:, idx_to_use])
 
-                rec_mean_error = np.array(sample_file['mean_{0}_error'.format(action)], dtype=np.float32)
+                rec_mean_mean_error = np.array(sample_file['mean_{0}_error'.format(action)], dtype=np.float32)
                 mean_mean_errors_hmp = np.mean(mean_errors_hmp, 0)
-                mean_mean_errors_mg = np.mean(mean_errors_hmp, 0)
+                mean_mean_errors_mg = np.mean(mean_errors_mg, 0)
 
-                print(rec_mean_error, mean_errors_hmp, mean_errors_mg)
+                print(action)
+                err_strs = [(Fore.BLUE if np.mean(np.abs(err1 - err2)) < 1e-4 else Fore.YELLOW) + str(np.mean(err2))
+                            for err1, err2 in zip(rec_mean_mean_error, mean_mean_errors_hmp)]
+
+                err_strs += [(Fore.GREEN if np.mean((err1 > err2).astype('float32')) > 0.5 else Fore.RED) + str(np.mean(err2))
+                             for err1, err2 in zip(mean_mean_errors_hmp, mean_mean_errors_mg)]
+
+                # rec_mean_mean_error = np.mean(rec_mean_mean_error)
+                # mean_mean_errors_hmp = np.mean(mean_mean_errors_hmp)
+                # mean_mean_errors_mg = np.mean(mean_mean_errors_mg)
+                #
+                # err_strs = [(Fore.BLUE if np.mean(np.abs(rec_mean_mean_error - mean_mean_errors_hmp)) < 1e-4 else Fore.YELLOW) + str(mean_mean_errors_hmp)]
+                # err_strs += [(Fore.GREEN if np.mean((rec_mean_mean_error > mean_mean_errors_mg).astype('float32')) > 0.5 else Fore.RED) + str(mean_mean_errors_mg)]
+
+                for err_str in err_strs:
+                    print(err_str)
+
+                print(Style.RESET_ALL)
 
 
 

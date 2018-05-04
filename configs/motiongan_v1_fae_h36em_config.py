@@ -13,11 +13,11 @@
     # How fast should we learn?
     'learning_rate': 1.0e-3,
     # It's the batch size
-    'batch_size': 64,
+    'batch_size': 256,
     # Multiplies length of epoch, useful for tiny datasets
     'epoch_factor': 100,
     # Number of the random picks (0 == deactivated)
     'pick_num': 0,
     # Size of the random crop (0 == deactivated)
-    'crop_len': 100,
+    'crop_len': 20,
 }

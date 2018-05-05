@@ -50,7 +50,7 @@ class _MotionGAN(object):
         self.wgan_scale_g = 2.0 * config.loss_factor * (0.0 if config.no_gan_loss else 1.0)
         self.wgan_frame_scale_d = 10.0 * config.loss_factor
         self.wgan_frame_scale_g = 2.0 * config.loss_factor * (0.0 if config.no_gan_loss else 1.0)
-        self.rec_scale = 1.0 * config.loss_factor
+        self.rec_scale = 1.0
         self.action_cond = config.action_cond
         self.action_scale_d = 10.0
         self.action_scale_g = 1.0

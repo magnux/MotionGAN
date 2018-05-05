@@ -360,25 +360,26 @@ if __name__ == "__main__":
 
         with h5.File('../human-motion-prediction/samples.h5', "r") as sample_file:
             for action in actions:
-                mean_errors_hmp = np.zeros((8, 50))
-                mean_errors_mg = np.zeros((8, 50))
+                pred_len = 10
+                mean_errors_hmp = np.zeros((8, pred_len))
+                mean_errors_mg = np.zeros((8, pred_len))
                 for i in np.arange(8):
                     encoder_inputs = np.array(sample_file['expmap/encoder_inputs/{1}_{0}'.format(i, action)], dtype=np.float32)
                     decoder_inputs = np.array(sample_file['expmap/decoder_inputs/{1}_{0}'.format(i, action)], dtype=np.float32)
                     decoder_outputs = np.array(sample_file['expmap/decoder_outputs/{1}_{0}'.format(i, action)], dtype=np.float32)
 
-                    expmap_gt = np.array(sample_file['expmap/gt/{1}_{0}'.format(i, action)], dtype=np.float32)
-                    expmap_hmp = np.array(sample_file['expmap/preds/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    expmap_gt = np.array(sample_file['expmap/gt/{1}_{0}'.format(i, action)], dtype=np.float32)[:pred_len, ...]
+                    expmap_hmp = np.array(sample_file['expmap/preds/{1}_{0}'.format(i, action)], dtype=np.float32)[:pred_len, ...]
 
-                    mask_batch = np.ones((1, 33, 100, 1), dtype=np.float32)
-                    mask_batch[:, :, 50:, :] = 0.0
-                    poses_batch = np.concatenate([encoder_inputs, decoder_inputs[np.newaxis, 0, :], decoder_outputs], axis=0)[:100, :]
-                    poses_batch = np.transpose(np.reshape(poses_batch, (1, 100, 33, 3)), (0, 2, 1, 3))
+                    mask_batch = np.ones((1, 33, pred_len*2, 1), dtype=np.float32)
+                    mask_batch[:, :, pred_len:, :] = 0.0
+                    poses_batch = np.concatenate([encoder_inputs, decoder_inputs[np.newaxis, 0, :], decoder_outputs], axis=0)[50 - pred_len:50 + pred_len, :]
+                    poses_batch = np.transpose(np.reshape(poses_batch, (1, pred_len*2, 33, 3)), (0, 2, 1, 3))
 
                     gen_inputs = [poses_batch, mask_batch]
                     gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
                     gen_output = data_input.unnormalize_poses(gen_output)
-                    expmap_mg = np.reshape(np.transpose(gen_output, (0, 2, 1, 3)), (100, 99))
+                    expmap_mg = np.reshape(np.transpose(gen_output, (0, 2, 1, 3)), (pred_len*2, 99))
 
                     for j in np.arange(expmap_hmp.shape[0]):
                         for k in np.arange(3, 97, 3):
@@ -390,8 +391,8 @@ if __name__ == "__main__":
                     expmap_mg[:, 0:6] = 0
                     idx_to_use = np.where(np.std(expmap_hmp, 0) > 1e-4)[0]
 
-                    mean_errors_hmp[i, :] = euc_error(expmap_gt[:50, idx_to_use], expmap_hmp[:50, idx_to_use])
-                    mean_errors_mg[i, :] = euc_error(expmap_gt[:50, idx_to_use], expmap_mg[50:, idx_to_use])
+                    mean_errors_hmp[i, :] = euc_error(expmap_gt[:, idx_to_use], expmap_hmp[:, idx_to_use])
+                    mean_errors_mg[i, :] = euc_error(expmap_gt[:, idx_to_use], expmap_mg[pred_len:, idx_to_use])
 
                 rec_mean_mean_error = np.array(sample_file['mean_{0}_error'.format(action)], dtype=np.float32)
                 mean_mean_errors_hmp = np.mean(mean_errors_hmp, 0)

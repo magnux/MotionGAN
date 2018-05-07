@@ -103,7 +103,7 @@ def get_config(flags):
     elif config.data_set == 'Human36_expmaps':
         config.num_actions = 15
         config.num_subjects = 7
-        config.njoints = 33
+        # config.njoints = 33
         config.max_plen = 6343
 
         config.body_members = {
@@ -116,11 +116,12 @@ def get_config(flags):
             'left_leg': {'joints': [0, 6, 7, 8, 9, 10], 'side': 'left'},
             'right_leg': {'joints': [0, 1, 2, 3, 4, 5], 'side': 'right'},
         }
-
+        config.used_joints = [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 12, 13, 14, 15, 17, 18, 19, 20, 25, 26, 27, 28]
+        config.njoints = len(config.used_joints)
         new_body_members = {}
         for key, value in config.body_members.items():
             new_body_members[key] = value.copy()
-            new_body_members[key]['joints'] = [j + 1 for j in new_body_members[key]['joints']]
+            new_body_members[key]['joints'] = [config.used_joints.index(j) for j in new_body_members[key]['joints'] if j in config.used_joints]
         config.body_members = new_body_members
 
     config.body_members = OrderedDict(sorted(config.body_members.iteritems()))  # Ordering might be important for iter

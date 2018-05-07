@@ -23,7 +23,7 @@ class DataInput(object):
         self.normalize_data = config.normalize_data
         self.epoch_factor = config.epoch_factor
 
-        if self.data_set == "Human36":
+        if "Human36" in self.data_set:
             self.used_joints = config.used_joints
 
         file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '.h5')
@@ -106,11 +106,15 @@ class DataInput(object):
             self.poses_std = np.load(std_file_path)
         else:
             print('Computing mean and std of skels')
-            self.poses_mean = np.mean(poses[..., :3], axis=(0, 1, 2), keepdims=True)
-            self.poses_std = np.std(poses[..., :3], axis=(0, 1, 2), keepdims=True)
+            self.poses_mean = np.mean(poses[..., :3], axis=(0, 2), keepdims=True)
+            self.poses_std = np.std(poses[..., :3], axis=(0, 2), keepdims=True)
             print(self.poses_mean, self.poses_std)
             np.save(min_file_path, self.poses_mean)
             np.save(std_file_path, self.poses_std)
+
+            zero_std = [i for i in range(self.poses_std.shape[1]) if np.sum(self.poses_std[:, i, ...], axis=-1) < 1e-4]
+            if len(zero_std) > 0:
+                print('Warning: the following joints have zero std:', zero_std)
 
         if self.normalize_data:
             poses[..., :3] = self.normalize_poses(poses[..., :3])
@@ -157,7 +161,7 @@ class DataInput(object):
             pose = pose[self.used_joints, ...]
             # pose[:, :3, :] = pose[:, :3, :] / 1.0e3 # Rescale to meters
         elif self.data_set == 'Human36_expmaps':
-            pass
+            pose = pose[self.used_joints, ...]
 
         pose = np.transpose(pose, (0, 2, 1))
 

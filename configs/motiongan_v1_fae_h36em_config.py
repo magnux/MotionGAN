@@ -4,6 +4,8 @@
     'data_set_version': 'v1',
     # Model version to train
     'model_version': 'v1',
+    # Normalize skeletons offline
+    'normalize_data': True,
 
     # Use pose FAE
     'use_pose_fae': True,
@@ -19,5 +21,5 @@
     # Number of the random picks (0 == deactivated)
     'pick_num': 0,
     # Size of the random crop (0 == deactivated)
-    'crop_len': 20,
+    'crop_len': 50,
 }

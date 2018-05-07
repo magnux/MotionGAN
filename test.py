@@ -360,7 +360,7 @@ if __name__ == "__main__":
 
         with h5.File('../human-motion-prediction/samples.h5', "r") as sample_file:
             for action in actions:
-                pred_len = 10
+                pred_len = seq_len // 2
                 mean_errors_hmp = np.zeros((8, pred_len))
                 mean_errors_mg = np.zeros((8, pred_len))
                 for i in np.arange(8):
@@ -375,6 +375,7 @@ if __name__ == "__main__":
                     mask_batch[:, :, pred_len:, :] = 0.0
                     poses_batch = np.concatenate([encoder_inputs, decoder_inputs[np.newaxis, 0, :], decoder_outputs], axis=0)[50 - pred_len:50 + pred_len, :]
                     poses_batch = np.transpose(np.reshape(poses_batch, (1, pred_len*2, 33, 3)), (0, 2, 1, 3))
+                    poses_batch = poses_batch[:, configs[0].used_joints, :, :]
                     if configs[0].normalize_data:
                         poses_batch = data_input.normalize_poses(poses_batch)
 
@@ -382,7 +383,9 @@ if __name__ == "__main__":
                     gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
                     if configs[0].normalize_data:
                         gen_output = data_input.unnormalize_poses(gen_output)
-                    expmap_mg = np.reshape(np.transpose(gen_output, (0, 2, 1, 3)), (pred_len*2, 99))
+                    expmap_mg = np.zeros((batch_size, 33, seq_len, 3))
+                    expmap_mg[:, configs[0].used_joints, :, :] = gen_output
+                    expmap_mg = np.reshape(np.transpose(expmap_mg, (0, 2, 1, 3)), (pred_len*2, 99))
                     # poses_batch = np.reshape(np.transpose(poses_batch, (0, 2, 1, 3)), (pred_len*2, 99))
 
                     for j in np.arange(expmap_hmp.shape[0]):

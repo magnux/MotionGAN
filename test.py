@@ -352,8 +352,8 @@ if __name__ == "__main__":
         sys.path.append('../human-motion-prediction/src')
         import data_utils
 
-        def em2eul(a, j, k):
-            return data_utils.rotmat2euler(data_utils.expmap2rotmat(a[j, k:k + 3]))
+        def em2eul(a):
+            return data_utils.rotmat2euler(data_utils.expmap2rotmat(a))
 
         def euc_error(x, y):
             return np.sqrt(np.sum(np.square(x - y), 1))
@@ -375,24 +375,32 @@ if __name__ == "__main__":
                     mask_batch[:, :, pred_len:, :] = 0.0
                     poses_batch = np.concatenate([encoder_inputs, decoder_inputs[np.newaxis, 0, :], decoder_outputs], axis=0)[50 - pred_len:50 + pred_len, :]
                     poses_batch = np.transpose(np.reshape(poses_batch, (1, pred_len*2, 33, 3)), (0, 2, 1, 3))
+                    if configs[0].normalize_data:
+                        poses_batch = data_input.normalize_poses(poses_batch)
 
                     gen_inputs = [poses_batch, mask_batch]
                     gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
-                    gen_output = data_input.unnormalize_poses(gen_output)
+                    if configs[0].normalize_data:
+                        gen_output = data_input.unnormalize_poses(gen_output)
                     expmap_mg = np.reshape(np.transpose(gen_output, (0, 2, 1, 3)), (pred_len*2, 99))
+                    # poses_batch = np.reshape(np.transpose(poses_batch, (0, 2, 1, 3)), (pred_len*2, 99))
 
                     for j in np.arange(expmap_hmp.shape[0]):
                         for k in np.arange(3, 97, 3):
-                            expmap_gt[j, k:k + 3] = em2eul(expmap_gt, j, k)
-                            expmap_hmp[j, k:k + 3] = em2eul(expmap_hmp, j, k)
-                            expmap_mg[j, k:k + 3] = em2eul(expmap_mg, j, k)
+                            expmap_gt[j, k:k + 3] = em2eul(expmap_gt[j, k:k + 3])
+                            expmap_hmp[j, k:k + 3] = em2eul(expmap_hmp[j, k:k + 3])
+
+                    for j in np.arange(poses_batch.shape[0]):
+                        for k in np.arange(3, 97, 3):
+                            expmap_mg[j, k:k + 3] = em2eul(expmap_mg[j, k:k + 3])
+                            # poses_batch[j, k:k + 3] = em2eul(poses_batch[j, k:k + 3])
 
                     expmap_hmp[:, 0:6] = 0
                     expmap_mg[:, 0:6] = 0
                     idx_to_use = np.where(np.std(expmap_hmp, 0) > 1e-4)[0]
 
                     mean_errors_hmp[i, :] = euc_error(expmap_gt[:, idx_to_use], expmap_hmp[:, idx_to_use])
-                    mean_errors_mg[i, :] = euc_error(expmap_gt[:, idx_to_use], expmap_mg[pred_len:, idx_to_use])
+                    mean_errors_mg[i, :] = euc_error(expmap_gt[:, idx_to_use], expmap_mg[:pred_len, idx_to_use])
 
                 rec_mean_mean_error = np.array(sample_file['mean_{0}_error'.format(action)], dtype=np.float32)
                 mean_mean_errors_hmp = np.mean(mean_errors_hmp, 0)

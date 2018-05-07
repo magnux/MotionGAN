@@ -1,0 +1,25 @@
+{
+    # Datasets: MSRC12, NTURGBD
+    'data_set': 'Human36_expmaps',
+    'data_set_version': 'v1',
+    # Model version to train
+    'model_version': 'v1',
+    # Normalize skeletons offline
+    'normalize_data': True,
+
+    # Time preserving embedding (NOT COMPATIBLE with latent or FAE)
+    'time_pres_emb': True,
+    # General loss factor
+    'loss_factor': 0.1,
+
+    # How fast should we learn?
+    'learning_rate': 1.0e-3,
+    # It's the batch size
+    'batch_size': 256,
+    # Multiplies length of epoch, useful for tiny datasets
+    'epoch_factor': 100,
+    # Number of the random picks (0 == deactivated)
+    'pick_num': 0,
+    # Size of the random crop (0 == deactivated)
+    'crop_len': 50,
+}

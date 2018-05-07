@@ -5,7 +5,7 @@
     # Model version to train
     'model_version': 'v1',
     # Normalize skeletons offline
-    'normalize_data': True,
+    'normalize_data': False,
 
     # Time preserving embedding (NOT COMPATIBLE with latent or FAE)
     'time_pres_emb': True,

@@ -5,7 +5,7 @@
     # Model version to train
     'model_version': 'v1',
     # Normalize skeletons offline
-    'normalize_data': True,
+    'normalize_data': False,
 
     # Use pose FAE
     'use_pose_fae': True,

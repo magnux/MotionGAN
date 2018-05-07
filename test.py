@@ -371,7 +371,7 @@ if __name__ == "__main__":
                     expmap_gt = np.array(sample_file['expmap/gt/{1}_{0}'.format(i, action)], dtype=np.float32)[:pred_len, ...]
                     expmap_hmp = np.array(sample_file['expmap/preds/{1}_{0}'.format(i, action)], dtype=np.float32)[:pred_len, ...]
 
-                    mask_batch = np.ones((1, 33, pred_len*2, 1), dtype=np.float32)
+                    mask_batch = np.ones((1, njoints, pred_len*2, 1), dtype=np.float32)
                     mask_batch[:, :, pred_len:, :] = 0.0
                     poses_batch = np.concatenate([encoder_inputs, decoder_inputs[np.newaxis, 0, :], decoder_outputs], axis=0)[50 - pred_len:50 + pred_len, :]
                     poses_batch = np.transpose(np.reshape(poses_batch, (1, pred_len*2, 33, 3)), (0, 2, 1, 3))
@@ -381,6 +381,8 @@ if __name__ == "__main__":
 
                     gen_inputs = [poses_batch, mask_batch]
                     gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
+                    # print(np.mean(np.square(poses_batch[:, :, :pred_len, ...] - gen_output[:, :, :pred_len, ...])),
+                    #       np.mean(np.square(poses_batch[:, :,  pred_len:, ...] - gen_output[:, :,  pred_len:, ...])))
                     if configs[0].normalize_data:
                         gen_output = data_input.unnormalize_poses(gen_output)
                     expmap_mg = np.zeros((batch_size, 33, seq_len, 3))
@@ -403,7 +405,7 @@ if __name__ == "__main__":
                     idx_to_use = np.where(np.std(expmap_hmp, 0) > 1e-4)[0]
 
                     mean_errors_hmp[i, :] = euc_error(expmap_gt[:, idx_to_use], expmap_hmp[:, idx_to_use])
-                    mean_errors_mg[i, :] = euc_error(expmap_gt[:, idx_to_use], expmap_mg[:pred_len, idx_to_use])
+                    mean_errors_mg[i, :] = euc_error(expmap_gt[:, idx_to_use], expmap_mg[pred_len:, idx_to_use])
 
                 rec_mean_mean_error = np.array(sample_file['mean_{0}_error'.format(action)], dtype=np.float32)
                 mean_mean_errors_hmp = np.mean(mean_errors_hmp, 0)

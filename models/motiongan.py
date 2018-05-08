@@ -312,7 +312,7 @@ class _MotionGAN(object):
                     unit_gen = masked_gen / vector_mag(masked_gen)
                     unit_real = K.reshape(unit_real, [-1, 3])
                     unit_gen = K.reshape(unit_gen, [-1, 3])
-                    loss_rot = K.square(1 - K.batch_dot(unit_real, unit_gen, axes=1))
+                    loss_rot = K.square(1 - K.batch_dot(unit_real, unit_gen, axes=[-1, -2]))
                     gen_losses['gen_loss_rotation'] = self.rotation_scale * K.mean(loss_rot)
             if self.smoothing_loss:
                 with K.name_scope('smoothing_loss'):

@@ -388,17 +388,19 @@ if __name__ == "__main__":
                     expmap_mg = np.zeros((batch_size, 33, seq_len, 3))
                     expmap_mg[:, configs[0].used_joints, :, :] = gen_output
                     expmap_mg = np.reshape(np.transpose(expmap_mg, (0, 2, 1, 3)), (pred_len*2, 99))
-                    # poses_batch = np.reshape(np.transpose(poses_batch, (0, 2, 1, 3)), (pred_len*2, 99))
+                    # expmap_pb = np.zeros((batch_size, 33, seq_len, 3))
+                    # expmap_pb[:, configs[0].used_joints, :, :] = poses_batch
+                    # expmap_pb = np.reshape(np.transpose(expmap_pb, (0, 2, 1, 3)), (pred_len*2, 99))
 
                     for j in np.arange(expmap_hmp.shape[0]):
                         for k in np.arange(3, 97, 3):
                             expmap_gt[j, k:k + 3] = em2eul(expmap_gt[j, k:k + 3])
                             expmap_hmp[j, k:k + 3] = em2eul(expmap_hmp[j, k:k + 3])
 
-                    for j in np.arange(poses_batch.shape[0]):
+                    for j in np.arange(expmap_mg.shape[0]):
                         for k in np.arange(3, 97, 3):
                             expmap_mg[j, k:k + 3] = em2eul(expmap_mg[j, k:k + 3])
-                            # poses_batch[j, k:k + 3] = em2eul(poses_batch[j, k:k + 3])
+                            # expmap_pb[j, k:k + 3] = em2eul(expmap_pb[j, k:k + 3])
 
                     expmap_hmp[:, 0:6] = 0
                     expmap_mg[:, 0:6] = 0

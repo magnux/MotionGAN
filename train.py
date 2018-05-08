@@ -95,7 +95,7 @@ if __name__ == "__main__":
             for batch in t:
                 tensorboard.on_batch_begin(batch)
 
-                disc_batches = 5
+                disc_batches = 1
                 # disc_batches = 55 if ((config.epoch < 1 and batch < train_batches // 10)
                 #                           or (batch % 10 == 0)) else 5
                 disc_loss = 0.0

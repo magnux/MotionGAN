@@ -21,6 +21,7 @@ class DataInput(object):
         self.only_val = config.only_val
         self.data_set_version = config.data_set_version
         self.normalize_data = config.normalize_data
+        self.normalize_per_joint = config.normalize_per_joint
         self.epoch_factor = config.epoch_factor
 
         if "Human36" in self.data_set:
@@ -98,16 +99,18 @@ class DataInput(object):
             labs[k, :] = [seq_idx, subject, action, plen]
             poses[k, :, :plen, :] = pose
 
-        min_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '_poses_mean.npy')
-        std_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '_poses_std.npy')
+        stat_type = '_global' if self.normalize_per_joint else '_perjoint'
+        min_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + stat_type + '_poses_mean.npy')
+        std_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + stat_type + '_poses_std.npy')
 
         if tf.gfile.Exists(min_file_path) and tf.gfile.Exists(std_file_path):
             self.poses_mean = np.load(min_file_path)
             self.poses_std = np.load(std_file_path)
         else:
             print('Computing mean and std of skels')
-            self.poses_mean = np.mean(poses[..., :3], axis=(0, 2), keepdims=True)
-            self.poses_std = np.std(poses[..., :3], axis=(0, 2), keepdims=True)
+            norm_dims = (0, 2) if self.normalize_per_joint else (0, 1, 2)
+            self.poses_mean = np.mean(poses[..., :3], axis=norm_dims, keepdims=True)
+            self.poses_std = np.std(poses[..., :3], axis=norm_dims, keepdims=True)
             print(self.poses_mean, self.poses_std)
             np.save(min_file_path, self.poses_mean)
             np.save(std_file_path, self.poses_std)

@@ -1,17 +1,25 @@
 {
     # Datasets: MSRC12, NTURGBD
-    'data_set': 'Human36_expmaps',
+    'data_set': 'Human36',
     'data_set_version': 'v1',
     # Model version to train
     'model_version': 'v1',
-    # Perform per joint normalization
-    'normalize_per_joint': True,
 
     # Use pose FAE
     'use_pose_fae': True,
-    # General loss factor
-    'loss_factor': 0.1,
-
+    # Body shape conservation loss
+    'shape_loss': True,
+    # Sequence smoothing loss
+    'smoothing_loss': True,
+    # Rescale coords using skeleton average bone len
+    'rescale_coords': True,
+    # Translate sequence starting point to 0,0,0
+    'translate_start': True,
+    # Rotate sequence starting point
+    'rotate_start': True,
+    # Remove Hip, use hip relative coordinates
+    'remove_hip': True,
+    
     # How fast should we learn?
     'learning_rate': 1.0e-3,
     # It's the batch size

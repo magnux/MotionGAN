@@ -5,7 +5,9 @@
     'data_set': 'NTURGBD',
     'data_set_version': 'v1',
     # Normalize skeletons offline
-    'normalize_data': False,
+    'normalize_data': True,
+    # Perform per joint normalization
+    'normalize_per_joint': False,
 
     ## Model Options
     # Model type to train
@@ -32,8 +34,6 @@
     'latent_cond_dim': 0,
     # Time preserving embedding (NOT COMPATIBLE with latent or FAE)
     'time_pres_emb': False,
-    # Joint unfolding
-    'unfold': False,
     # Use pose FAE
     'use_pose_fae': False,
     # Remove Hip, use hip relative coordinates

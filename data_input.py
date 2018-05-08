@@ -99,7 +99,7 @@ class DataInput(object):
             labs[k, :] = [seq_idx, subject, action, plen]
             poses[k, :, :plen, :] = pose
 
-        stat_type = '_global' if self.normalize_per_joint else '_perjoint'
+        stat_type = '_perjoint' if self.normalize_per_joint else '_global'
         min_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + stat_type + '_poses_mean.npy')
         std_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + stat_type + '_poses_std.npy')
 

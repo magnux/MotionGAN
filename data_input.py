@@ -140,8 +140,8 @@ class DataInput(object):
 
         return seq_idx, subject, action, pose, plen
 
-    def process_pose(self, pose, plen=None):
-        plen = np.int32(np.size(pose, 2)) if plen is None else plen
+    def process_pose(self, pose):
+        plen = np.int32(pose.shape[2])
 
         if pose.shape[1] > 3:
             pose[:, 3, :] = (pose[:, 3, :] > 0).astype('float32')  # tracking state
@@ -163,8 +163,12 @@ class DataInput(object):
         elif self.data_set == 'Human36':
             pose = pose[self.used_joints, ...]
             # pose[:, :3, :] = pose[:, :3, :] / 1.0e3 # Rescale to meters
+            pose = pose[:, :, range(0, plen, 2)]  # Subsampling to 25hz
+            plen = np.int32(pose.shape[2])
         elif self.data_set == 'Human36_expmaps':
             pose = pose[self.used_joints, ...]
+            pose = pose[:, :, range(0, plen, 2)]  # Subsampling to 25hz
+            plen = np.int32(pose.shape[2])
 
         pose = np.transpose(pose, (0, 2, 1))
 

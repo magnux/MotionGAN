@@ -82,7 +82,7 @@ def get_config(flags):
         config.num_actions = 15
         config.num_subjects = 7
         # config.njoints = 32
-        config.max_plen = 6343
+        config.max_plen = (6343 // 2) + 1  # Data will be subsampled to 25hz
 
         config.body_members = {
             'left_arm': {'joints': [13, 17, 18, 19], 'side': 'left'},
@@ -104,7 +104,7 @@ def get_config(flags):
         config.num_actions = 15
         config.num_subjects = 7
         # config.njoints = 33
-        config.max_plen = 6343
+        config.max_plen = (6343 // 2) + 1  # Data will be subsampled to 25hz
 
         config.body_members = {
             'left_arm': {'joints': [13, 16, 17, 18, 19, 20, 21], 'side': 'left'},

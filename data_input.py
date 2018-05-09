@@ -54,7 +54,8 @@ class DataInput(object):
         self.pshape = [config.njoints, None, 4]
         self.max_plen = config.max_plen
 
-        self.pshape[1] = self.pick_num if self.pick_num > 0 else (self.crop_len if self.crop_len > 0 else None)
+        self.pshape[1] = self.pick_num if self.pick_num > 0 else (
+                         self.crop_len if self.crop_len > 0 else None)
 
         if not self.only_val:
             self.train_batches = self.pre_comp_batches(True)
@@ -176,6 +177,14 @@ class DataInput(object):
 
     def sub_sample_pose(self, pose, plen):
 
+        if self.crop_len > 0:
+            if self.crop_len >= plen:
+                pose = pose[:, :self.crop_len, :]
+            elif self.crop_len < plen:
+                indx = np.random.randint(0, plen - self.crop_len)
+                pose = pose[:, indx:indx + self.crop_len, :]
+            plen = np.int32(self.crop_len)
+
         if self.pick_num > 0:
             if self.pick_num >= plen:
                 pose = pose[:, :self.pick_num, :]
@@ -184,14 +193,7 @@ class DataInput(object):
                 picks = np.random.randint(0, subplen, size=(self.pick_num)) + \
                         np.arange(0, plen, subplen, dtype=np.int32)
                 pose = pose[:, picks, :]
-            # plen = np.int32(self.pick_num)
-        elif self.crop_len > 0:
-            if self.crop_len >= plen:
-                pose = pose[:, :self.crop_len, :]
-            elif self.crop_len < plen:
-                indx = np.random.randint(0, plen - self.crop_len)
-                pose = pose[:, indx:indx + self.crop_len, :]
-            # plen = np.int32(self.crop_len)
+            plen = np.int32(self.pick_num)
 
         return pose  #, plen
 

@@ -160,7 +160,7 @@ if __name__ == "__main__":
                             print('nans found in %s' % log_key)
                     print('restarting epoch')
                     config.nan_restarts += 1
-                    assert config.nan_restarts < 10, "restarted too many times because of nans"
+                    assert config.nan_restarts < 25, "restarted too many times because of nans"
                     break
 
                 tensorboard.on_batch_end(batch, logs)

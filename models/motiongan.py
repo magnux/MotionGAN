@@ -355,22 +355,32 @@ class _MotionGAN(object):
         scope = Scoping.get_global_scope()
         with scope.name_scope('remove_hip'):
 
-            def _get_hips(arg):
-                return K.reshape(arg[:, 0, :, :], (arg.shape[0], 1, arg.shape[2], 3))
+            if 'expmaps' in self.data_set:
+                self.stats[scope + 'hip_expmaps'] = Lambda(lambda arg: arg[:, :2, :, :], name=scope + 'hip_expmaps')(x)
 
-            self.stats[scope+'hip_coords'] = Lambda(_get_hips, name=scope+'hip_coords')(x)
+                x = Lambda(lambda arg: arg[:, 2:, ...], name=scope+'remove_hip_in')(x)
+                x_mask = Lambda(lambda arg: arg[:, 2:, ...], name=scope + 'remove_hip_mask_in')(x_mask)
+            else:
+                def _get_hips(arg):
+                    return K.reshape(arg[:, 0, :, :], (arg.shape[0], 1, arg.shape[2], 3))
 
-            x = Lambda(lambda args: (args[0] - args[1])[:, 1:, ...], name=scope+'remove_hip_in')(
-                [x, self.stats[scope+'hip_coords']])
-            x_mask = Lambda(lambda arg: arg[:, 1:, ...], name=scope+'remove_hip_mask_in')(x_mask)
+                self.stats[scope + 'hip_coords'] = Lambda(_get_hips, name=scope + 'hip_coords')(x)
+
+                x = Lambda(lambda args: (args[0] - args[1])[:, 1:, ...],
+                           name=scope+'remove_hip_in')([x, self.stats[scope+'hip_coords']])
+                x_mask = Lambda(lambda arg: arg[:, 1:, ...], name=scope+'remove_hip_mask_in')(x_mask)
         return x, x_mask
 
     def _remove_hip_out(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('remove_hip'):
 
-            x = Lambda(lambda args: K.concatenate([args[1], args[0] + args[1]], axis=1), name=scope+'remove_hip_out')(
-                [x, self.stats[scope+'hip_coords']])
+            if 'expmaps' in self.data_set:
+                x = Lambda(lambda args: K.concatenate([args[1], args[0]], axis=1),
+                           name=scope+'remove_hip_out')([x, self.stats[scope+'hip_expmaps']])
+            else:
+                x = Lambda(lambda args: K.concatenate([args[1], args[0] + args[1]], axis=1),
+                           name=scope+'remove_hip_out')([x, self.stats[scope+'hip_coords']])
         return x
 
     def _translate_start_in(self, x):
@@ -714,15 +724,9 @@ class _MotionGAN(object):
                     if not self.time_pres_emb:
                         x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
 
-            x = [x]
-            if self.latent_cond_dim > 0:
-                x_lat = _get_tensor(input_tensors, 'latent_cond_input')
-                x.append(x_lat)
-
-            if len(x) > 1:
-                x = Concatenate(name=scope+'cat_in')(x)
-            else:
-                x = x[0]
+            # if self.latent_cond_dim > 0:
+            #     x_lat = _get_tensor(input_tensors, 'latent_cond_input')
+            #     x.append(x_lat)
 
         return x
 
@@ -1020,9 +1024,10 @@ class MotionGANV3(_MotionGAN):
                     x = Add(name=scope+'add')([x, pi])
 
             if self.use_pose_fae:
-                x = Dense((self.seq_len * self.fae_latent_dim),
+                fae_dim = self.org_shape[1] * 3
+                x = Dense((self.seq_len * fae_dim),
                           name=scope+'dense_out', activation='relu')(x)
-                x = Reshape((self.seq_len, self.fae_latent_dim, 1),
+                x = Reshape((self.seq_len, fae_dim, 1),
                             name=scope+'reshape_out')(x)
             else:
                 x = Dense((self.njoints * self.seq_len * 3),

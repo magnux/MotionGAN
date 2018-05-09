@@ -358,6 +358,9 @@ if __name__ == "__main__":
         def euc_error(x, y):
             return np.sqrt(np.sum(np.square(x - y), 1))
 
+        def subsample(seq):
+            return seq[range(0, int(seq.shape[0]), 5), :]
+
         with h5.File('../human-motion-prediction/samples.h5', "r") as sample_file:
             for action in actions:
                 pred_len = seq_len // 2
@@ -368,12 +371,18 @@ if __name__ == "__main__":
                     decoder_inputs = np.array(sample_file['expmap/decoder_inputs/{1}_{0}'.format(i, action)], dtype=np.float32)
                     decoder_outputs = np.array(sample_file['expmap/decoder_outputs/{1}_{0}'.format(i, action)], dtype=np.float32)
 
-                    expmap_gt = np.array(sample_file['expmap/gt/{1}_{0}'.format(i, action)], dtype=np.float32)[:pred_len, ...]
-                    expmap_hmp = np.array(sample_file['expmap/preds/{1}_{0}'.format(i, action)], dtype=np.float32)[:pred_len, ...]
+                    expmap_gt = np.array(sample_file['expmap/gt/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    expmap_gt = subsample(expmap_gt)
+                    expmap_gt = expmap_gt[:pred_len, ...]
+                    expmap_hmp = np.array(sample_file['expmap/preds/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    expmap_hmp = subsample(expmap_hmp)
+                    expmap_hmp = expmap_hmp[:pred_len, ...]
 
                     mask_batch = np.ones((1, njoints, pred_len*2, 1), dtype=np.float32)
                     mask_batch[:, :, pred_len:, :] = 0.0
-                    poses_batch = np.concatenate([encoder_inputs, decoder_inputs[np.newaxis, 0, :], decoder_outputs], axis=0)[50 - pred_len:50 + pred_len, :]
+                    poses_batch = np.concatenate([encoder_inputs, decoder_inputs[np.newaxis, 0, :], decoder_outputs], axis=0)
+                    poses_batch = subsample(poses_batch)
+                    poses_batch = poses_batch[10 - pred_len:10 + pred_len, :]
                     poses_batch = np.transpose(np.reshape(poses_batch, (1, pred_len*2, 33, 3)), (0, 2, 1, 3))
                     poses_batch = poses_batch[:, configs[0].used_joints, :, :]
                     if configs[0].normalize_data:
@@ -385,6 +394,7 @@ if __name__ == "__main__":
                     #       np.mean(np.square(poses_batch[:, :,  pred_len:, ...] - gen_output[:, :,  pred_len:, ...])))
                     if configs[0].normalize_data:
                         gen_output = data_input.unnormalize_poses(gen_output)
+                        # poses_batch = data_input.unnormalize_poses(poses_batch)
                     expmap_mg = np.zeros((batch_size, 33, seq_len, 3))
                     expmap_mg[:, configs[0].used_joints, :, :] = gen_output
                     expmap_mg = np.reshape(np.transpose(expmap_mg, (0, 2, 1, 3)), (pred_len*2, 99))
@@ -403,13 +413,13 @@ if __name__ == "__main__":
                             # expmap_pb[j, k:k + 3] = em2eul(expmap_pb[j, k:k + 3])
 
                     expmap_hmp[:, 0:6] = 0
-                    expmap_mg[:, 0:6] = 0
                     idx_to_use = np.where(np.std(expmap_hmp, 0) > 1e-4)[0]
 
                     mean_errors_hmp[i, :] = euc_error(expmap_gt[:, idx_to_use], expmap_hmp[:, idx_to_use])
                     mean_errors_mg[i, :] = euc_error(expmap_gt[:, idx_to_use], expmap_mg[pred_len:, idx_to_use])
 
                 rec_mean_mean_error = np.array(sample_file['mean_{0}_error'.format(action)], dtype=np.float32)
+                rec_mean_mean_error = rec_mean_mean_error[range(0, np.int(rec_mean_mean_error.shape[0]), 5)]
                 mean_mean_errors_hmp = np.mean(mean_errors_hmp, 0)
                 mean_mean_errors_mg = np.mean(mean_errors_mg, 0)
 

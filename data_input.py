@@ -101,11 +101,11 @@ class DataInput(object):
             poses[k, :, :plen, :] = pose
 
         stat_type = '_perjoint' if self.normalize_per_joint else '_global'
-        min_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + stat_type + '_poses_mean.npy')
+        mean_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + stat_type + '_poses_mean.npy')
         std_file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + stat_type + '_poses_std.npy')
 
-        if tf.gfile.Exists(min_file_path) and tf.gfile.Exists(std_file_path):
-            self.poses_mean = np.load(min_file_path)
+        if tf.gfile.Exists(mean_file_path) and tf.gfile.Exists(std_file_path):
+            self.poses_mean = np.load(mean_file_path)
             self.poses_std = np.load(std_file_path)
         else:
             print('Computing mean and std of skels')
@@ -113,15 +113,20 @@ class DataInput(object):
             self.poses_mean = np.mean(poses[..., :3], axis=norm_dims, keepdims=True)
             self.poses_std = np.std(poses[..., :3], axis=norm_dims, keepdims=True)
             print(self.poses_mean, self.poses_std)
-            np.save(min_file_path, self.poses_mean)
+            np.save(mean_file_path, self.poses_mean)
             np.save(std_file_path, self.poses_std)
 
             zero_std = [i for i in range(self.poses_std.shape[1]) if np.sum(self.poses_std[:, i, ...], axis=-1) < 1e-4]
             if len(zero_std) > 0:
                 print('Warning: the following joints have zero std:', zero_std)
 
+        print(np.min(poses, (0, 1, 2)), np.max(poses, (0, 1, 2)))
+        print(np.std(poses[..., :3], axis=(0, 1, 2), keepdims=True))
         if self.normalize_data:
             poses[..., :3] = self.normalize_poses(poses[..., :3])
+
+        print(np.min(poses, (0, 1, 2)), np.max(poses, (0, 1, 2)))
+        print(np.std(poses[..., :3], axis=(0, 1, 2), keepdims=True))
 
         return labs, poses
 
@@ -170,6 +175,7 @@ class DataInput(object):
             pose = pose[self.used_joints, ...]
             pose = pose[:, :, range(0, plen, 2)]  # Subsampling to 25hz
             plen = np.int32(pose.shape[2])
+            pose[:, :3, :] = (pose[:, :3, :] + 90) / 180
 
         pose = np.transpose(pose, (0, 2, 1))
 

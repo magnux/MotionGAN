@@ -50,7 +50,7 @@ class _MotionGAN(object):
         self.wgan_scale_g = 2.0 * config.loss_factor * (0.0 if config.no_gan_loss else 1.0)
         self.wgan_frame_scale_d = 10.0 * config.loss_factor
         self.wgan_frame_scale_g = 2.0 * config.loss_factor * (0.0 if config.no_gan_loss else 1.0)
-        self.rec_scale = 1.0
+        self.rec_scale = 1.0  if 'expmaps' not in self.data_set else 1.0e3
         self.action_cond = config.action_cond
         self.action_scale_d = 10.0
         self.action_scale_g = 1.0
@@ -302,6 +302,26 @@ class _MotionGAN(object):
                     gen_shape = edm(gen_seq) * no_zero_frames_edm * mask
                     loss_shape = K.sum(K.square(real_shape - gen_shape), axis=(1, 2, 3))
                     gen_losses['gen_loss_shape'] = self.shape_scale * K.mean(loss_shape)
+
+                    head_top = self.body_members['head']['joints'][-1]
+                    left_hand = self.body_members['left_arm']['joints'][-1]
+                    right_hand = self.body_members['right_arm']['joints'][-1]
+                    left_foot = self.body_members['left_leg']['joints'][-1]
+                    right_foot = self.body_members['right_leg']['joints'][-1]
+
+                    mask = np.zeros((self.njoints, self.njoints), dtype='float32')
+                    for j in [head_top, left_hand, right_hand, left_foot, right_foot]:
+                        mask[j, :] = 1.0
+                        mask[:, j] = 1.0
+
+                    mask = np.reshape(mask, (1, self.njoints, self.njoints, 1))
+                    mask = K.constant(mask, dtype='float32')
+                    seq_mask_edm = K.prod(K.expand_dims(seq_mask, axis=1) * K.expand_dims(seq_mask, axis=2), axis=-1)
+                    real_shape = edm(real_seq) * seq_mask_edm * mask
+                    gen_shape = edm(gen_seq) * seq_mask_edm * mask
+                    loss_shape = K.sum(K.square(real_shape - gen_shape), axis=(1, 2, 3))
+                    gen_losses['gen_loss_limbs'] = self.shape_scale * K.mean(loss_shape)
+
             if self.rotation_loss:
                 with K.name_scope('rotation_loss'):
                     def vector_mag(x):
@@ -748,6 +768,9 @@ class _MotionGAN(object):
                 x = Permute((2, 3, 1), name=scope+'coords_permute')(x)  # joints, time, filters
                 x = Conv2D(self.org_shape[3], 3, 1, name=scope+'coords_reshape', **CONV2D_ARGS)(x)
 
+            if 'expmaps' in self.data_set:
+                x = Activation('sigmoid', name=scope+'sigmoid_out')(x)
+
             if self.use_angles:
                 self.angles_output = x
                 x = self._seq_to_angles_out(x)
@@ -824,14 +847,14 @@ class _MotionGAN(object):
 
 def _conv_block(x, out_filters, bneck_factor, kernel_size, strides, conv_func=Conv2D, dilation_rate=(1, 1)):
     scope = Scoping.get_global_scope()
-    if 'generator' in str(scope):
-        x = InstanceNormalization(axis=-1, name=scope+'inorm_in')(x)
+    # if 'generator' in str(scope):
+    #     x = InstanceNormalization(axis=-1, name=scope+'inorm_in')(x)
     x = Activation('relu', name=scope+'relu_in')(x)
     x = conv_func(filters=out_filters // bneck_factor,
                   kernel_size=kernel_size, strides=1,
                   dilation_rate=dilation_rate, name=scope+'conv_in', **CONV2D_ARGS)(x)
-    if 'generator' in str(scope):
-        x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
+    # if 'generator' in str(scope):
+    #     x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
     x = Activation('relu', name=scope+'relu_out')(x)
     x = conv_func(filters=out_filters, kernel_size=kernel_size, strides=strides,
                   dilation_rate=dilation_rate, name=scope+'conv_out', **CONV2D_ARGS)(x)
@@ -890,7 +913,7 @@ class MotionGANV1(_MotionGAN):
 
                     x = Add(name=scope+'add')([shortcut, pi])
 
-            x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
+            # x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
             x = Activation('relu', name=scope+'relu_out')(x)
 
         return x
@@ -942,11 +965,11 @@ class MotionGANV2(_MotionGAN):
                 for i in range(2):
                     with scope.name_scope('dense_block_%d' % i):
                         if i > 0:
-                            x = InstanceNormalization(axis=-1, name=scope+'bn')(x)
+                            # x = InstanceNormalization(axis=-1, name=scope+'inorm')(x)
                             x = Activation('relu', name=scope+'relu')(x)
                         x = Dense(n_hidden * 4, name=scope+'dense')(x)
 
-                x = InstanceNormalization(axis=-1, name=scope+'inorm_conv_in')(x)
+                # x = InstanceNormalization(axis=-1, name=scope+'inorm_conv_in')(x)
                 x = Activation('relu', name=scope+'relu_conv_in')(x)
                 x = Dense(4 * 4 * n_hidden * block_factors[0], name=scope+'dense_conv_in')(x)
                 x = Reshape((4, 4, n_hidden * block_factors[0]), name=scope+'reshape_conv_in')(x)
@@ -974,7 +997,7 @@ class MotionGANV2(_MotionGAN):
                     x = Lambda(lambda args: (args[0] * args[1]) + (args[2] * args[3]),
                                name=scope+'out_x')([pi, tau, shortcut, gamma])
 
-            x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
+            # x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
             x = Activation('relu', name=scope+'relu_out')(x)
 
         return x
@@ -982,7 +1005,7 @@ class MotionGANV2(_MotionGAN):
 
 def _preact_dense(x, n_units):
     scope = Scoping.get_global_scope()
-    x = InstanceNormalization(name=scope+'inorm')(x)
+    # x = InstanceNormalization(name=scope+'inorm')(x)
     x = Activation('relu', name=scope+'relu')(x)
     x = Dense(n_units, name=scope+'dense', activation='relu')(x)
     return x
@@ -1053,7 +1076,7 @@ class MotionGANV4(_MotionGAN):
             x = EDM(name=scope+'edms')(x)
             x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name=scope+'resh_in')(x)
 
-            x = InstanceNormalization(axis=-1, name=scope+'in_in')(x)
+            # x = InstanceNormalization(axis=-1, name=scope+'inorm_in')(x)
             x = Conv2D(blocks[0]['size'] // blocks[0]['bneck_f'], 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
             for i in range(len(blocks)):
                 for j in range(n_reps):
@@ -1071,7 +1094,7 @@ class MotionGANV4(_MotionGAN):
                         x = Add(name=scope+'add')([shortcut, x])
 
             x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name=scope+'mean_pool')(x)
-            x = InstanceNormalization(name=scope+'in_out')(x)
+            # x = InstanceNormalization(name=scope+'inorm_out')(x)
             x = Activation('relu', name=scope+'relu_out')(x)
 
             x = Dense(self.num_actions, activation='softmax', name=scope+'label')(x)
@@ -1112,7 +1135,7 @@ class MotionGANV4(_MotionGAN):
 
                     x = Add(name=scope+'add')([shortcut, pi])
 
-            x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
+            # x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
             x = Activation('relu', name=scope+'relu_out')(x)
 
         return x

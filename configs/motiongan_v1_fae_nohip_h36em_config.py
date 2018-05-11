@@ -4,8 +4,8 @@
     'data_set_version': 'v1',
     # Model version to train
     'model_version': 'v1',
-    # Perform per joint normalization
-    'normalize_per_joint': True,
+    # Normalize skeletons offline
+    'normalize_data': False,
 
     # Use pose FAE
     'use_pose_fae': True,

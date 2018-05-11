@@ -394,13 +394,13 @@ if __name__ == "__main__":
                     #       np.mean(np.square(poses_batch[:, :,  pred_len:, ...] - gen_output[:, :,  pred_len:, ...])))
                     if configs[0].normalize_data:
                         gen_output = data_input.unnormalize_poses(gen_output)
-                        # poses_batch = data_input.unnormalize_poses(poses_batch)
+                        poses_batch = data_input.unnormalize_poses(poses_batch)
                     expmap_mg = np.zeros((batch_size, 33, seq_len, 3))
                     expmap_mg[:, configs[0].used_joints, :, :] = gen_output
                     expmap_mg = np.reshape(np.transpose(expmap_mg, (0, 2, 1, 3)), (pred_len*2, 99))
-                    # expmap_pb = np.zeros((batch_size, 33, seq_len, 3))
-                    # expmap_pb[:, configs[0].used_joints, :, :] = poses_batch
-                    # expmap_pb = np.reshape(np.transpose(expmap_pb, (0, 2, 1, 3)), (pred_len*2, 99))
+                    expmap_pb = np.zeros((batch_size, 33, seq_len, 3))
+                    expmap_pb[:, configs[0].used_joints, :, :] = poses_batch
+                    expmap_pb = np.reshape(np.transpose(expmap_pb, (0, 2, 1, 3)), (pred_len*2, 99))
 
                     for j in np.arange(expmap_hmp.shape[0]):
                         for k in np.arange(3, 97, 3):
@@ -410,13 +410,13 @@ if __name__ == "__main__":
                     for j in np.arange(expmap_mg.shape[0]):
                         for k in np.arange(3, 97, 3):
                             expmap_mg[j, k:k + 3] = em2eul(expmap_mg[j, k:k + 3])
-                            # expmap_pb[j, k:k + 3] = em2eul(expmap_pb[j, k:k + 3])
+                            expmap_pb[j, k:k + 3] = em2eul(expmap_pb[j, k:k + 3])
 
                     expmap_hmp[:, 0:6] = 0
                     idx_to_use = np.where(np.std(expmap_hmp, 0) > 1e-4)[0]
 
                     mean_errors_hmp[i, :] = euc_error(expmap_gt[:, idx_to_use], expmap_hmp[:, idx_to_use])
-                    mean_errors_mg[i, :] = euc_error(expmap_gt[:, idx_to_use], expmap_mg[pred_len:, idx_to_use])
+                    mean_errors_mg[i, :] = euc_error(expmap_pb[:pred_len, idx_to_use], expmap_mg[:pred_len, idx_to_use])
 
                 rec_mean_mean_error = np.array(sample_file['mean_{0}_error'.format(action)], dtype=np.float32)
                 rec_mean_mean_error = rec_mean_mean_error[range(0, np.int(rec_mean_mean_error.shape[0]), 5)]

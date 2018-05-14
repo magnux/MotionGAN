@@ -385,16 +385,20 @@ if __name__ == "__main__":
                     poses_batch = poses_batch[10 - pred_len:10 + pred_len, :]
                     poses_batch = np.transpose(np.reshape(poses_batch, (1, pred_len*2, 33, 3)), (0, 2, 1, 3))
                     poses_batch = poses_batch[:, configs[0].used_joints, :, :]
+                    # poses_batch[..., :3] = (poses_batch[..., :3] + 90) / 180
                     if configs[0].normalize_data:
                         poses_batch = data_input.normalize_poses(poses_batch)
 
                     gen_inputs = [poses_batch, mask_batch]
                     gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
-                    # print(np.mean(np.square(poses_batch[:, :, :pred_len, ...] - gen_output[:, :, :pred_len, ...])),
-                    #       np.mean(np.square(poses_batch[:, :,  pred_len:, ...] - gen_output[:, :,  pred_len:, ...])))
+                    print(np.mean(np.square(poses_batch[:, :, :pred_len, ...] - gen_output[:, :, :pred_len, ...])),
+                          np.mean(np.square(poses_batch[:, :,  pred_len:, ...] - gen_output[:, :,  pred_len:, ...])))
                     if configs[0].normalize_data:
                         gen_output = data_input.unnormalize_poses(gen_output)
                         poses_batch = data_input.unnormalize_poses(poses_batch)
+
+                    # gen_output[..., :3] = (gen_output[..., :3] * 180) - 90
+                    # poses_batch[..., :3] = (poses_batch[..., :3] * 180) - 90
                     expmap_mg = np.zeros((batch_size, 33, seq_len, 3))
                     expmap_mg[:, configs[0].used_joints, :, :] = gen_output
                     expmap_mg = np.reshape(np.transpose(expmap_mg, (0, 2, 1, 3)), (pred_len*2, 99))

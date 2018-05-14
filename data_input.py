@@ -120,13 +120,13 @@ class DataInput(object):
             if len(zero_std) > 0:
                 print('Warning: the following joints have zero std:', zero_std)
 
-        print(np.min(poses, (0, 1, 2)), np.max(poses, (0, 1, 2)))
-        print(np.std(poses[..., :3], axis=(0, 1, 2), keepdims=True))
+        # print(np.min(poses, (0, 1, 2)), np.max(poses, (0, 1, 2)))
+        # print(np.std(poses[..., :3], axis=(0, 1, 2), keepdims=True))
         if self.normalize_data:
             poses[..., :3] = self.normalize_poses(poses[..., :3])
 
-        print(np.min(poses, (0, 1, 2)), np.max(poses, (0, 1, 2)))
-        print(np.std(poses[..., :3], axis=(0, 1, 2), keepdims=True))
+        # print(np.min(poses, (0, 1, 2)), np.max(poses, (0, 1, 2)))
+        # print(np.std(poses[..., :3], axis=(0, 1, 2), keepdims=True))
 
         return labs, poses
 
@@ -175,7 +175,7 @@ class DataInput(object):
             pose = pose[self.used_joints, ...]
             pose = pose[:, :, range(0, plen, 2)]  # Subsampling to 25hz
             plen = np.int32(pose.shape[2])
-            pose[:, :3, :] = (pose[:, :3, :] + 90) / 180
+            # pose[:, :3, :] = (pose[:, :3, :] + 90) / 180
 
         pose = np.transpose(pose, (0, 2, 1))
 

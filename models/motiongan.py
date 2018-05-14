@@ -50,7 +50,7 @@ class _MotionGAN(object):
         self.wgan_scale_g = 2.0 * config.loss_factor * (0.0 if config.no_gan_loss else 1.0)
         self.wgan_frame_scale_d = 10.0 * config.loss_factor
         self.wgan_frame_scale_g = 2.0 * config.loss_factor * (0.0 if config.no_gan_loss else 1.0)
-        self.rec_scale = 1.0  if 'expmaps' not in self.data_set else 1.0e3
+        self.rec_scale = 1.0  # if 'expmaps' not in self.data_set else 1.0e2
         self.action_cond = config.action_cond
         self.action_scale_d = 10.0
         self.action_scale_g = 1.0
@@ -250,17 +250,17 @@ class _MotionGAN(object):
                 loss_rec = K.sum(K.mean(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1), axis=(1, 2))
                 gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
-                real_seq_vel = real_seq[:, :, 1:, :] - real_seq[:, :, :-1, :]
-                gen_seq_vel = gen_seq[:, :, 1:, :] - gen_seq[:, :, :-1, :]
-                seq_mask_vel = seq_mask[:, :, 1:, :] * seq_mask[:, :, :-1, :]
-                loss_rec_vel = K.sum(K.mean(K.square((real_seq_vel * seq_mask_vel) - (gen_seq_vel * seq_mask_vel)), axis=-1), axis=(1, 2))
-                gen_losses['gen_loss_rec_vel'] = self.rec_scale * K.pow(K.mean(loss_rec_vel), 1/2)
-
-                real_seq_acl = real_seq_vel[:, :, 1:, :] - real_seq_vel[:, :, :-1, :]
-                gen_seq_acl = gen_seq_vel[:, :, 1:, :] - gen_seq_vel[:, :, :-1, :]
-                seq_mask_acl = seq_mask_vel[:, :, 1:, :] * seq_mask_vel[:, :, :-1, :]
-                loss_rec_acl = K.sum(K.mean(K.square((real_seq_acl * seq_mask_acl) - (gen_seq_acl * seq_mask_acl)), axis=-1), axis=(1, 2))
-                gen_losses['gen_loss_rec_acl'] = self.rec_scale * K.pow(K.mean(loss_rec_acl), 1/4)
+                # real_seq_vel = real_seq[:, :, 1:, :] - real_seq[:, :, :-1, :]
+                # gen_seq_vel = gen_seq[:, :, 1:, :] - gen_seq[:, :, :-1, :]
+                # seq_mask_vel = seq_mask[:, :, 1:, :] * seq_mask[:, :, :-1, :]
+                # loss_rec_vel = K.sum(K.mean(K.square((real_seq_vel * seq_mask_vel) - (gen_seq_vel * seq_mask_vel)), axis=-1), axis=(1, 2))
+                # gen_losses['gen_loss_rec_vel'] = self.rec_scale * K.pow(K.mean(loss_rec_vel), 1/2)
+                #
+                # real_seq_acl = real_seq_vel[:, :, 1:, :] - real_seq_vel[:, :, :-1, :]
+                # gen_seq_acl = gen_seq_vel[:, :, 1:, :] - gen_seq_vel[:, :, :-1, :]
+                # seq_mask_acl = seq_mask_vel[:, :, 1:, :] * seq_mask_vel[:, :, :-1, :]
+                # loss_rec_acl = K.sum(K.mean(K.square((real_seq_acl * seq_mask_acl) - (gen_seq_acl * seq_mask_acl)), axis=-1), axis=(1, 2))
+                # gen_losses['gen_loss_rec_acl'] = self.rec_scale * K.pow(K.mean(loss_rec_acl), 1/4)
 
                 if self.use_diff:
                     loss_rec_diff = K.sum(K.mean(K.square((self.diff_input * self.diff_mask) -
@@ -716,6 +716,21 @@ class _MotionGAN(object):
             x_occ = Lambda(lambda arg: 1 - arg, name=scope+'mask_occ')(x_mask)
             x = Concatenate(axis=-1, name=scope+'cat_occ')([x, x_occ])
 
+            d_emb = 7
+            pos_enc = np.array([
+                [pos / np.power(10000, 2 * (j // 2) / d_emb) for j in range(d_emb)]
+                if pos != 0 else np.zeros(d_emb)
+                for pos in range(self.seq_len)
+            ])
+            pos_enc[1:, 0::2] = np.sin(pos_enc[1:, 0::2])  # dim 2i
+            pos_enc[1:, 1::2] = np.cos(pos_enc[1:, 1::2])  # dim 2i+1
+            pos_enc = np.reshape(pos_enc, (1, 1, pos_enc.shape[0], pos_enc.shape[1]))
+            pos_enc = np.tile(pos_enc, (int(x.shape[0]), int(x.shape[1]), 1, 1))
+            x_pos = Input(tensor=K.constant(pos_enc), name='seq_pos', dtype=tf.float32)
+            self.gen_inputs.append(x_pos)
+
+            x = Concatenate(axis=-1, name=scope+'cat_pos')([x, x_pos])
+
             if self.use_pose_fae:
 
                 self.fae_z = self._pose_encoder(x)
@@ -768,8 +783,8 @@ class _MotionGAN(object):
                 x = Permute((2, 3, 1), name=scope+'coords_permute')(x)  # joints, time, filters
                 x = Conv2D(self.org_shape[3], 3, 1, name=scope+'coords_reshape', **CONV2D_ARGS)(x)
 
-            if 'expmaps' in self.data_set:
-                x = Activation('sigmoid', name=scope+'sigmoid_out')(x)
+            # if 'expmaps' in self.data_set:
+            #     x = Activation('sigmoid', name=scope+'sigmoid_out')(x)
 
             if self.use_angles:
                 self.angles_output = x

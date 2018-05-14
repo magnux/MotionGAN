@@ -13,6 +13,8 @@
     'loss_factor': 0.1,
     # Remove Hip, use hip relative coordinates
     'remove_hip': True,
+    # Action label conditional model
+    # 'action_cond': True,
 
     # How fast should we learn?
     'learning_rate': 1.0e-3,

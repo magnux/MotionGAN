@@ -8,7 +8,7 @@ from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, Conv2D, \
     Dense, Activation, Lambda, Add, Concatenate, Permute, Reshape, Flatten, \
-    Conv1D, Multiply
+    Conv1D, Multiply, Embedding
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 from layers.normalization import InstanceNormalization
@@ -716,21 +716,6 @@ class _MotionGAN(object):
             x_occ = Lambda(lambda arg: 1 - arg, name=scope+'mask_occ')(x_mask)
             x = Concatenate(axis=-1, name=scope+'cat_occ')([x, x_occ])
 
-            d_emb = 7
-            pos_enc = np.array([
-                [pos / np.power(10000, 2 * (j // 2) / d_emb) for j in range(d_emb)]
-                if pos != 0 else np.zeros(d_emb)
-                for pos in range(self.seq_len)
-            ])
-            pos_enc[1:, 0::2] = np.sin(pos_enc[1:, 0::2])  # dim 2i
-            pos_enc[1:, 1::2] = np.cos(pos_enc[1:, 1::2])  # dim 2i+1
-            pos_enc = np.reshape(pos_enc, (1, 1, pos_enc.shape[0], pos_enc.shape[1]))
-            pos_enc = np.tile(pos_enc, (int(x.shape[0]), int(x.shape[1]), 1, 1))
-            x_pos = Input(tensor=K.constant(pos_enc), name='seq_pos', dtype=tf.float32)
-            self.gen_inputs.append(x_pos)
-
-            x = Concatenate(axis=-1, name=scope+'cat_pos')([x, x_pos])
-
             if self.use_pose_fae:
 
                 self.fae_z = self._pose_encoder(x)
@@ -758,6 +743,33 @@ class _MotionGAN(object):
 
                     if not self.time_pres_emb:
                         x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
+
+            d_emb = 7
+            pos_enc = np.array([
+                [pos / np.power(10000, 2 * (j // 2) / d_emb) for j in range(d_emb)]
+                if pos != 0 else np.zeros(d_emb)
+                for pos in range(self.seq_len)
+            ])
+            pos_enc[1:, 0::2] = np.sin(pos_enc[1:, 0::2])  # dim 2i
+            pos_enc[1:, 1::2] = np.cos(pos_enc[1:, 1::2])  # dim 2i+1
+            pos_shape = (1, pos_enc.shape[0], 1, pos_enc.shape[1]) if self.use_pose_fae else \
+                        (1, 1, pos_enc.shape[0], pos_enc.shape[1])
+            pos_enc = np.reshape(pos_enc, pos_shape)
+            pos_tile = (int(x.shape[0]), 1, int(x.shape[2]), 1) if self.use_pose_fae else \
+                       (int(x.shape[0]), int(x.shape[1]), 1, 1)
+            pos_enc = np.tile(pos_enc, pos_tile)
+            x_pos = Input(tensor=K.constant(pos_enc), name='seq_pos', dtype=tf.float32)
+            self.gen_inputs.append(x_pos)
+
+            x = Concatenate(axis=-1, name=scope+'cat_pos')([x, x_pos])
+
+            if self.action_cond:
+                x_label = _get_tensor(self.place_holders, 'true_label')
+                x_label = Embedding(self.num_actions, 4, name=scope+'emb_label')(x_label)
+                x_label = Lambda(lambda arg: tf.tile(K.reshape(arg, (x.shape[0], 1, 1, 4)),
+                                                     (1, x.shape[1], x.shape[2], 1)), name=scope+'res_label')(x_label)
+                x = Concatenate(axis=-1, name=scope+'cat_label')([x, x_label])
+
 
             # if self.latent_cond_dim > 0:
             #     x_lat = _get_tensor(input_tensors, 'latent_cond_input')

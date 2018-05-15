@@ -3,7 +3,7 @@
     'data_set': 'Human36',
     'data_set_version': 'v1',
     # Model version to train
-    'model_version': 'v1',
+    'model_version': 'v5',
 
     # Use pose FAE
     'use_pose_fae': True,
@@ -17,11 +17,9 @@
     'translate_start': True,
     # Rotate sequence starting point
     'rotate_start': True,
-    # Transform euclidean coordinates input to angles in exponential maps
-    'use_angles': True,
     # Action label conditional model
     'action_cond': True,
-    
+
     # How fast should we learn?
     'learning_rate': 1.0e-3,
     # It's the batch size

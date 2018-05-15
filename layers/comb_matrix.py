@@ -5,6 +5,7 @@ from tensorflow.contrib.keras.api.keras.backend import dot, \
     permute_dimensions, reshape
 from tensorflow.contrib.keras.api.keras.initializers import Constant
 
+
 class CombMatrix(Layer):
     def __init__(self, njoints, joints_dim=1, **kwargs):
         self.njoints = njoints
@@ -20,7 +21,7 @@ class CombMatrix(Layer):
                                            trainable=True)
         super(CombMatrix, self).build(input_shape)
 
-    def call(self, x):
+    def call(self, x, **kwargs):
         perm_dims = range(len(self.shape))
         perm_dims[self.joints_dim], perm_dims[-1] = perm_dims[-1], perm_dims[self.joints_dim]
         perm_shape = [int(self.shape[i]) for i in perm_dims]

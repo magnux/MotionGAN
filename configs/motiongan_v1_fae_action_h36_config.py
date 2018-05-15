@@ -17,11 +17,9 @@
     'translate_start': True,
     # Rotate sequence starting point
     'rotate_start': True,
-    # Transform euclidean coordinates input to angles in exponential maps
-    'use_angles': True,
     # Action label conditional model
     'action_cond': True,
-    
+
     # How fast should we learn?
     'learning_rate': 1.0e-3,
     # It's the batch size

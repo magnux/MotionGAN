@@ -8,12 +8,13 @@ from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, Conv2D, \
     Dense, Activation, Lambda, Add, Concatenate, Permute, Reshape, Flatten, \
-    Conv1D, Multiply, Embedding
+    Conv1D, Multiply, Embedding, LSTM
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 from layers.normalization import InstanceNormalization
 from layers.edm import edm, EDM
 from layers.comb_matrix import CombMatrix
+from layers.tile import Tile
 from collections import OrderedDict
 from utils.scoping import Scoping
 from utils.tfangles import quaternion_between, quaternion_to_expmap, expmap_to_rotmat, rotmat_to_euler, \
@@ -23,6 +24,13 @@ from utils.seq_utils import get_body_graph
 
 CONV1D_ARGS = {'padding': 'same', 'kernel_regularizer': l2(5e-4)}
 CONV2D_ARGS = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
+
+
+def get_model(config):
+    class_name = 'MotionGANV' + config.model_version[-1]
+    module = __import__('models.motiongan', fromlist=[class_name])
+    my_class = getattr(module, class_name)
+    return my_class(config)
 
 
 def _get_tensor(tensors, name):
@@ -76,15 +84,15 @@ class _MotionGAN(object):
         self.angles_scale = 0.5
         self.stats = {}
 
-        # Placeholders for training phase
-        self.place_holders = []
+        true_label = None
         if self.action_cond:
-            true_label = K.placeholder(shape=(self.batch_size,), dtype='int32', name='true_label')
-            self.place_holders.append(true_label)
+            true_label = Input(batch_shape=(self.batch_size, 1), name='true_label', dtype='int32')
 
         # Discriminator
         real_seq = Input(batch_shape=(self.batch_size, self.njoints, self.seq_len, 3), name='real_seq', dtype='float32')
         self.disc_inputs = [real_seq]
+        if self.action_cond:
+            self.disc_inputs.append(true_label)
         x = self._proc_disc_inputs(self.disc_inputs)
         self.real_outputs = self._proc_disc_outputs(self.discriminator(x))
         self.disc_model = Model(self.disc_inputs, self.real_outputs, name=self.name + '_discriminator')
@@ -93,14 +101,16 @@ class _MotionGAN(object):
         seq_mask = Input(batch_shape=(self.batch_size, self.njoints, self.seq_len, 1),
                          name='seq_mask', dtype='float32')
         self.gen_inputs = [real_seq, seq_mask]
-        if self.latent_cond_dim > 0:
-            latent_cond_input = Input(batch_shape=(self.batch_size, self.latent_cond_dim),
-                                      name='latent_cond_input', dtype='float32')
-            self.gen_inputs.append(latent_cond_input)
+        # if self.latent_cond_dim > 0:
+        #     latent_cond_input = Input(batch_shape=(self.batch_size, self.latent_cond_dim),
+        #                               name='latent_cond_input', dtype='float32')
+        #     self.gen_inputs.append(latent_cond_input)
+        if self.action_cond:
+            self.gen_inputs.append(true_label)
         x = self._proc_gen_inputs(self.gen_inputs)
         self.gen_outputs = self._proc_gen_outputs(self.generator(x))
         self.gen_model = Model(self.gen_inputs, self.gen_outputs, name=self.name + '_generator')
-        self.fake_outputs = self.disc_model(self.gen_outputs[0])
+        self.fake_outputs = self.disc_model(self.gen_outputs)
 
         # Losses
         self.wgan_losses, self.disc_losses, self.gen_losses = self._build_loss()
@@ -118,12 +128,12 @@ class _MotionGAN(object):
         with K.name_scope('discriminator/functions/train'):
             disc_optimizer = Adam(lr=config.learning_rate)
             disc_training_updates = disc_optimizer.get_updates(disc_loss, self.disc_model.trainable_weights)
-            self.disc_train_f = K.function(self.disc_inputs + self.gen_inputs + self.place_holders,
+            self.disc_train_f = K.function(self.disc_inputs + self.gen_inputs,
                                            self.wgan_losses.values() + self.disc_losses.values(),
                                            disc_training_updates)
 
         with K.name_scope('discriminator/functions/eval'):
-            self.disc_eval_f = K.function(self.disc_inputs + self.gen_inputs + self.place_holders,
+            self.disc_eval_f = K.function(self.disc_inputs + self.gen_inputs,
                                           self.wgan_losses.values() + self.disc_losses.values())
 
         self.disc_model = self._pseudo_build_model(self.disc_model, disc_optimizer)
@@ -132,7 +142,7 @@ class _MotionGAN(object):
             gen_optimizer = Adam(lr=config.learning_rate)
             gen_training_updates = gen_optimizer.get_updates(gen_loss,
                                    self.gen_model.trainable_weights)
-            self.gen_train_f = K.function(self.gen_inputs + self.place_holders,
+            self.gen_train_f = K.function(self.gen_inputs,
                                           self.gen_losses.values(),
                                           gen_training_updates)
 
@@ -142,7 +152,7 @@ class _MotionGAN(object):
                 gen_f_outs.append(self.fae_z)
             # gen_f_outs.append(self.aux_out)
             gen_f_outs += self.gen_outputs
-            self.gen_eval_f = K.function(self.gen_inputs + self.place_holders, gen_f_outs)
+            self.gen_eval_f = K.function(self.gen_inputs, gen_f_outs)
 
         self.gen_model = self._pseudo_build_model(self.gen_model, gen_optimizer)
 
@@ -214,7 +224,7 @@ class _MotionGAN(object):
                 interpolates = (alpha * real_seq) + ((1 - alpha) * gen_seq)
 
                 # Gradient Penalty
-                inter_outputs = self.disc_model(interpolates)
+                inter_outputs = self.disc_model([interpolates] + ([self.gen_outputs[1]] if self.action_cond else []))
                 inter_score = _get_tensor(inter_outputs, 'score_out')
                 grad_mixed = K.gradients(inter_score, [interpolates])[0]
                 norm_grad_mixed = K.sqrt(K.sum(K.square(grad_mixed), axis=(1, 2, 3)) + K.epsilon())
@@ -275,10 +285,10 @@ class _MotionGAN(object):
             if self.action_cond:
                 with K.name_scope('action_loss'):
                     loss_class_real = K.mean(K.sparse_categorical_crossentropy(
-                        _get_tensor(self.place_holders, 'true_label'),
+                        _get_tensor(self.disc_inputs, 'true_label'),
                         _get_tensor(self.real_outputs, 'label_out'), True))
                     loss_class_fake = K.mean(K.sparse_categorical_crossentropy(
-                        _get_tensor(self.place_holders, 'true_label'),
+                        _get_tensor(self.gen_inputs, 'true_label'),
                         _get_tensor(self.fake_outputs, 'label_out'), True))
                     disc_losses['disc_loss_action'] = self.action_scale_d * (loss_class_real + loss_class_fake)
                     gen_losses['gen_loss_action'] = self.action_scale_g * loss_class_fake
@@ -744,30 +754,33 @@ class _MotionGAN(object):
                     if not self.time_pres_emb:
                         x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
 
-            d_emb = 7
-            pos_enc = np.array([
-                [pos / np.power(10000, 2 * (j // 2) / d_emb) for j in range(d_emb)]
-                if pos != 0 else np.zeros(d_emb)
-                for pos in range(self.seq_len)
-            ])
-            pos_enc[1:, 0::2] = np.sin(pos_enc[1:, 0::2])  # dim 2i
-            pos_enc[1:, 1::2] = np.cos(pos_enc[1:, 1::2])  # dim 2i+1
-            pos_shape = (1, pos_enc.shape[0], 1, pos_enc.shape[1]) if self.use_pose_fae else \
-                        (1, 1, pos_enc.shape[0], pos_enc.shape[1])
-            pos_enc = np.reshape(pos_enc, pos_shape)
-            pos_tile = (int(x.shape[0]), 1, int(x.shape[2]), 1) if self.use_pose_fae else \
-                       (int(x.shape[0]), int(x.shape[1]), 1, 1)
-            pos_enc = np.tile(pos_enc, pos_tile)
-            x_pos = Input(tensor=K.constant(pos_enc), name='seq_pos', dtype=tf.float32)
-            self.gen_inputs.append(x_pos)
 
-            x = Concatenate(axis=-1, name=scope+'cat_pos')([x, x_pos])
+            if self.name[-1] != '5':
+                # Position encoding
+                d_emb = 7
+                pos_enc = np.array([
+                    [pos / np.power(10000, 2 * (j // 2) / d_emb) for j in range(d_emb)]
+                    if pos != 0 else np.zeros(d_emb)
+                    for pos in range(self.seq_len)
+                ])
+                pos_enc[1:, 0::2] = np.sin(pos_enc[1:, 0::2])  # dim 2i
+                pos_enc[1:, 1::2] = np.cos(pos_enc[1:, 1::2])  # dim 2i+1
+                pos_shape = (1, pos_enc.shape[0], 1, pos_enc.shape[1]) if self.use_pose_fae else \
+                            (1, 1, pos_enc.shape[0], pos_enc.shape[1])
+                pos_enc = np.reshape(pos_enc, pos_shape)
+                pos_tile = (int(x.shape[0]), 1, int(x.shape[2]), 1) if self.use_pose_fae else \
+                           (int(x.shape[0]), int(x.shape[1]), 1, 1)
+                pos_enc = np.tile(pos_enc, pos_tile)
+                x_pos = Input(tensor=K.constant(pos_enc), name='seq_pos', dtype=tf.float32)
+                self.gen_inputs.append(x_pos)
+
+                x = Concatenate(axis=-1, name=scope+'cat_pos')([x, x_pos])
 
             if self.action_cond:
-                x_label = _get_tensor(self.place_holders, 'true_label')
+                x_label = _get_tensor(input_tensors, 'true_label')
                 x_label = Embedding(self.num_actions, 4, name=scope+'emb_label')(x_label)
-                x_label = Lambda(lambda arg: tf.tile(K.reshape(arg, (x.shape[0], 1, 1, 4)),
-                                                     (1, x.shape[1], x.shape[2], 1)), name=scope+'res_label')(x_label)
+                x_label = Reshape((1, 1, 4), name=scope+'res_label')(x_label)
+                x_label = Tile((x.shape[1], x.shape[2], 1), name=scope+'tile_label')(x_label)
                 x = Concatenate(axis=-1, name=scope+'cat_label')([x, x_label])
 
 
@@ -814,6 +827,9 @@ class _MotionGAN(object):
                 x = self._translate_start_out(x)
 
             output_tensors = [x]
+
+            if self.action_cond:
+                output_tensors.append(_get_tensor(self.gen_inputs, 'true_label'))
 
         return output_tensors
 
@@ -1164,5 +1180,70 @@ class MotionGANV4(_MotionGAN):
 
             # x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
             x = Activation('relu', name=scope+'relu_out')(x)
+
+        return x
+
+
+class MotionGANV5(_MotionGAN):
+    # ResNet, LSTM
+
+    def discriminator(self, x):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('discriminator'):
+            n_hidden = 64
+            block_factors = [1, 1, 2, 2]
+            block_strides = [2, 2, 1, 1]
+
+            x = Conv2D(n_hidden * block_factors[0], 3, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+            for i, factor in enumerate(block_factors):
+                with scope.name_scope('block_%d' % i):
+                    n_filters = n_hidden * factor
+                    shortcut = Conv2D(n_filters, block_strides[i], block_strides[i],
+                                      name=scope+'shortcut', **CONV2D_ARGS)(x)
+                    with scope.name_scope('branch_0'): # scope for backward compat
+                        pi = _conv_block(x, n_filters, 1, 3, block_strides[i])
+
+                    x = Add(name=scope+'add')([shortcut, pi])
+
+            x = Activation('relu', name=scope+'relu_out')(x)
+            x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
+
+        return x
+
+    def generator(self, x):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('generator'):
+            n_hidden = 2
+            block_factors = range(1, self.nblocks + 1)
+            block_strides = [2] * self.nblocks
+
+            if not self.use_pose_fae:
+                x = Permute((2, 1, 3), name=scope+'perm_in')(x)
+
+            for i, factor in enumerate(block_factors):
+                with scope.name_scope('LSTM_%d' % i):
+                    n_filters = n_hidden * factor
+                    strides = block_strides[i]
+                    if self.time_pres_emb:
+                        strides = (block_strides[i], 1)
+                    elif self.use_pose_fae:
+                        strides = 1
+                    shortcut = Conv2DTranspose(n_filters, strides, strides,
+                                               name=scope+'shortcut', **CONV2D_ARGS)(x)
+                    x_shape = [int(i) for i in x.shape[1:-1]] + [n_filters]
+                    pi = Reshape((x_shape[0], int(x.shape[2]) * int(x.shape[3])), name=scope+'pi_flatten')(x)
+                    pi = LSTM(x_shape[1] * x_shape[2], return_sequences=True, name=scope+'pi_lstm')(pi)
+                    pi = Reshape(x_shape, name=scope+'pi_reshape')(pi)
+
+                    if i < len(block_factors) - 1:
+                        x = Add(name=scope+'add')([shortcut, pi])
+                    else:
+                        x = pi
+
+            # x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
+            x = Activation('relu', name=scope+'relu_out')(x)
+
+            if not self.use_pose_fae:
+                x = Permute((2, 1, 3), name=scope+'perm_out')(x)
 
         return x

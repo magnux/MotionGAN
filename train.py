@@ -4,7 +4,7 @@ import tensorflow as tf
 from config import get_config
 from data_input import DataInput
 from utils.callbacks import TensorBoard
-from models.motiongan import MotionGANV1, MotionGANV2, MotionGANV3, MotionGANV4
+from models.motiongan import get_model
 from utils.restore_keras_model import restore_keras_model
 from tqdm import trange
 from utils.viz import plot_seq_gif, plot_seq_emb
@@ -41,14 +41,7 @@ if __name__ == "__main__":
 
     # Model building
     if config.model_type == 'motiongan':
-        if config.model_version == 'v1':
-            model_wrap = MotionGANV1(config)
-        if config.model_version == 'v2':
-            model_wrap = MotionGANV2(config)
-        if config.model_version == 'v3':
-            model_wrap = MotionGANV3(config)
-        if config.model_version == 'v4':
-            model_wrap = MotionGANV4(config)
+        model_wrap = get_model(config)
 
     if FLAGS.verbose:
         print('Discriminator model:')
@@ -111,13 +104,14 @@ if __name__ == "__main__":
 
                     disc_inputs = [poses_batch]
                     gen_inputs = [poses_batch, mask_batch]
-                    place_holders = []
                     if config.action_cond:
-                        place_holders.append(labs_batch[:, 2])
+                        labels = np.reshape(labs_batch[:, 2], (config.batch_size, 1))
+                        disc_inputs.append(labels)
+                        gen_inputs.append(labels)
                     if config.latent_cond_dim > 0:
                         gen_inputs.append(gen_latent_noise(config.batch_size, config.latent_cond_dim))
 
-                    losses = model_wrap.disc_train(disc_inputs + gen_inputs + place_holders)
+                    losses = model_wrap.disc_train(disc_inputs + gen_inputs)
 
                     if disc_batch == 0:
                         disc_losses = losses
@@ -136,13 +130,13 @@ if __name__ == "__main__":
                 poses_batch = poses_batch[..., :3]
 
                 gen_inputs = [poses_batch, mask_batch]
-                place_holders = []
                 if config.action_cond:
-                    place_holders.append(labs_batch[:, 2])
+                    labels = np.reshape(labs_batch[:, 2], (config.batch_size, 1))
+                    gen_inputs.append(labels)
                 if config.latent_cond_dim > 0:
                     gen_inputs.append(gen_latent_noise(config.batch_size, config.latent_cond_dim))
 
-                gen_losses = model_wrap.gen_train(gen_inputs + place_holders)
+                gen_losses = model_wrap.gen_train(gen_inputs)
 
                 # Output to terminal, note output is averaged over the epoch
                 disc_loss_sum += disc_losses['train/disc_loss_wgan']
@@ -186,14 +180,15 @@ if __name__ == "__main__":
 
             disc_inputs = [poses_batch]
             gen_inputs = [poses_batch, mask_batch]
-            place_holders = []
             if config.action_cond:
-                place_holders.append(labs_batch[:, 2])
+                labels = np.reshape(labs_batch[:, 2], (config.batch_size, 1))
+                disc_inputs.append(labels)
+                gen_inputs.append(labels)
             if config.latent_cond_dim > 0:
                 gen_inputs.append(gen_latent_noise(config.batch_size, config.latent_cond_dim))
 
-            disc_losses = model_wrap.disc_eval(disc_inputs + gen_inputs + place_holders)
-            gen_losses = model_wrap.gen_eval(gen_inputs + place_holders)
+            disc_losses = model_wrap.disc_eval(disc_inputs + gen_inputs)
+            gen_losses = model_wrap.gen_eval(gen_inputs)
             if config.use_pose_fae:
                 fae_z = gen_losses.pop('fae_z', None)
             # aux_out = gen_losses.pop('aux_out', None)

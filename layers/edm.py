@@ -22,7 +22,7 @@ class EDM(Layer):
     def build(self, input_shape):
         super(EDM, self).build(input_shape)
 
-    def call(self, x):
+    def call(self, x, **kwargs):
         return edm(x)
 
     def compute_output_shape(self, input_shape):
@@ -38,7 +38,7 @@ class Symmetry(Layer):
     def build(self, input_shape):
         super(Symmetry, self).build(input_shape)
 
-    def call(self, x):
+    def call(self, x, **kwargs):
         return (x + K.permute_dimensions(x, (0, 2, 1, 3))) / 2
 
     def compute_output_shape(self, input_shape):

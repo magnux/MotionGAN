@@ -4,7 +4,7 @@ import tensorflow as tf
 import numpy as np
 from config import get_config
 from data_input import DataInput
-from models.motiongan import MotionGANV1, MotionGANV2, MotionGANV3, MotionGANV4
+from models.motiongan import get_model
 from models.dmnn import DMNNv1
 from utils.restore_keras_model import restore_keras_model
 from utils.viz import plot_seq_gif, plot_seq_pano
@@ -42,14 +42,7 @@ if __name__ == "__main__":
 
         # Model building
         if config.model_type == 'motiongan':
-            if config.model_version == 'v1':
-                model_wrap = MotionGANV1(config)
-            if config.model_version == 'v2':
-                model_wrap = MotionGANV2(config)
-            if config.model_version == 'v3':
-                model_wrap = MotionGANV3(config)
-            if config.model_version == 'v4':
-                model_wrap = MotionGANV4(config)
+            model_wrap = get_model(config)
 
         if FLAGS.verbose:
             print('Discriminator model:')

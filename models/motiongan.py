@@ -15,6 +15,7 @@ from layers.normalization import InstanceNormalization
 from layers.edm import edm, EDM
 from layers.comb_matrix import CombMatrix
 from layers.tile import Tile
+from layers.cudnn_recurrent import CuDNNLSTM
 from collections import OrderedDict
 from utils.scoping import Scoping
 from utils.tfangles import quaternion_between, quaternion_to_expmap, expmap_to_rotmat, rotmat_to_euler, \
@@ -1232,7 +1233,7 @@ class MotionGANV5(_MotionGAN):
                                                name=scope+'shortcut', **CONV2D_ARGS)(x)
                     x_shape = [int(i) for i in x.shape[1:-1]] + [n_filters]
                     pi = Reshape((x_shape[0], int(x.shape[2]) * int(x.shape[3])), name=scope+'pi_flatten')(x)
-                    pi = LSTM(x_shape[1] * x_shape[2], return_sequences=True, name=scope+'pi_lstm')(pi)
+                    pi = CuDNNLSTM(x_shape[1] * x_shape[2], return_sequences=True, name=scope+'pi_lstm')(pi)
                     pi = Reshape(x_shape, name=scope+'pi_reshape')(pi)
 
                     if i < len(block_factors) - 1:

@@ -383,7 +383,13 @@ if __name__ == "__main__":
                         poses_batch = data_input.normalize_poses(poses_batch)
 
                     gen_inputs = [poses_batch, mask_batch]
+                    if configs[0].action_cond:
+                        action_label = [n for n, x in enumerate(actions) if x == action][0]
+                        action_label = np.ones((poses_batch.shape[0], 1), dtype=np.float32) * action_label
+                        gen_inputs.append(action_label)
                     gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
+                    if configs[0].action_cond:
+                        gen_output = gen_output[0]
                     print(np.mean(np.square(poses_batch[:, :, :pred_len, ...] - gen_output[:, :, :pred_len, ...])),
                           np.mean(np.square(poses_batch[:, :,  pred_len:, ...] - gen_output[:, :,  pred_len:, ...])))
                     if configs[0].normalize_data:
@@ -413,7 +419,7 @@ if __name__ == "__main__":
                     idx_to_use = np.where(np.std(expmap_hmp, 0) > 1e-4)[0]
 
                     mean_errors_hmp[i, :] = euc_error(expmap_gt[:, idx_to_use], expmap_hmp[:, idx_to_use])
-                    mean_errors_mg[i, :] = euc_error(expmap_pb[:pred_len, idx_to_use], expmap_mg[:pred_len, idx_to_use])
+                    mean_errors_mg[i, :] = euc_error(expmap_gt[:, idx_to_use], expmap_mg[pred_len:, idx_to_use])
 
                 rec_mean_mean_error = np.array(sample_file['mean_{0}_error'.format(action)], dtype=np.float32)
                 rec_mean_mean_error = rec_mean_mean_error[range(0, np.int(rec_mean_mean_error.shape[0]), 5)]

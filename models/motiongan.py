@@ -8,7 +8,7 @@ from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, Conv2D, \
     Dense, Activation, Lambda, Add, Concatenate, Permute, Reshape, Flatten, \
-    Conv1D, Multiply, Embedding, LSTM
+    Conv1D, Multiply, Embedding, LeakyReLU
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 from layers.normalization import InstanceNormalization
@@ -756,26 +756,26 @@ class _MotionGAN(object):
                         x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
 
 
-            if self.name[-1] != '5':
-                # Position encoding
-                d_emb = 7
-                pos_enc = np.array([
-                    [pos / np.power(10000, 2 * (j // 2) / d_emb) for j in range(d_emb)]
-                    if pos != 0 else np.zeros(d_emb)
-                    for pos in range(self.seq_len)
-                ])
-                pos_enc[1:, 0::2] = np.sin(pos_enc[1:, 0::2])  # dim 2i
-                pos_enc[1:, 1::2] = np.cos(pos_enc[1:, 1::2])  # dim 2i+1
-                pos_shape = (1, pos_enc.shape[0], 1, pos_enc.shape[1]) if self.use_pose_fae else \
-                            (1, 1, pos_enc.shape[0], pos_enc.shape[1])
-                pos_enc = np.reshape(pos_enc, pos_shape)
-                pos_tile = (int(x.shape[0]), 1, int(x.shape[2]), 1) if self.use_pose_fae else \
-                           (int(x.shape[0]), int(x.shape[1]), 1, 1)
-                pos_enc = np.tile(pos_enc, pos_tile)
-                x_pos = Input(tensor=K.constant(pos_enc), name='seq_pos', dtype=tf.float32)
-                self.gen_inputs.append(x_pos)
-
-                x = Concatenate(axis=-1, name=scope+'cat_pos')([x, x_pos])
+            # if self.name[-1] != '5':
+            #     # Position encoding
+            #     d_emb = 7
+            #     pos_enc = np.array([
+            #         [pos / np.power(10000, 2 * (j // 2) / d_emb) for j in range(d_emb)]
+            #         if pos != 0 else np.zeros(d_emb)
+            #         for pos in range(self.seq_len)
+            #     ])
+            #     pos_enc[1:, 0::2] = np.sin(pos_enc[1:, 0::2])  # dim 2i
+            #     pos_enc[1:, 1::2] = np.cos(pos_enc[1:, 1::2])  # dim 2i+1
+            #     pos_shape = (1, pos_enc.shape[0], 1, pos_enc.shape[1]) if self.use_pose_fae else \
+            #                 (1, 1, pos_enc.shape[0], pos_enc.shape[1])
+            #     pos_enc = np.reshape(pos_enc, pos_shape)
+            #     pos_tile = (int(x.shape[0]), 1, int(x.shape[2]), 1) if self.use_pose_fae else \
+            #                (int(x.shape[0]), int(x.shape[1]), 1, 1)
+            #     pos_enc = np.tile(pos_enc, pos_tile)
+            #     x_pos = Input(tensor=K.constant(pos_enc), name='seq_pos', dtype=tf.float32)
+            #     self.gen_inputs.append(x_pos)
+            #
+            #     x = Concatenate(axis=-1, name=scope+'cat_pos')([x, x_pos])
 
             if self.action_cond:
                 x_label = _get_tensor(input_tensors, 'true_label')
@@ -837,15 +837,17 @@ class _MotionGAN(object):
     def _pose_encoder(self, seq):
         scope = Scoping.get_global_scope()
         with scope.name_scope('encoder'):
-            fae_dim = self.org_shape[1] * 3
+            fae_dim = self.org_shape[1] * self.org_shape[3]
 
             h = Permute((2, 1, 3), name=scope+'perm_in')(seq)
             h = Reshape((int(seq.shape[2]), int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
 
             h = Conv1D(fae_dim, 1, 1,
                        name=scope+'conv_in', **CONV1D_ARGS)(h)
+            # self.pose_features = []
             for i in range(3):
                 with scope.name_scope('block_%d' % i):
+                    # self.pose_features.append(h)
                     pi = Conv1D(fae_dim, 1, 1, activation='relu',
                                 name=scope+'pi_0', **CONV1D_ARGS)(h)
                     pi = Conv1D(fae_dim, 1, 1, activation='relu',
@@ -855,8 +857,8 @@ class _MotionGAN(object):
                     h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                                name=scope+'attention')([h, pi, tau])
 
-            z = Conv1D(fae_dim // 2, 1, 1, name=scope+'z_mean', **CONV1D_ARGS)(h)
-            z_attention = Conv1D(fae_dim // 2, 1, 1, activation='sigmoid',
+            z = Conv1D(fae_dim, 1, 1, name=scope+'z_mean', **CONV1D_ARGS)(h)
+            z_attention = Conv1D(fae_dim, 1, 1, activation='sigmoid',
                                  name=scope+'attention_mask', **CONV1D_ARGS)(h)
 
             # We are only expecting half of the latent features to be activated
@@ -867,12 +869,17 @@ class _MotionGAN(object):
     def _pose_decoder(self, gen_z):
         scope = Scoping.get_global_scope()
         with scope.name_scope('decoder'):
-            fae_dim = self.org_shape[1] * 3
+            fae_dim = self.org_shape[1] * self.org_shape[3]
 
             dec_h = Conv1D(fae_dim, 1, 1,
                            name=scope+'conv_in', **CONV1D_ARGS)(gen_z)
             for i in range(3):
                 with scope.name_scope('block_%d' % i):
+                    # dec_h = Concatenate(axis=-1, name=scope + 'cat_feats')([dec_h, self.pose_features.pop()])
+                    # dec_h = Conv1D(fae_dim * 2, 1, 1, activation='relu',
+                    #                name=scope + 'conv_h_0', **CONV1D_ARGS)(dec_h)
+                    # dec_h = Conv1D(fae_dim, 1, 1, activation='relu',
+                    #                name=scope + 'conv_h_1', **CONV1D_ARGS)(dec_h)
                     pi = Conv1D(fae_dim, 1, 1, activation='relu',
                                 name=scope+'pi_0', **CONV1D_ARGS)(dec_h)
                     pi = Conv1D(fae_dim, 1, 1, activation='relu',
@@ -882,8 +889,8 @@ class _MotionGAN(object):
                     dec_h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                                    name=scope+'attention')([dec_h, pi, tau])
 
-            dec_x = Conv1D(fae_dim, 1, 1, name=scope+'conv_out', **CONV1D_ARGS)(dec_h)
-            dec_x = Reshape((int(gen_z.shape[1]), fae_dim // 3, 3), name=scope+'resh_out')(dec_x)
+            dec_x = Conv1D(self.org_shape[1] * 3, 1, 1, name=scope+'conv_out', **CONV1D_ARGS)(dec_h)
+            dec_x = Reshape((int(gen_z.shape[1]), self.org_shape[1], 3), name=scope+'resh_out')(dec_x)
             dec_x = Permute((2, 1, 3), name=scope+'perm_out')(dec_x)
 
         return dec_x
@@ -950,15 +957,19 @@ class MotionGANV1(_MotionGAN):
                         strides = (block_strides[i], 1)
                     elif self.use_pose_fae:
                         strides = 1
-                    shortcut = Conv2DTranspose(n_filters, strides, strides,
-                                               name=scope+'shortcut', **CONV2D_ARGS)(x)
+
                     with scope.name_scope('branch_0'): # scope for backward compat
                         pi = _conv_block(x, n_filters, 1, 3, strides, Conv2DTranspose)
 
-                    x = Add(name=scope+'add')([shortcut, pi])
+                    if i < self.nblocks - 1:
+                        shortcut = Conv2DTranspose(n_filters, strides, strides,
+                                                   name=scope + 'shortcut', **CONV2D_ARGS)(x)
+                        x = Add(name=scope+'add')([shortcut, pi])
+                    else:
+                        x = pi
 
             # x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
-            x = Activation('relu', name=scope+'relu_out')(x)
+            # x = Activation('relu', name=scope+'relu_out')(x)
 
         return x
 
@@ -1108,40 +1119,63 @@ class MotionGANV3(_MotionGAN):
 class MotionGANV4(_MotionGAN):
     # DMNN Discriminator, Dilated ResNet Generator
 
+    # def discriminator(self, x):
+    #     scope = Scoping.get_global_scope()
+    #     with scope.name_scope('classifier'):
+    #         blocks = [{'size': 64,  'bneck_f': 2, 'strides': 3},
+    #                   {'size': 128, 'bneck_f': 2, 'strides': 3}]
+    #         n_reps = 3
+    #
+    #         x = CombMatrix(self.njoints, name=scope+'comb_matrix')(x)
+    #
+    #         x = EDM(name=scope+'edms')(x)
+    #         x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name=scope+'resh_in')(x)
+    #
+    #         # x = InstanceNormalization(axis=-1, name=scope+'inorm_in')(x)
+    #         x = Conv2D(blocks[0]['size'] // blocks[0]['bneck_f'], 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+    #         for i in range(len(blocks)):
+    #             for j in range(n_reps):
+    #                 with scope.name_scope('block_%d_%d' % (i, j)):
+    #                     strides = blocks[i]['strides'] if j == 0 else 1
+    #                     if int(x.shape[-1]) != blocks[i]['size'] or strides > 1:
+    #                         with scope.name_scope('shortcut'):
+    #                             shortcut = Activation('relu', name=scope+'relu')(x)
+    #                             shortcut = Conv2D(blocks[i]['size'], 1, strides,
+    #                                               name=scope+'conv', **CONV2D_ARGS)(shortcut)
+    #                     else:
+    #                         shortcut = x
+    #
+    #                     x = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'], 3, strides)
+    #                     x = Add(name=scope+'add')([shortcut, x])
+    #
+    #         x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name=scope+'mean_pool')(x)
+    #         # x = InstanceNormalization(name=scope+'inorm_out')(x)
+    #         x = Activation('relu', name=scope+'relu_out')(x)
+    #
+    #         x = Dense(self.num_actions, activation='softmax', name=scope+'label')(x)
+    #
+    #     return x
+
     def discriminator(self, x):
         scope = Scoping.get_global_scope()
-        with scope.name_scope('classifier'):
-            blocks = [{'size': 64,  'bneck_f': 2, 'strides': 3},
-                      {'size': 128, 'bneck_f': 2, 'strides': 3}]
-            n_reps = 3
+        with scope.name_scope('discriminator'):
+            n_hidden = 64
+            block_factors = [1, 1, 2, 2]
+            block_strides = [2, 2, 1, 1]
 
-            x = CombMatrix(self.njoints, name=scope+'comb_matrix')(x)
+            x = Conv2D(n_hidden * block_factors[0], 3, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+            for i, factor in enumerate(block_factors):
+                with scope.name_scope('block_%d' % i):
+                    n_filters = n_hidden * factor
+                    shortcut = Conv2D(n_filters, block_strides[i], block_strides[i],
+                                      name=scope+'shortcut', **CONV2D_ARGS)(x)
+                    with scope.name_scope('branch_0'): # scope for backward compat
+                        pi = _conv_block(x, n_filters, 1, 3, block_strides[i])
 
-            x = EDM(name=scope+'edms')(x)
-            x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name=scope+'resh_in')(x)
+                    x = Add(name=scope+'add')([shortcut, pi])
 
-            # x = InstanceNormalization(axis=-1, name=scope+'inorm_in')(x)
-            x = Conv2D(blocks[0]['size'] // blocks[0]['bneck_f'], 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
-            for i in range(len(blocks)):
-                for j in range(n_reps):
-                    with scope.name_scope('block_%d_%d' % (i, j)):
-                        strides = blocks[i]['strides'] if j == 0 else 1
-                        if int(x.shape[-1]) != blocks[i]['size'] or strides > 1:
-                            with scope.name_scope('shortcut'):
-                                shortcut = Activation('relu', name=scope+'relu')(x)
-                                shortcut = Conv2D(blocks[i]['size'], 1, strides,
-                                                  name=scope+'conv', **CONV2D_ARGS)(shortcut)
-                        else:
-                            shortcut = x
-
-                        x = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'], 3, strides)
-                        x = Add(name=scope+'add')([shortcut, x])
-
-            x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name=scope+'mean_pool')(x)
-            # x = InstanceNormalization(name=scope+'inorm_out')(x)
             x = Activation('relu', name=scope+'relu_out')(x)
-
-            x = Dense(self.num_actions, activation='softmax', name=scope+'label')(x)
+            x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
 
         return x
 
@@ -1164,23 +1198,27 @@ class MotionGANV4(_MotionGAN):
                         strides = (block_strides[i], 1)
                     elif self.use_pose_fae:
                         strides = 1
-                    shortcut = Conv2DTranspose(n_filters, strides, strides,
-                                               name=scope+'shortcut', **CONV2D_ARGS)(x)
 
                     pis = []
-                    for j in range(4):
+                    for j in range(2):
                         with scope.name_scope('branch_%d' % j):
-                            pis.append(_conv_block(x, n_filters // 4, 1, 3, 1,
+                            pis.append(_conv_block(x, n_filters, 1, 3, 1,
                                                    Conv2DTranspose, (1, 2 ** j)))
 
                     pi = Concatenate(name=scope+'cat_pi')(pis)
-                    pi = Conv2DTranspose(n_filters, strides, strides,
-                                         name=scope+'reduce_pi', **CONV2D_ARGS)(pi)
-
-                    x = Add(name=scope+'add')([shortcut, pi])
+                    pi = Conv2DTranspose(n_filters, strides, strides, activation='relu',
+                                         name=scope+'reduce_pi_0', **CONV2D_ARGS)(pi)
+                    pi = Conv2DTranspose(n_filters, strides, strides, activation='relu',
+                                         name=scope + 'reduce_pi_1', **CONV2D_ARGS)(pi)
+                    if i < self.nblocks - 1:
+                        shortcut = Conv2DTranspose(n_filters, strides, strides,
+                                                   name=scope + 'shortcut', **CONV2D_ARGS)(x)
+                        x = Add(name=scope+'add')([shortcut, pi])
+                    else:
+                        x = pi
 
             # x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
-            x = Activation('relu', name=scope+'relu_out')(x)
+            # x = Activation('relu', name=scope+'relu_out')(x)
 
         return x
 

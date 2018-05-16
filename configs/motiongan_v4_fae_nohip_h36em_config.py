@@ -3,7 +3,7 @@
     'data_set': 'Human36_expmaps',
     'data_set_version': 'v1',
     # Model version to train
-    'model_version': 'v1',
+    'model_version': 'v4',
     # Perform per joint normalization
     'normalize_per_joint': True,
 

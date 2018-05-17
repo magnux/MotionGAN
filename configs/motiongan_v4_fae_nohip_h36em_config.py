@@ -10,7 +10,7 @@
     # Use pose FAE
     'use_pose_fae': True,
     # General loss factor
-    'loss_factor': 0.1,
+    # 'loss_factor': 0.1,
     # Remove Hip, use hip relative coordinates
     'remove_hip': True,
     # Action label conditional model

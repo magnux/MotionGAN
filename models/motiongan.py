@@ -8,7 +8,7 @@ from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, Conv2D, \
     Dense, Activation, Lambda, Add, Concatenate, Permute, Reshape, Flatten, \
-    Conv1D, Multiply, Embedding, LeakyReLU
+    Conv1D, Multiply, Embedding, LeakyReLU, ZeroPadding2D
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 from layers.normalization import InstanceNormalization
@@ -732,7 +732,7 @@ class _MotionGAN(object):
                 self.fae_z = self._pose_encoder(x)
                 x = Reshape((int(self.fae_z.shape[1]), int(self.fae_z.shape[2]), 1), name=scope+'gen_reshape_in')(self.fae_z)
 
-                self.nblocks = 4
+                self.nblocks = 6
 
             else:
                 with scope.name_scope('seq_fex'):
@@ -1117,44 +1117,7 @@ class MotionGANV3(_MotionGAN):
 
 
 class MotionGANV4(_MotionGAN):
-    # DMNN Discriminator, Dilated ResNet Generator
-
-    # def discriminator(self, x):
-    #     scope = Scoping.get_global_scope()
-    #     with scope.name_scope('classifier'):
-    #         blocks = [{'size': 64,  'bneck_f': 2, 'strides': 3},
-    #                   {'size': 128, 'bneck_f': 2, 'strides': 3}]
-    #         n_reps = 3
-    #
-    #         x = CombMatrix(self.njoints, name=scope+'comb_matrix')(x)
-    #
-    #         x = EDM(name=scope+'edms')(x)
-    #         x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name=scope+'resh_in')(x)
-    #
-    #         # x = InstanceNormalization(axis=-1, name=scope+'inorm_in')(x)
-    #         x = Conv2D(blocks[0]['size'] // blocks[0]['bneck_f'], 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
-    #         for i in range(len(blocks)):
-    #             for j in range(n_reps):
-    #                 with scope.name_scope('block_%d_%d' % (i, j)):
-    #                     strides = blocks[i]['strides'] if j == 0 else 1
-    #                     if int(x.shape[-1]) != blocks[i]['size'] or strides > 1:
-    #                         with scope.name_scope('shortcut'):
-    #                             shortcut = Activation('relu', name=scope+'relu')(x)
-    #                             shortcut = Conv2D(blocks[i]['size'], 1, strides,
-    #                                               name=scope+'conv', **CONV2D_ARGS)(shortcut)
-    #                     else:
-    #                         shortcut = x
-    #
-    #                     x = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'], 3, strides)
-    #                     x = Add(name=scope+'add')([shortcut, x])
-    #
-    #         x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name=scope+'mean_pool')(x)
-    #         # x = InstanceNormalization(name=scope+'inorm_out')(x)
-    #         x = Activation('relu', name=scope+'relu_out')(x)
-    #
-    #         x = Dense(self.num_actions, activation='softmax', name=scope+'label')(x)
-    #
-    #     return x
+    # ResNet Discriminator, Dilated ResNet + UNet Generator
 
     def discriminator(self, x):
         scope = Scoping.get_global_scope()
@@ -1183,39 +1146,61 @@ class MotionGANV4(_MotionGAN):
         scope = Scoping.get_global_scope()
         with scope.name_scope('generator'):
             n_hidden = 32
-            block_factors = range(1, self.nblocks + 1)
+            block_factors = range(1, (self.nblocks // 2) + 1) + range(self.nblocks // 2, 0, -1)
             block_strides = [2] * self.nblocks
 
             if not (self.time_pres_emb or self.use_pose_fae):
                 x = Dense(4 * 4 * n_hidden * block_factors[0], name=scope+'dense_in')(x)
                 x = Reshape((4, 4, n_hidden * block_factors[0]), name=scope+'reshape_in')(x)
 
+            conv_args = CONV2D_ARGS.copy()
+            conv_args['padding'] = 'valid'
+            u_skips = []
             for i, factor in enumerate(block_factors):
                 with scope.name_scope('block_%d' % i):
                     n_filters = n_hidden * factor
                     strides = block_strides[i]
-                    if self.time_pres_emb:
-                        strides = (block_strides[i], 1)
-                    elif self.use_pose_fae:
-                        strides = 1
+                    # if self.time_pres_emb:
+                    #     strides = (block_strides[i], 1)
+                    # elif self.use_pose_fae:
+                    #     strides = 1
+
+                    if i < self.nblocks // 2:
+                        u_skips.append(x)
+                        conv_func = Conv2D
+                    else:
+                        conv_func = Conv2DTranspose
 
                     pis = []
                     for j in range(2):
                         with scope.name_scope('branch_%d' % j):
                             pis.append(_conv_block(x, n_filters, 1, 3, 1,
-                                                   Conv2DTranspose, (1, 2 ** j)))
+                                                   conv_func, (1, 2 ** j)))
 
-                    pi = Concatenate(name=scope+'cat_pi')(pis)
-                    pi = Conv2DTranspose(n_filters, strides, strides, activation='relu',
-                                         name=scope+'reduce_pi_0', **CONV2D_ARGS)(pi)
-                    pi = Conv2DTranspose(n_filters, strides, strides, activation='relu',
-                                         name=scope + 'reduce_pi_1', **CONV2D_ARGS)(pi)
+                    pi = Concatenate(name=scope+'cat_pi_0')(pis)
+                    pi = Activation('relu', name=scope+'relu_pi_0')(pi)
+                    pi = conv_func(n_filters, strides, strides, name=scope+'reduce_pi_0', **conv_args)(pi)
+
+                    if i >= self.nblocks // 2:
+                        skip_pi = u_skips.pop()
+                        if skip_pi.shape[1] != pi.shape[1] or skip_pi.shape[2] != pi.shape[2]:
+                            pi = ZeroPadding2D(((0, int(skip_pi.shape[1] - pi.shape[1])),
+                                                (0, int(skip_pi.shape[2] - pi.shape[2]))),
+                                               name=scope+'pad_pi')(pi)
+                        pi = Concatenate(name=scope+'cat_pi_1')([skip_pi, pi])
+                        pi = Activation('relu', name=scope + 'relu_pi_1')(pi)
+                        pi = conv_func(n_filters, 3, 1, name=scope+'reduce_pi_1', **CONV2D_ARGS)(pi)
+
                     if i < self.nblocks - 1:
-                        shortcut = Conv2DTranspose(n_filters, strides, strides,
-                                                   name=scope + 'shortcut', **CONV2D_ARGS)(x)
+                        shortcut = conv_func(n_filters, strides, strides, name=scope+'shortcut', **conv_args)(x)
+                        if pi.shape[1] != shortcut.shape[1] or pi.shape[2] != shortcut.shape[2]:
+                            shortcut = ZeroPadding2D(((0, int(pi.shape[1] - shortcut.shape[1])),
+                                                      (0, int(pi.shape[2] - shortcut.shape[2]))),
+                                                     name=scope+'pad_short')(shortcut)
                         x = Add(name=scope+'add')([shortcut, pi])
                     else:
                         x = pi
+
 
             # x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
             # x = Activation('relu', name=scope+'relu_out')(x)
@@ -1286,3 +1271,43 @@ class MotionGANV5(_MotionGAN):
                 x = Permute((2, 1, 3), name=scope+'perm_out')(x)
 
         return x
+
+
+
+    # DMNN discriminator
+    # def discriminator(self, x):
+    #     scope = Scoping.get_global_scope()
+    #     with scope.name_scope('classifier'):
+    #         blocks = [{'size': 64,  'bneck_f': 2, 'strides': 3},
+    #                   {'size': 128, 'bneck_f': 2, 'strides': 3}]
+    #         n_reps = 3
+    #
+    #         x = CombMatrix(self.njoints, name=scope+'comb_matrix')(x)
+    #
+    #         x = EDM(name=scope+'edms')(x)
+    #         x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name=scope+'resh_in')(x)
+    #
+    #         # x = InstanceNormalization(axis=-1, name=scope+'inorm_in')(x)
+    #         x = Conv2D(blocks[0]['size'] // blocks[0]['bneck_f'], 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+    #         for i in range(len(blocks)):
+    #             for j in range(n_reps):
+    #                 with scope.name_scope('block_%d_%d' % (i, j)):
+    #                     strides = blocks[i]['strides'] if j == 0 else 1
+    #                     if int(x.shape[-1]) != blocks[i]['size'] or strides > 1:
+    #                         with scope.name_scope('shortcut'):
+    #                             shortcut = Activation('relu', name=scope+'relu')(x)
+    #                             shortcut = Conv2D(blocks[i]['size'], 1, strides,
+    #                                               name=scope+'conv', **CONV2D_ARGS)(shortcut)
+    #                     else:
+    #                         shortcut = x
+    #
+    #                     x = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'], 3, strides)
+    #                     x = Add(name=scope+'add')([shortcut, x])
+    #
+    #         x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name=scope+'mean_pool')(x)
+    #         # x = InstanceNormalization(name=scope+'inorm_out')(x)
+    #         x = Activation('relu', name=scope+'relu_out')(x)
+    #
+    #         x = Dense(self.num_actions, activation='softmax', name=scope+'label')(x)
+    #
+    #     return x

@@ -732,7 +732,7 @@ class _MotionGAN(object):
                 self.fae_z = self._pose_encoder(x)
                 x = Reshape((int(self.fae_z.shape[1]), int(self.fae_z.shape[2]), 1), name=scope+'gen_reshape_in')(self.fae_z)
 
-                self.nblocks = 6
+                self.nblocks = 4
 
             else:
                 with scope.name_scope('seq_fex'):
@@ -1146,8 +1146,15 @@ class MotionGANV4(_MotionGAN):
         scope = Scoping.get_global_scope()
         with scope.name_scope('generator'):
             n_hidden = 32
-            block_factors = range(1, (self.nblocks // 2) + 1) + range(self.nblocks // 2, 0, -1)
-            block_strides = [2] * self.nblocks
+            plain_blocks = 1
+            u_blocks = 0
+            min_space = min(int(x.shape[1]), int(x.shape[2]))
+            while min_space > 2:
+                min_space //= 2
+                u_blocks += 1
+            u_blocks = u_blocks * 2
+            block_factors = ([1] * plain_blocks) + range(1, (u_blocks // 2) + 1) + range(u_blocks // 2, 0, -1) + ([1] * plain_blocks)
+            block_strides = ([1] * plain_blocks) + ([2] * u_blocks) + ([1] * plain_blocks)
 
             if not (self.time_pres_emb or self.use_pose_fae):
                 x = Dense(4 * 4 * n_hidden * block_factors[0], name=scope+'dense_in')(x)
@@ -1164,10 +1171,10 @@ class MotionGANV4(_MotionGAN):
                     #     strides = (block_strides[i], 1)
                     # elif self.use_pose_fae:
                     #     strides = 1
-
-                    if i < self.nblocks // 2:
-                        u_skips.append(x)
+                    if i < (u_blocks // 2) + plain_blocks:
                         conv_func = Conv2D
+                        if i > plain_blocks - 1:
+                            u_skips.append(x)
                     else:
                         conv_func = Conv2DTranspose
 
@@ -1181,7 +1188,7 @@ class MotionGANV4(_MotionGAN):
                     pi = Activation('relu', name=scope+'relu_pi_0')(pi)
                     pi = conv_func(n_filters, strides, strides, name=scope+'reduce_pi_0', **conv_args)(pi)
 
-                    if i >= self.nblocks // 2:
+                    if (u_blocks // 2) + plain_blocks <= i < u_blocks + plain_blocks:
                         skip_pi = u_skips.pop()
                         if skip_pi.shape[1] != pi.shape[1] or skip_pi.shape[2] != pi.shape[2]:
                             pi = ZeroPadding2D(((0, int(skip_pi.shape[1] - pi.shape[1])),
@@ -1191,7 +1198,7 @@ class MotionGANV4(_MotionGAN):
                         pi = Activation('relu', name=scope + 'relu_pi_1')(pi)
                         pi = conv_func(n_filters, 3, 1, name=scope+'reduce_pi_1', **CONV2D_ARGS)(pi)
 
-                    if i < self.nblocks - 1:
+                    if i < u_blocks - 1:
                         shortcut = conv_func(n_filters, strides, strides, name=scope+'shortcut', **conv_args)(x)
                         if pi.shape[1] != shortcut.shape[1] or pi.shape[2] != shortcut.shape[2]:
                             shortcut = ZeroPadding2D(((0, int(pi.shape[1] - shortcut.shape[1])),
@@ -1200,7 +1207,6 @@ class MotionGANV4(_MotionGAN):
                         x = Add(name=scope+'add')([shortcut, pi])
                     else:
                         x = pi
-
 
             # x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
             # x = Activation('relu', name=scope+'relu_out')(x)

@@ -1251,26 +1251,28 @@ class MotionGANV5(_MotionGAN):
             x_shape = [int(dim) for dim in x.shape]
 
             with scope.name_scope('rec_dense'):
-                rec_input = Input(shape=(x_shape[0], x_shape[2] * x_shape[3] * 2))
+                rec_input = Input(batch_shape=(x_shape[0], x_shape[2] * x_shape[3] * 2))
 
-                n_hidden = x_shape[2] * x_shape[3] * 2
-                init_tau = np.concatenate([np.zeros(x_shape[2] * x_shape[3]), np.ones(x_shape[2] * x_shape[3])])
+                n_hidden = x_shape[2] * x_shape[3]
 
                 rec_output = rec_input
                 for i in range(self.nblocks):
                     with scope.name_scope('block_%d' % i):
-                        pi = Dense(n_hidden // 2, activation='relu', name=scope+'pi_0',
+                        n_hidden_b = int(n_hidden * (2 - ((i+1) / self.nblocks)))
+                        rec_output = Dense(n_hidden_b, name=scope+'dense_in')(rec_output)
+                        pi = Dense(n_hidden_b // 2, activation='relu', name=scope+'pi_0',
                                    kernel_regularizer=l2(1e-3))(rec_output)
-                        pi = Dense(n_hidden, activation='relu', name=scope+'pi_1',
+                        pi = Dense(n_hidden_b, activation='relu', name=scope+'pi_1',
                                    kernel_regularizer=l2(1e-3))(pi)
-                        tau = Dense(n_hidden // 4, activation='relu', name=scope + 'tau_0',
+                        tau = Dense(n_hidden_b // 4, activation='relu', name=scope + 'tau_0',
                                     kernel_regularizer=l2(1e-3))(rec_output)
-                        tau = Dense(n_hidden, activation='sigmoid', name=scope+'tau_1',
-                                    kernel_regularizer=l2(1e-3), bias_initializer=Constant(init_tau))(tau)
+                        tau = Dense(n_hidden_b, activation='sigmoid', name=scope+'tau_1',
+                                    kernel_regularizer=l2(1e-3))(tau)
+
                         rec_output = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                                        name=scope+'attention')([rec_output, pi, tau])
 
-                rec_output = Dense(n_hidden // 2, name=scope+'dense_out')(rec_output)
+                rec_output = Dense(n_hidden, name=scope+'dense_out')(rec_output)
                 rec_dense = Model(rec_input, rec_output, name='rec_dense_model')
 
             x = Reshape((x_shape[1], x_shape[2] * x_shape[3]), name=scope+'res_in')(x)

@@ -1256,10 +1256,10 @@ class MotionGANV5(_MotionGAN):
                 n_hidden = x_shape[2] * x_shape[3]
 
                 rec_output = rec_input
-                for i in range(self.nblocks):
+                for i in range(self.nblocks + 1):
                     with scope.name_scope('block_%d' % i):
-                        n_hidden_b = int(n_hidden * (2 - ((i+1) / self.nblocks)))
-                        rec_output = Dense(n_hidden_b, name=scope+'dense_in')(rec_output)
+                        n_hidden_b = int(n_hidden * (2 - (i / self.nblocks)))
+
                         pi = Dense(n_hidden_b // 2, activation='relu', name=scope+'pi_0',
                                    kernel_regularizer=l2(1e-3))(rec_output)
                         pi = Dense(n_hidden_b, activation='relu', name=scope+'pi_1',
@@ -1268,12 +1268,14 @@ class MotionGANV5(_MotionGAN):
                                     kernel_regularizer=l2(1e-3))(rec_output)
                         tau = Dense(n_hidden_b, activation='sigmoid', name=scope+'tau_1',
                                     kernel_regularizer=l2(1e-3))(tau)
-
+                        rec_output = Dense(n_hidden_b, name=scope+'crop_in')(rec_output)
                         rec_output = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
-                                       name=scope+'attention')([rec_output, pi, tau])
+                                            name=scope+'attention')([rec_output, pi, tau])
 
                 rec_output = Dense(n_hidden, name=scope+'dense_out')(rec_output)
                 rec_dense = Model(rec_input, rec_output, name='rec_dense_model')
+
+            # print(rec_dense.summary())
 
             x = Reshape((x_shape[1], x_shape[2] * x_shape[3]), name=scope+'res_in')(x)
             ys = []

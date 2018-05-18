@@ -11,6 +11,7 @@ from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, Conv2D, \
     Conv1D, Multiply, Embedding, LeakyReLU, ZeroPadding2D
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
+from tensorflow.contrib.keras.api.keras.initializers import Constant
 from layers.normalization import InstanceNormalization
 from layers.edm import edm, EDM
 from layers.comb_matrix import CombMatrix
@@ -1253,15 +1254,15 @@ class MotionGANV5(_MotionGAN):
                 rec_input = Input(shape=(x_shape[0], x_shape[2] * x_shape[3] * 2))
 
                 n_hidden = x_shape[2] * x_shape[3] * 2
-                block_factors = range(1, self.nblocks + 1)
+                init_tau = np.concatenate([np.ones(x_shape[2] * x_shape[3]), np.zeros(x_shape[2] * x_shape[3])])
 
                 rec_output = rec_input
-                for i, factor in enumerate(block_factors):
+                for i in range(self.nblocks):
                     with scope.name_scope('block_%d' % i):
-                        pi = Dense(n_hidden * factor, activation='relu', name=scope+'pi_0')(rec_output)
+                        pi = Dense(n_hidden // 2, activation='relu', name=scope+'pi_0')(rec_output)
                         pi = Dense(n_hidden, activation='relu', name=scope+'pi_1')(pi)
 
-                        tau = Dense(n_hidden, activation='sigmoid', name=scope+'tau')(rec_output)
+                        tau = Dense(n_hidden, activation='sigmoid', name=scope+'tau', bias_initializer=Constant(init_tau))(rec_output)
                         rec_output = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                                        name=scope+'attention')([rec_output, pi, tau])
 

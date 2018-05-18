@@ -1215,7 +1215,7 @@ class MotionGANV4(_MotionGAN):
 
 
 class MotionGANV5(_MotionGAN):
-    # ResNet, LSTM
+    # ResNet, RecDense
 
     def discriminator(self, x):
         scope = Scoping.get_global_scope()
@@ -1243,35 +1243,44 @@ class MotionGANV5(_MotionGAN):
     def generator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('generator'):
-            n_hidden = 2
-            block_factors = range(1, self.nblocks + 1)
-            block_strides = [2] * self.nblocks
 
             if not self.use_pose_fae:
                 x = Permute((2, 1, 3), name=scope+'perm_in')(x)
 
-            for i, factor in enumerate(block_factors):
-                with scope.name_scope('LSTM_%d' % i):
-                    n_filters = n_hidden * factor
-                    strides = block_strides[i]
-                    if self.time_pres_emb:
-                        strides = (block_strides[i], 1)
-                    elif self.use_pose_fae:
-                        strides = 1
-                    shortcut = Conv2DTranspose(n_filters, strides, strides,
-                                               name=scope+'shortcut', **CONV2D_ARGS)(x)
-                    x_shape = [int(i) for i in x.shape[1:-1]] + [n_filters]
-                    pi = Reshape((x_shape[0], int(x.shape[2]) * int(x.shape[3])), name=scope+'pi_flatten')(x)
-                    pi = CuDNNLSTM(x_shape[1] * x_shape[2], return_sequences=True, name=scope+'pi_lstm')(pi)
-                    pi = Reshape(x_shape, name=scope+'pi_reshape')(pi)
+            x_shape = [int(dim) for dim in x.shape]
 
-                    if i < len(block_factors) - 1:
-                        x = Add(name=scope+'add')([shortcut, pi])
-                    else:
-                        x = pi
+            with scope.name_scope('rec_dense'):
+                rec_input = Input(shape=(x_shape[0], x_shape[2] * x_shape[3] * 2))
 
-            # x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
-            x = Activation('relu', name=scope+'relu_out')(x)
+                n_hidden = x_shape[2] * x_shape[3] * 2
+                block_factors = range(1, self.nblocks + 1)
+
+                rec_output = rec_input
+                for i, factor in enumerate(block_factors):
+                    with scope.name_scope('block_%d' % i):
+                        pi = Dense(n_hidden * factor, activation='relu', name=scope+'pi_0')(rec_output)
+                        pi = Dense(n_hidden, activation='relu', name=scope+'pi_1')(pi)
+
+                        tau = Dense(n_hidden, activation='sigmoid', name=scope+'tau')(rec_output)
+                        rec_output = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
+                                       name=scope+'attention')([rec_output, pi, tau])
+
+                rec_output = Dense(n_hidden // 2, name=scope+'dense_out')(rec_output)
+                rec_dense = Model(rec_input, rec_output, name='rec_dense_model')
+
+            x = Reshape((x_shape[1], x_shape[2] * x_shape[3]), name=scope+'res_in')(x)
+            ys = []
+            for i in range(x.shape[1]):
+                with scope.name_scope('rec_dense_call_%d' % i):
+                    x_step = Lambda(lambda arg: arg[:, i, :], name=scope+'sel_in')(x)
+                    pred_x = pred_x if i > 0 else x_step
+                    x_step = Concatenate(axis=-1, name=scope+'cat_in')([x_step, pred_x])
+                    pred_x = rec_dense(x_step)
+                    ys.append(pred_x)
+
+            x = Lambda(lambda args: K.stack(args, axis=1))(ys)
+
+            x = Reshape((x_shape[1], x_shape[2], x_shape[3]))(x)
 
             if not self.use_pose_fae:
                 x = Permute((2, 1, 3), name=scope+'perm_out')(x)

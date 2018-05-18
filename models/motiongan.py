@@ -1259,10 +1259,14 @@ class MotionGANV5(_MotionGAN):
                 rec_output = rec_input
                 for i in range(self.nblocks):
                     with scope.name_scope('block_%d' % i):
-                        pi = Dense(n_hidden // 2, activation='relu', name=scope+'pi_0')(rec_output)
-                        pi = Dense(n_hidden, activation='relu', name=scope+'pi_1')(pi)
-
-                        tau = Dense(n_hidden, activation='sigmoid', name=scope+'tau', bias_initializer=Constant(init_tau))(rec_output)
+                        pi = Dense(n_hidden // 2, activation='relu', name=scope+'pi_0',
+                                   kernel_regularizer=l2(1e-3))(rec_output)
+                        pi = Dense(n_hidden, activation='relu', name=scope+'pi_1',
+                                   kernel_regularizer=l2(1e-3))(pi)
+                        tau = Dense(n_hidden // 4, activation='relu', name=scope + 'tau_0',
+                                    kernel_regularizer=l2(1e-3))(rec_output)
+                        tau = Dense(n_hidden, activation='sigmoid', name=scope+'tau_1',
+                                    kernel_regularizer=l2(1e-3), bias_initializer=Constant(init_tau))(tau)
                         rec_output = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                                        name=scope+'attention')([rec_output, pi, tau])
 

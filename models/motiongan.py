@@ -1254,7 +1254,7 @@ class MotionGANV5(_MotionGAN):
                 rec_input = Input(shape=(x_shape[0], x_shape[2] * x_shape[3] * 2))
 
                 n_hidden = x_shape[2] * x_shape[3] * 2
-                init_tau = np.concatenate([np.ones(x_shape[2] * x_shape[3]), np.zeros(x_shape[2] * x_shape[3])])
+                init_tau = np.concatenate([np.zeros(x_shape[2] * x_shape[3]), np.ones(x_shape[2] * x_shape[3])])
 
                 rec_output = rec_input
                 for i in range(self.nblocks):

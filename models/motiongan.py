@@ -1242,9 +1242,8 @@ class MotionGANV5(_MotionGAN):
                         shortcut = Conv2D(n_filters, (2, 1), (2, 1), name=scope+'shortcut', **CONV2D_ARGS)(wave_output)
                         wave_output = Add(name=scope + 'add')([shortcut, pi])
 
-                with scope.name_scope('block_out'):
-                    wave_output = _conv_block(wave_output, 1, 2, 3, (2, 1), Conv2D)
-                    wave_output = Reshape((x_shape[2], 1), name=scope+'squeeze_out')(wave_output)
+                wave_output = Conv2D(1, 1, 1, name=scope+'merge_out', **CONV2D_ARGS)(wave_output)
+                wave_output = Reshape((x_shape[2], 1), name=scope+'squeeze_out')(wave_output)
 
                 wave_gen = Model(wave_input, wave_output, name='wave_gen_model')
 
@@ -1269,11 +1268,13 @@ class MotionGANV5(_MotionGAN):
                                     name=scope+'cat_label_pred')([x_step, pred_x])
                     xs.append(pred_x)
 
-            x = Lambda(lambda arg: arg[:, :x_shape[1] // 2, :, 0], name=scope+'slice_out')(x)
-            x = Reshape((x_shape[1] // 2, x_shape[2], 1), name=scope+'res_slice_out')(x)
-            xs = Lambda(lambda arg: K.stack(arg, axis=1)[..., 0], name=scope+'stack_out')(xs)
-            xs = Reshape((x_shape[1] // 2, x_shape[2], 1), name=scope+'res_stack_out')(xs)
+            x = Lambda(lambda arg: arg[:, :x_shape[1] // 2, :, :], name=scope+'slice_out')(x)
+            x = Reshape((x_shape[1] // 2, x_shape[2], x_shape[3]), name=scope+'res_slice_out')(x)
+            xs = Lambda(lambda arg: K.stack(arg, axis=1), name=scope+'stack_out')(xs)
+            xs = Reshape((x_shape[1] // 2, x_shape[2], x_shape[3]), name=scope+'res_stack_out')(xs)
             x = Concatenate(axis=1, name=scope+'cat_out')([x, xs])
+            x = Lambda(lambda arg: arg[:, :, :, 0], name=scope+'trim_out')(x)
+            x = Reshape((x_shape[1], x_shape[2], 1), name=scope+'res_trim_out')(x)
 
             if not self.use_pose_fae:
                 x = Permute((2, 1, 3), name=scope+'perm_out')(x)

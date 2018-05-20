@@ -1253,10 +1253,10 @@ class MotionGANV5(_MotionGAN):
 
             # print(wave_gen.summary())
 
-            x = Reshape((x_shape[1], x_shape[2] * x_shape[3]))(x)
+            x = Reshape((x_shape[1], x_shape[2] * x_shape[3]), name=scope+'wave_shortcut_res_in')(x)
             x = Conv1D(x_shape[2] * n_hidden * n_blocks, 1, 1,
                        name=scope+'wave_shortcut', **CONV1D_ARGS)(x)
-            x = Reshape((x_shape[1], x_shape[2], n_hidden * n_blocks))(x)
+            x = Reshape((x_shape[1], x_shape[2], n_hidden * n_blocks), name=scope+'wave_shortcut_res_out')(x)
             xs = []
             for i in range(x_shape[1] // 2):
                 with scope.name_scope('wave_gen_call_%d' % i):

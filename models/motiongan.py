@@ -1220,7 +1220,7 @@ class MotionGANV5(_MotionGAN):
         scope = Scoping.get_global_scope()
         with scope.name_scope('generator'):
             x_shape = [int(dim) for dim in x.shape]
-            n_hidden = 32
+            n_hidden = 64
             time_steps = x_shape[1]
             n_blocks = 0
             while time_steps > 1:
@@ -1231,7 +1231,7 @@ class MotionGANV5(_MotionGAN):
                 x = Permute((2, 1, 3), name=scope+'perm_in')(x)
 
             with scope.name_scope('wave_gen'):
-                wave_input = Input(batch_shape=(x_shape[0], x_shape[1] // 2, x_shape[2], n_hidden * n_blocks))
+                wave_input = Input(batch_shape=(x_shape[0], x_shape[1] // 2, x_shape[2], x_shape[3]))
                 # print(time_steps, n_blocks)
 
                 wave_output = wave_input
@@ -1239,24 +1239,17 @@ class MotionGANV5(_MotionGAN):
                     with scope.name_scope('block_%d' % i):
                         n_filters = n_hidden * (i + 1)
                         pi = _conv_block(wave_output, n_filters, 2, 3, (2, 1), Conv2D)
+                        shortcut = Conv2D(n_filters, (2, 1), (2, 1), name=scope+'shortcut', **CONV2D_ARGS)(wave_output)
+                        wave_output = Add(name=scope + 'add')([shortcut, pi])
 
-                        if i < n_blocks - 1:
-                            shortcut = Conv2D(n_filters, (2, 1), (2, 1),
-                                              name=scope + 'shortcut', **CONV2D_ARGS)(wave_output)
-                            wave_output = Add(name=scope + 'add')([shortcut, pi])
-                        else:
-                            wave_output = pi
-
-                wave_output = Reshape((x_shape[2], n_hidden * n_blocks), name=scope + 'squeeze_out')(wave_output)
+                with scope.name_scope('block_out'):
+                    wave_output = _conv_block(wave_output, 1, 2, 3, (2, 1), Conv2D)
+                    wave_output = Reshape((x_shape[2], 1), name=scope+'squeeze_out')(wave_output)
 
                 wave_gen = Model(wave_input, wave_output, name='wave_gen_model')
 
             # print(wave_gen.summary())
 
-            x = Reshape((x_shape[1], x_shape[2] * x_shape[3]), name=scope+'wave_shortcut_res_in')(x)
-            x = Conv1D(x_shape[2] * n_hidden * n_blocks, 1, 1,
-                       name=scope+'wave_shortcut', **CONV1D_ARGS)(x)
-            x = Reshape((x_shape[1], x_shape[2], n_hidden * n_blocks), name=scope+'wave_shortcut_res_out')(x)
             xs = []
             for i in range(x_shape[1] // 2):
                 with scope.name_scope('wave_gen_call_%d' % i):
@@ -1272,10 +1265,14 @@ class MotionGANV5(_MotionGAN):
                         x_step = Lambda(lambda arg: K.concatenate(arg, axis=1),
                                         name=scope+'wave_append_n')([x_step, x_step_n])
                     pred_x = wave_gen(x_step)
+                    pred_x = Lambda(lambda args: K.concatenate([args[1], args[0][:, 0, :, 1:]], axis=-1),
+                                    name=scope+'cat_label_pred')([x_step, pred_x])
                     xs.append(pred_x)
 
-            x = Lambda(lambda arg: arg[:, :x_shape[1] // 2, ...], name=scope+'slice_out')(x)
-            xs = Lambda(lambda arg: K.stack(arg, axis=1), name=scope+'stack_res')(xs)
+            x = Lambda(lambda arg: arg[:, :x_shape[1] // 2, :, 0], name=scope+'slice_out')(x)
+            x = Reshape((x_shape[1] // 2, x_shape[2], 1), name=scope+'res_slice_out')(x)
+            xs = Lambda(lambda arg: K.stack(arg, axis=1)[..., 0], name=scope+'stack_out')(xs)
+            xs = Reshape((x_shape[1] // 2, x_shape[2], 1), name=scope+'res_stack_out')(xs)
             x = Concatenate(axis=1, name=scope+'cat_out')([x, xs])
 
             if not self.use_pose_fae:

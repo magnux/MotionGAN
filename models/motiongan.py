@@ -8,7 +8,7 @@ from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, Conv2D, \
     Dense, Activation, Lambda, Add, Concatenate, Permute, Reshape, Flatten, \
-    Conv1D, Multiply, Embedding, LeakyReLU, ZeroPadding2D, LSTM
+    Conv1D, Multiply, Embedding, LeakyReLU, ZeroPadding2D
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 from tensorflow.contrib.keras.api.keras.initializers import Constant
@@ -756,28 +756,6 @@ class _MotionGAN(object):
                     if not self.time_pres_emb:
                         x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
 
-
-            # if self.name[-1] != '5':
-            #     # Position encoding
-            #     d_emb = 7
-            #     pos_enc = np.array([
-            #         [pos / np.power(10000, 2 * (j // 2) / d_emb) for j in range(d_emb)]
-            #         if pos != 0 else np.zeros(d_emb)
-            #         for pos in range(self.seq_len)
-            #     ])
-            #     pos_enc[1:, 0::2] = np.sin(pos_enc[1:, 0::2])  # dim 2i
-            #     pos_enc[1:, 1::2] = np.cos(pos_enc[1:, 1::2])  # dim 2i+1
-            #     pos_shape = (1, pos_enc.shape[0], 1, pos_enc.shape[1]) if self.use_pose_fae else \
-            #                 (1, 1, pos_enc.shape[0], pos_enc.shape[1])
-            #     pos_enc = np.reshape(pos_enc, pos_shape)
-            #     pos_tile = (int(x.shape[0]), 1, int(x.shape[2]), 1) if self.use_pose_fae else \
-            #                (int(x.shape[0]), int(x.shape[1]), 1, 1)
-            #     pos_enc = np.tile(pos_enc, pos_tile)
-            #     x_pos = Input(tensor=K.constant(pos_enc), name='seq_pos', dtype=tf.float32)
-            #     self.gen_inputs.append(x_pos)
-            #
-            #     x = Concatenate(axis=-1, name=scope+'cat_pos')([x, x_pos])
-
             if self.action_cond:
                 x_label = _get_tensor(input_tensors, 'true_label')
                 x_label = Embedding(self.num_actions, 4, name=scope+'emb_label')(x_label)
@@ -809,9 +787,6 @@ class _MotionGAN(object):
                 x = Conv2D(self.org_shape[2], 3, 1, name=scope+'time_reshape', **CONV2D_ARGS)(x)
                 x = Permute((2, 3, 1), name=scope+'coords_permute')(x)  # joints, time, filters
                 x = Conv2D(self.org_shape[3], 3, 1, name=scope+'coords_reshape', **CONV2D_ARGS)(x)
-
-            # if 'expmaps' in self.data_set:
-            #     x = Activation('sigmoid', name=scope+'sigmoid_out')(x)
 
             if self.use_angles:
                 self.angles_output = x
@@ -1216,7 +1191,7 @@ class MotionGANV4(_MotionGAN):
 
 
 class MotionGANV5(_MotionGAN):
-    # ResNet, RecDense
+    # ResNet, WaveNet style generator
 
     def discriminator(self, x):
         scope = Scoping.get_global_scope()
@@ -1244,58 +1219,64 @@ class MotionGANV5(_MotionGAN):
     def generator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('generator'):
+            x_shape = [int(dim) for dim in x.shape]
+            n_hidden = 32
+            time_steps = x_shape[1]
+            n_blocks = 0
+            while time_steps > 1:
+                time_steps //= 2
+                n_blocks += 1
 
             if not self.use_pose_fae:
                 x = Permute((2, 1, 3), name=scope+'perm_in')(x)
 
-            x_shape = [int(dim) for dim in x.shape]
+            with scope.name_scope('wave_gen'):
+                wave_input = Input(batch_shape=(x_shape[0], x_shape[1] // 2, x_shape[2], n_hidden * n_blocks))
+                # print(time_steps, n_blocks)
 
-            # with scope.name_scope('rec_dense'):
-            #     rec_input = Input(batch_shape=(x_shape[0], x_shape[2] * x_shape[3] * 2))
-            #
-            #     n_hidden = x_shape[2] * x_shape[3]
-            #
-            #     rec_output = rec_input
-            #     for i in range(self.nblocks + 1):
-            #         with scope.name_scope('block_%d' % i):
-            #             n_hidden_b = int(n_hidden * (2 - (i / self.nblocks)))
-            #
-            #             pi = Dense(n_hidden_b // 2, activation='relu', name=scope+'pi_0',
-            #                        kernel_regularizer=l2(1e-3))(rec_output)
-            #             pi = Dense(n_hidden_b, activation='relu', name=scope+'pi_1',
-            #                        kernel_regularizer=l2(1e-3))(pi)
-            #             tau = Dense(n_hidden_b // 4, activation='relu', name=scope + 'tau_0',
-            #                         kernel_regularizer=l2(1e-3))(rec_output)
-            #             tau = Dense(n_hidden_b, activation='sigmoid', name=scope+'tau_1',
-            #                         kernel_regularizer=l2(1e-3))(tau)
-            #             rec_output = Dense(n_hidden_b, name=scope+'crop_in')(rec_output)
-            #             rec_output = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
-            #                                 name=scope+'attention')([rec_output, pi, tau])
-            #
-            #     rec_output = Dense(n_hidden, name=scope+'dense_out')(rec_output)
-            #     rec_dense = Model(rec_input, rec_output, name='rec_dense_model')
-            #
-            # # print(rec_dense.summary())
-            #
-            # x = Reshape((x_shape[1], x_shape[2] * x_shape[3]), name=scope+'res_in')(x)
-            # ys = []
-            # for i in range(x.shape[1]):
-            #     with scope.name_scope('rec_dense_call_%d' % i):
-            #         x_step = Lambda(lambda arg: arg[:, i, :], name=scope+'sel_in')(x)
-            #         pred_x = pred_x if i > 0 else x_step
-            #         x_step = Concatenate(axis=-1, name=scope+'cat_in')([x_step, pred_x])
-            #         pred_x = rec_dense(x_step)
-            #         ys.append(pred_x)
-            #
-            # x = Lambda(lambda args: K.stack(args, axis=1))(ys)
+                wave_output = wave_input
+                for i in range(n_blocks):
+                    with scope.name_scope('block_%d' % i):
+                        n_filters = n_hidden * (i + 1)
+                        pi = _conv_block(wave_output, n_filters, 2, 3, (2, 1), Conv2D)
 
-            x = Reshape((x_shape[1], x_shape[2] * x_shape[3]), name=scope + 'res_in')(x)
+                        if i < n_blocks - 1:
+                            shortcut = Conv2D(n_filters, (2, 1), (2, 1),
+                                              name=scope + 'shortcut', **CONV2D_ARGS)(wave_output)
+                            wave_output = Add(name=scope + 'add')([shortcut, pi])
+                        else:
+                            wave_output = pi
 
-            n_hidden = x_shape[2] * x_shape[3]
-            for i in range(self.nblocks):
-                x = CuDNNLSTM(n_hidden, name=scope+'lstm_%d'%i, kernel_regularizer=l2(1e-3), return_sequences=True)(x)
+                wave_output = Reshape((x_shape[2], n_hidden * n_blocks), name=scope + 'squeeze_out')(wave_output)
 
-            x = Reshape((x_shape[1], x_shape[2], x_shape[3]))(x)
+                wave_gen = Model(wave_input, wave_output, name='wave_gen_model')
+
+            # print(wave_gen.summary())
+
+            x = Reshape((x_shape[1], x_shape[2] * x_shape[3]))(x)
+            x = Conv1D(x_shape[2] * n_hidden * n_blocks, 1, 1,
+                       name=scope+'wave_shortcut', **CONV1D_ARGS)(x)
+            x = Reshape((x_shape[1], x_shape[2], n_hidden * n_blocks))(x)
+            xs = []
+            for i in range(x_shape[1] // 2):
+                with scope.name_scope('wave_gen_call_%d' % i):
+                    x_step = Lambda(lambda arg: arg[:, i:x_shape[1] // 2, ...],
+                                    name=scope+'wave_in_slice')(x)
+                    if i > 0:
+                        if len(xs) > 1:
+                            x_step_n = Lambda(lambda arg: K.stack(arg, axis=1),
+                                              name=scope+'wave_stack_n')(xs)
+                        else:
+                            x_step_n = Lambda(lambda arg: K.expand_dims(arg, axis=1),
+                                              name=scope+'wave_stack_n')(xs[0])
+                        x_step = Lambda(lambda arg: K.concatenate(arg, axis=1),
+                                        name=scope+'wave_append_n')([x_step, x_step_n])
+                    pred_x = wave_gen(x_step)
+                    xs.append(pred_x)
+
+            x = Lambda(lambda arg: arg[:, :x_shape[1] // 2, ...], name=scope+'slice_out')(x)
+            xs = Lambda(lambda arg: K.stack(arg, axis=1), name=scope+'stack_res')(xs)
+            x = Concatenate(axis=1, name=scope+'cat_out')([x, xs])
 
             if not self.use_pose_fae:
                 x = Permute((2, 1, 3), name=scope+'perm_out')(x)

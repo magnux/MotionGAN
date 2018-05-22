@@ -111,6 +111,10 @@ class _MotionGAN(object):
             self.gen_inputs.append(true_label)
         x = self._proc_gen_inputs(self.gen_inputs)
         self.gen_outputs = self._proc_gen_outputs(self.generator(x))
+        if self.name[-2:] == 'v6':
+            self.intermediate_outs = []
+            for inter_x in self.intermediate_xs:
+                self.intermediate_outs.append(self._proc_gen_outputs(inter_x))
         self.gen_model = Model(self.gen_inputs, self.gen_outputs, name=self.name + '_generator')
         self.fake_outputs = self.disc_model(self.gen_outputs)
 
@@ -273,6 +277,10 @@ class _MotionGAN(object):
                 # seq_mask_acl = seq_mask_vel[:, :, 1:, :] * seq_mask_vel[:, :, :-1, :]
                 # loss_rec_acl = K.sum(K.mean(K.square((real_seq_acl * seq_mask_acl) - (gen_seq_acl * seq_mask_acl)), axis=-1), axis=(1, 2))
                 # gen_losses['gen_loss_rec_acl'] = self.rec_scale * K.pow(K.mean(loss_rec_acl), 1/4)
+                if self.name[-2:] == 'v6':
+                    for i, inter_out in enumerate(self.intermediate_outs):
+                        loss_rec = K.sum(K.mean(K.square((real_seq * seq_mask) - (inter_out * seq_mask)), axis=-1), axis=(1, 2))
+                        gen_losses['gen_loss_rec_inter%i'%i] = self.rec_scale * K.mean(loss_rec)
 
                 if self.use_diff:
                     loss_rec_diff = K.sum(K.mean(K.square((self.diff_input * self.diff_mask) -
@@ -1282,6 +1290,100 @@ class MotionGANV5(_MotionGAN):
         return x
 
 
+class MotionGANV6(_MotionGAN):
+    # ResNet Discriminator, Dilated ResNet + UNet Generator 4 STACK
+
+    def discriminator(self, x):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('discriminator'):
+            n_hidden = 64
+            block_factors = [1, 1, 2, 2]
+            block_strides = [2, 2, 1, 1]
+
+            x = Conv2D(n_hidden * block_factors[0], 3, 1, name=scope + 'conv_in', **CONV2D_ARGS)(x)
+            for i, factor in enumerate(block_factors):
+                with scope.name_scope('block_%d' % i):
+                    n_filters = n_hidden * factor
+                    shortcut = Conv2D(n_filters, block_strides[i], block_strides[i],
+                                      name=scope + 'shortcut', **CONV2D_ARGS)(x)
+                    with scope.name_scope('branch_0'):  # scope for backward compat
+                        pi = _conv_block(x, n_filters, 1, 3, block_strides[i])
+
+                    x = Add(name=scope + 'add')([shortcut, pi])
+
+            x = Activation('relu', name=scope + 'relu_out')(x)
+            x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope + 'mean_pool')(x)
+
+        return x
+
+    def generator(self, x):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('generator'):
+            n_hidden = 24
+            u_blocks = 0
+            min_space = min(int(x.shape[1]), int(x.shape[2]))
+            while min_space > 2:
+                min_space //= 2
+                u_blocks += 1
+            u_blocks = u_blocks * 2
+            block_factors = range(1, (u_blocks // 2) + 1) + range(u_blocks // 2, 0, -1)
+            block_strides = ([2] * u_blocks)
+            macro_blocks = 4
+
+            if not (self.time_pres_emb or self.use_pose_fae):
+                x = Dense(4 * 4 * n_hidden * block_factors[0], name=scope + 'dense_in')(x)
+                x = Reshape((4, 4, n_hidden * block_factors[0]), name=scope + 'reshape_in')(x)
+
+            conv_args = CONV2D_ARGS.copy()
+            conv_args['padding'] = 'valid'
+            u_skips = []
+            self.intermediate_xs = []
+            for k in range(macro_blocks):
+                with scope.name_scope('macro_block_%d' % k):
+                    for i, factor in enumerate(block_factors):
+                        with scope.name_scope('block_%d' % i):
+                            n_filters = n_hidden * factor
+                            strides = block_strides[i]
+                            # if self.time_pres_emb:
+                            #     strides = (block_strides[i], 1)
+                            # elif self.use_pose_fae:
+                            #     strides = 1
+                            if i < (u_blocks // 2):
+                                conv_func = Conv2D
+                                u_skips.append(x)
+                            else:
+                                conv_func = Conv2DTranspose
+
+                            pis = []
+                            for j in range(2):
+                                with scope.name_scope('branch_%d' % j):
+                                    pis.append(_conv_block(x, n_filters, 1, 3, 1,
+                                                           conv_func, (1, 2 ** j)))
+
+                            pi = Concatenate(name=scope + 'cat_pi_0')(pis)
+                            pi = Activation('relu', name=scope + 'relu_pi_0')(pi)
+                            pi = conv_func(n_filters, strides, strides, name=scope + 'reduce_pi_0', **conv_args)(pi)
+
+                            if (u_blocks // 2) <= i < u_blocks:
+                                skip_pi = u_skips.pop()
+                                if skip_pi.shape[1] != pi.shape[1] or skip_pi.shape[2] != pi.shape[2]:
+                                    pi = ZeroPadding2D(((0, int(skip_pi.shape[1] - pi.shape[1])),
+                                                        (0, int(skip_pi.shape[2] - pi.shape[2]))),
+                                                       name=scope + 'pad_pi')(pi)
+                                pi = Concatenate(name=scope + 'cat_pi_1')([skip_pi, pi])
+                                pi = Activation('relu', name=scope + 'relu_pi_1')(pi)
+                                pi = conv_func(n_filters, 3, 1, name=scope + 'reduce_pi_1', **CONV2D_ARGS)(pi)
+
+                            shortcut = conv_func(n_filters, strides, strides, name=scope + 'shortcut', **conv_args)(x)
+                            if pi.shape[1] != shortcut.shape[1] or pi.shape[2] != shortcut.shape[2]:
+                                shortcut = ZeroPadding2D(((0, int(pi.shape[1] - shortcut.shape[1])),
+                                                          (0, int(pi.shape[2] - shortcut.shape[2]))),
+                                                         name=scope + 'pad_short')(shortcut)
+                            x = Add(name=scope + 'add')([shortcut, pi])
+
+                    if k < macro_blocks - 1:
+                        self.intermediate_xs.append(x)
+        return x
 
     # DMNN discriminator
     # def discriminator(self, x):

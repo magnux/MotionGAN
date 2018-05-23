@@ -60,7 +60,7 @@ class _MotionGAN(object):
         self.wgan_scale_g = 2.0 * config.loss_factor * (0.0 if config.no_gan_loss else 1.0)
         self.wgan_frame_scale_d = 10.0 * config.loss_factor
         self.wgan_frame_scale_g = 2.0 * config.loss_factor * (0.0 if config.no_gan_loss else 1.0)
-        self.rec_scale = 1.0  # if 'expmaps' not in self.data_set else 1.0e2
+        self.rec_scale = 1.0   # if 'expmaps' not in self.data_set else 10.0
         self.action_cond = config.action_cond
         self.action_scale_d = 10.0
         self.action_scale_g = 1.0
@@ -1300,7 +1300,7 @@ class MotionGANV5(_MotionGAN):
             xs = []
             for i in range(x_shape[1] // 2):
                 with scope.name_scope('wave_gen_call_%d' % i):
-                    x_step = Lambda(lambda arg: arg[:, i:x_shape[1] // 2, ...],
+                    x_step = Lambda(lambda arg: K.stop_gradient(arg[:, i:x_shape[1] // 2, ...]),
                                     name=scope+'wave_in_slice')(x)
                     if i > 0:
                         if len(xs) > 1:

@@ -1359,7 +1359,7 @@ class MotionGANV6(_MotionGAN):
     def generator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('generator'):
-            n_hidden = 24
+            n_hidden = 32
             u_blocks = 0
             min_space = min(int(x.shape[1]), int(x.shape[2]))
             while min_space > 2:
@@ -1380,6 +1380,7 @@ class MotionGANV6(_MotionGAN):
             self.intermediate_xs = []
             for k in range(macro_blocks):
                 with scope.name_scope('macro_block_%d' % k):
+                    macro_shortcut = Conv2D(n_hidden, 1, 1, name=scope+'shortcut', **conv_args)(x)
                     for i, factor in enumerate(block_factors):
                         with scope.name_scope('block_%d' % i):
                             n_filters = n_hidden * factor
@@ -1394,15 +1395,7 @@ class MotionGANV6(_MotionGAN):
                             else:
                                 conv_func = Conv2DTranspose
 
-                            pis = []
-                            for j in range(2):
-                                with scope.name_scope('branch_%d' % j):
-                                    pis.append(_conv_block(x, n_filters, 1, 3, 1,
-                                                           conv_func, (1, 2 ** j)))
-
-                            pi = Concatenate(name=scope + 'cat_pi_0')(pis)
-                            pi = Activation('relu', name=scope + 'relu_pi_0')(pi)
-                            pi = conv_func(n_filters, strides, strides, name=scope + 'reduce_pi_0', **conv_args)(pi)
+                            pi = conv_func(n_filters, strides, strides, name=scope + 'reduce_pi_0', **conv_args)(x)
 
                             if (u_blocks // 2) <= i < u_blocks:
                                 skip_pi = u_skips.pop()
@@ -1414,15 +1407,16 @@ class MotionGANV6(_MotionGAN):
                                 pi = Activation('relu', name=scope + 'relu_pi_1')(pi)
                                 pi = conv_func(n_filters, 3, 1, name=scope + 'reduce_pi_1', **CONV2D_ARGS)(pi)
 
-                            shortcut = conv_func(n_filters, strides, strides, name=scope + 'shortcut', **conv_args)(x)
+                            shortcut = conv_func(n_filters, strides, strides, name=scope+'shortcut', **conv_args)(x)
                             if pi.shape[1] != shortcut.shape[1] or pi.shape[2] != shortcut.shape[2]:
                                 shortcut = ZeroPadding2D(((0, int(pi.shape[1] - shortcut.shape[1])),
                                                           (0, int(pi.shape[2] - shortcut.shape[2]))),
                                                          name=scope + 'pad_short')(shortcut)
-                            x = Add(name=scope + 'add')([shortcut, pi])
+                            x = Add(name=scope+'add_short')([shortcut, pi])
 
                     if k < macro_blocks - 1:
                         self.intermediate_xs.append(x)
+                        x = Concatenate(axis=-1, name=scope+'cat_short')([macro_shortcut, x])
         return x
 
     # DMNN discriminator

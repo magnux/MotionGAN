@@ -84,7 +84,7 @@ if __name__ == "__main__":
             t.set_description('| ep: %d | lr: %.2e |' % (config.epoch, learning_rate))
             disc_loss_sum = 0.0
             gen_loss_sum = 0.0
-            keep_prob = 0.8 - (0.6 * config.epoch / config.num_epochs)
+            keep_prob = 0.5  # 0.8 - (0.6 * config.epoch / config.num_epochs)
             for batch in t:
                 tensorboard.on_batch_begin(batch)
 
@@ -98,7 +98,7 @@ if __name__ == "__main__":
                     labs_batch, poses_batch = train_generator.next()
 
                     mask_batch = poses_batch[..., 3, np.newaxis]
-                    mask_batch = mask_batch * gen_mask(np.random.randint(len(MASK_MODES)), keep_prob, config.batch_size,
+                    mask_batch = mask_batch * gen_mask(1, keep_prob, config.batch_size,  # np.random.randint(len(MASK_MODES))
                                                        config.njoints, model_wrap.seq_len, config.body_members)
                     poses_batch = poses_batch[..., :3]
 
@@ -125,7 +125,7 @@ if __name__ == "__main__":
                 labs_batch, poses_batch = train_generator.next()
 
                 mask_batch = poses_batch[..., 3, np.newaxis]
-                mask_batch = mask_batch * gen_mask(np.random.randint(len(MASK_MODES)), keep_prob, config.batch_size,
+                mask_batch = mask_batch * gen_mask(1, keep_prob, config.batch_size,  # np.random.randint(len(MASK_MODES))
                                                    config.njoints, model_wrap.seq_len, config.body_members)
                 poses_batch = poses_batch[..., :3]
 

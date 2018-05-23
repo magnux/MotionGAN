@@ -9,16 +9,12 @@
     'use_pose_fae': True,
     # Body shape conservation loss
     'shape_loss': True,
-    # Sequence smoothing loss
-    'smoothing_loss': True,
     # Rescale coords using skeleton average bone len
     'rescale_coords': True,
     # Translate sequence starting point to 0,0,0
     'translate_start': True,
     # Rotate sequence starting point
     'rotate_start': True,
-    # Action label conditional model
-    'action_cond': True,
 
     # How fast should we learn?
     'learning_rate': 1.0e-3,

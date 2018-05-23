@@ -243,6 +243,24 @@ class _MotionGAN(object):
                 gen_loss_wgan = -loss_fake
                 gen_losses['gen_loss_wgan'] = self.wgan_scale_g * K.mean(gen_loss_wgan)
 
+                if self.name[-2:] == 'v6':
+                    for i, intermediate_out in enumerate(self.intermediate_outs):
+                        loss_fake = K.mean(_get_tensor(self.disc_model(intermediate_out), 'score_out'), axis=-1)
+
+                        interpolates = (alpha * real_seq) + ((1 - alpha) * intermediate_out)
+
+                        inter_outputs = self.disc_model([interpolates] + ([self.gen_outputs[1]] if self.action_cond else []))
+                        inter_score = _get_tensor(inter_outputs, 'score_out')
+                        grad_mixed = K.gradients(inter_score, [interpolates])[0]
+                        norm_grad_mixed = K.sqrt(K.sum(K.square(grad_mixed), axis=(1, 2, 3)) + K.epsilon())
+                        grad_penalty = K.mean(K.square(norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
+
+                        disc_loss_wgan = loss_fake - loss_real + (self.lambda_grads * grad_penalty)
+                        disc_losses['disc_loss_wgan_inter%d' % i] = self.wgan_scale_d * K.mean(disc_loss_wgan)
+
+                        gen_loss_wgan = -loss_fake
+                        gen_losses['gen_loss_wgan_inter%d' % i] = self.wgan_scale_g * K.mean(gen_loss_wgan)
+
             with K.name_scope('frame_wgan_loss'):
                 frame_loss_real = K.sum(K.squeeze(_get_tensor(self.real_outputs, 'frame_score_out'), axis=-1) * no_zero_frames, axis=1)
                 frame_loss_fake = K.sum(K.squeeze(_get_tensor(self.fake_outputs, 'frame_score_out'), axis=-1) * no_zero_frames, axis=1)
@@ -257,12 +275,31 @@ class _MotionGAN(object):
                 frame_norm_grad_mixed = K.sqrt(K.sum(K.sum(K.square(frame_grad_mixed), axis=(1, 3)) * no_zero_frames, axis=1) + K.epsilon())
                 frame_grad_penalty = K.mean(K.square(frame_norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
 
-                # WGAN-GP losses
                 frame_disc_loss_wgan = frame_loss_fake - frame_loss_real + (self.lambda_grads * frame_grad_penalty)
                 disc_losses['frame_disc_loss_wgan'] = self.wgan_frame_scale_d * K.mean(frame_disc_loss_wgan)
 
                 frame_gen_loss_wgan = -frame_loss_fake
                 gen_losses['frame_gen_loss_wgan'] = self.wgan_frame_scale_g * K.mean(frame_gen_loss_wgan)
+
+                if self.name[-2:] == 'v6':
+                    for i, intermediate_out in enumerate(self.intermediate_outs):
+                        frame_loss_fake = K.sum(K.squeeze(_get_tensor(self.disc_model(intermediate_out), 'frame_score_out'), axis=-1) * no_zero_frames, axis=1)
+
+                        interpolates = (alpha * real_seq) + ((1 - alpha) * intermediate_out)
+
+                        inter_outputs = self.disc_model([interpolates] + ([self.gen_outputs[1]] if self.action_cond else []))
+                        frame_inter_score = _get_tensor(inter_outputs, 'frame_score_out')
+                        frame_grad_mixed = K.gradients(frame_inter_score, [interpolates])[0]
+                        frame_norm_grad_mixed = K.sqrt(K.sum(K.sum(K.square(frame_grad_mixed), axis=(1, 3)) * no_zero_frames, axis=1) + K.epsilon())
+                        frame_grad_penalty = K.mean(K.square(frame_norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
+
+                        # WGAN-GP losses
+                        frame_disc_loss_wgan = frame_loss_fake - frame_loss_real + (self.lambda_grads * frame_grad_penalty)
+                        disc_losses['frame_disc_loss_wgan_inter%d' % i] = self.wgan_frame_scale_d * K.mean(frame_disc_loss_wgan)
+
+                        frame_gen_loss_wgan = -frame_loss_fake
+                        gen_losses['frame_gen_loss_wgan_inter%d' % i] = self.wgan_frame_scale_g * K.mean(frame_gen_loss_wgan)
+
 
             # Reconstruction loss
             with K.name_scope('reconstruction_loss'):

@@ -114,7 +114,7 @@ class _MotionGAN(object):
         if self.name[-2:] == 'v6':
             self.intermediate_outs = []
             for inter_x in self.intermediate_xs:
-                self.intermediate_outs.append(self._proc_gen_outputs(inter_x)[0])
+                self.intermediate_outs.append(self._proc_gen_outputs(inter_x))
         self.gen_model = Model(self.gen_inputs, self.gen_outputs, name=self.name + '_generator')
         self.fake_outputs = self.disc_model(self.gen_outputs)
 
@@ -247,7 +247,7 @@ class _MotionGAN(object):
                     for i, intermediate_out in enumerate(self.intermediate_outs):
                         loss_fake = K.mean(_get_tensor(self.disc_model(intermediate_out), 'score_out'), axis=-1)
 
-                        interpolates = (alpha * real_seq) + ((1 - alpha) * intermediate_out)
+                        interpolates = (alpha * real_seq) + ((1 - alpha) * intermediate_out[0])
 
                         inter_outputs = self.disc_model([interpolates] + ([self.gen_outputs[1]] if self.action_cond else []))
                         inter_score = _get_tensor(inter_outputs, 'score_out')
@@ -285,7 +285,7 @@ class _MotionGAN(object):
                     for i, intermediate_out in enumerate(self.intermediate_outs):
                         frame_loss_fake = K.sum(K.squeeze(_get_tensor(self.disc_model(intermediate_out), 'frame_score_out'), axis=-1) * no_zero_frames, axis=1)
 
-                        interpolates = (alpha * real_seq) + ((1 - alpha) * intermediate_out)
+                        interpolates = (alpha * real_seq) + ((1 - alpha) * intermediate_out[0])
 
                         inter_outputs = self.disc_model([interpolates] + ([self.gen_outputs[1]] if self.action_cond else []))
                         frame_inter_score = _get_tensor(inter_outputs, 'frame_score_out')
@@ -318,8 +318,8 @@ class _MotionGAN(object):
                 # loss_rec_acl = K.sum(K.mean(K.square((real_seq_acl * seq_mask_acl) - (gen_seq_acl * seq_mask_acl)), axis=-1), axis=(1, 2))
                 # gen_losses['gen_loss_rec_acl'] = self.rec_scale * K.pow(K.mean(loss_rec_acl), 1/4)
                 if self.name[-2:] == 'v6':
-                    for i, inter_out in enumerate(self.intermediate_outs):
-                        loss_rec = K.sum(K.mean(K.square((real_seq * seq_mask) - (inter_out * seq_mask)), axis=-1), axis=(1, 2))
+                    for i, intermediate_out in enumerate(self.intermediate_outs):
+                        loss_rec = K.sum(K.mean(K.square((real_seq * seq_mask) - (intermediate_out * seq_mask)), axis=-1), axis=(1, 2))
                         gen_losses['gen_loss_rec_inter%i'%i] = self.rec_scale * K.mean(loss_rec)
 
                 if self.use_diff:

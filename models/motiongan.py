@@ -1367,8 +1367,8 @@ class MotionGANV7(_MotionGAN):
             def resnet_disc(x):
                 with scope.name_scope('resnet'):
                     n_hidden = 64
-                    block_factors = [1, 2, 2]
-                    block_strides = [3, 3, 3]
+                    block_factors = [1, 2, 4]
+                    block_strides = [2, 2, 2]
 
                     x = Conv2D(n_hidden * block_factors[0], 3, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
                     for i, factor in enumerate(block_factors):
@@ -1376,7 +1376,7 @@ class MotionGANV7(_MotionGAN):
                             n_filters = n_hidden * factor
                             shortcut = Conv2D(n_filters, block_strides[i], block_strides[i],
                                               name=scope+'shortcut', **CONV2D_ARGS)(x)
-                            pi = _conv_block(x, n_filters, 1, 3, block_strides[i])
+                            pi = _conv_block(x, n_filters, 2, 3, block_strides[i])
                             x = Add(name=scope+'add')([shortcut, pi])
 
                     x = Activation('relu', name=scope+'relu_out')(x)
@@ -1385,9 +1385,9 @@ class MotionGANV7(_MotionGAN):
 
             def dmnn_disc(x):
                 with scope.name_scope('dmnn'):
-                    blocks = [{'size': 64,  'bneck_f': 4, 'strides': 3},
-                              {'size': 128, 'bneck_f': 4, 'strides': 3},
-                              {'size': 256, 'bneck_f': 4, 'strides': 3}]
+                    blocks = [{'size': 64,  'bneck_f': 4, 'strides': 2},
+                              {'size': 128, 'bneck_f': 4, 'strides': 2},
+                              {'size': 256, 'bneck_f': 4, 'strides': 2}]
                     n_reps = 2
                     
                     

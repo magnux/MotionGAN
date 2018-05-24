@@ -28,4 +28,6 @@
     'pick_num': 20,
     # Size of the random crop (0 == deactivated)
     'crop_len': 100,
+    # Train on future prediction task only
+    'train_fp': True,
 }

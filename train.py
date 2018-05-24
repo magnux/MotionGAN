@@ -84,7 +84,7 @@ if __name__ == "__main__":
             t.set_description('| ep: %d | lr: %.2e |' % (config.epoch, learning_rate))
             disc_loss_sum = 0.0
             gen_loss_sum = 0.0
-            keep_prob = 0.5  # 0.8 - (0.6 * config.epoch / config.num_epochs)
+            keep_prob = 0.5 if config.train_fp else (0.8 - (0.6 * config.epoch / config.num_epochs))
             for batch in t:
                 tensorboard.on_batch_begin(batch)
 
@@ -98,20 +98,21 @@ if __name__ == "__main__":
                     labs_batch, poses_batch = train_generator.next()
 
                     mask_batch = poses_batch[..., 3, np.newaxis]
-                    mask_batch = mask_batch * gen_mask(1, keep_prob, config.batch_size,  # np.random.randint(len(MASK_MODES))
-                                                       config.njoints, model_wrap.seq_len, config.body_members)
+                    mask_batch = mask_batch * gen_mask(1 if config.train_fp else np.random.randint(len(MASK_MODES)),
+                                                       keep_prob, config.batch_size, config.njoints,
+                                                       model_wrap.seq_len, config.body_members)
                     poses_batch = poses_batch[..., :3]
 
                     disc_inputs = [poses_batch]
                     gen_inputs = [poses_batch, mask_batch]
+                    labels = np.reshape(labs_batch[:, 2], (config.batch_size, 1))
+                    place_holders = [labels]
                     if config.action_cond:
-                        labels = np.reshape(labs_batch[:, 2], (config.batch_size, 1))
-                        disc_inputs.append(labels)
                         gen_inputs.append(labels)
                     if config.latent_cond_dim > 0:
                         gen_inputs.append(gen_latent_noise(config.batch_size, config.latent_cond_dim))
 
-                    losses = model_wrap.disc_train(disc_inputs + gen_inputs)
+                    losses = model_wrap.disc_train(disc_inputs + place_holders + gen_inputs)
 
                     if disc_batch == 0:
                         disc_losses = losses
@@ -125,8 +126,9 @@ if __name__ == "__main__":
                 labs_batch, poses_batch = train_generator.next()
 
                 mask_batch = poses_batch[..., 3, np.newaxis]
-                mask_batch = mask_batch * gen_mask(1, keep_prob, config.batch_size,  # np.random.randint(len(MASK_MODES))
-                                                   config.njoints, model_wrap.seq_len, config.body_members)
+                mask_batch = mask_batch * gen_mask(1 if config.train_fp else np.random.randint(len(MASK_MODES)),
+                                                   keep_prob, config.batch_size, config.njoints,
+                                                   model_wrap.seq_len, config.body_members)
                 poses_batch = poses_batch[..., :3]
 
                 gen_inputs = [poses_batch, mask_batch]
@@ -181,14 +183,14 @@ if __name__ == "__main__":
 
             disc_inputs = [poses_batch]
             gen_inputs = [poses_batch, mask_batch]
+            labels = np.reshape(labs_batch[:, 2], (config.batch_size, 1))
+            place_holders = [labels]
             if config.action_cond:
-                labels = np.reshape(labs_batch[:, 2], (config.batch_size, 1))
-                disc_inputs.append(labels)
                 gen_inputs.append(labels)
             if config.latent_cond_dim > 0:
                 gen_inputs.append(gen_latent_noise(config.batch_size, config.latent_cond_dim))
 
-            disc_losses = model_wrap.disc_eval(disc_inputs + gen_inputs)
+            disc_losses = model_wrap.disc_eval(disc_inputs + place_holders + gen_inputs)
             gen_losses = model_wrap.gen_eval(gen_inputs)
             if config.use_pose_fae:
                 fae_z = gen_losses.pop('fae_z', None)

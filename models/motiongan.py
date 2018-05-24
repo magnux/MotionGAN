@@ -64,7 +64,7 @@ class _MotionGAN(object):
         self.action_cond = config.action_cond
         self.action_scale_d = 10.0
         self.action_scale_g = 1.0
-        self.latent_cond_dim = config.latent_cond_dim
+        # self.latent_cond_dim = config.latent_cond_dim
         self.latent_scale_d = 10.0
         self.latent_scale_g = 1.0
         self.shape_loss = config.shape_loss
@@ -86,22 +86,17 @@ class _MotionGAN(object):
         self.angles_scale = 0.5
         self.stats = {}
 
-        true_label = None
-        if self.action_cond:
-            true_label = Input(batch_shape=(self.batch_size, 1), name='true_label', dtype='int32')
-
         # Discriminator
+        true_label = Input(batch_shape=(self.batch_size, 1), name='true_label', dtype='int32')
         real_seq = Input(batch_shape=(self.batch_size, self.njoints, self.seq_len, 3), name='real_seq', dtype='float32')
         self.disc_inputs = [real_seq]
-        if self.action_cond:
-            self.disc_inputs.append(true_label)
+        self.place_holders = [true_label]  # it is not an input because it is only used in the loss
         x = self._proc_disc_inputs(self.disc_inputs)
         self.real_outputs = self._proc_disc_outputs(self.discriminator(x))
         self.disc_model = Model(self.disc_inputs, self.real_outputs, name=self.name + '_discriminator')
 
         # Generator
-        seq_mask = Input(batch_shape=(self.batch_size, self.njoints, self.seq_len, 1),
-                         name='seq_mask', dtype='float32')
+        seq_mask = Input(batch_shape=(self.batch_size, self.njoints, self.seq_len, 1), name='seq_mask', dtype='float32')
         self.gen_inputs = [real_seq, seq_mask]
         # if self.latent_cond_dim > 0:
         #     latent_cond_input = Input(batch_shape=(self.batch_size, self.latent_cond_dim),
@@ -134,23 +129,20 @@ class _MotionGAN(object):
         with K.name_scope('discriminator/functions/train'):
             disc_optimizer = Adam(lr=config.learning_rate)
             disc_training_updates = disc_optimizer.get_updates(disc_loss, self.disc_model.trainable_weights)
-            self.disc_train_f = K.function(self.disc_inputs + self.gen_inputs,
+            self.disc_train_f = K.function(self.disc_inputs + self.place_holders + self.gen_inputs,
                                            self.wgan_losses.values() + self.disc_losses.values(),
                                            disc_training_updates)
 
         with K.name_scope('discriminator/functions/eval'):
-            self.disc_eval_f = K.function(self.disc_inputs + self.gen_inputs,
+            self.disc_eval_f = K.function(self.disc_inputs + self.place_holders + self.gen_inputs,
                                           self.wgan_losses.values() + self.disc_losses.values())
 
         self.disc_model = self._pseudo_build_model(self.disc_model, disc_optimizer)
 
         with K.name_scope('generator/functions/train'):
             gen_optimizer = Adam(lr=config.learning_rate)
-            gen_training_updates = gen_optimizer.get_updates(gen_loss,
-                                   self.gen_model.trainable_weights)
-            self.gen_train_f = K.function(self.gen_inputs,
-                                          self.gen_losses.values(),
-                                          gen_training_updates)
+            gen_training_updates = gen_optimizer.get_updates(gen_loss, self.gen_model.trainable_weights)
+            self.gen_train_f = K.function(self.gen_inputs, self.gen_losses.values(), gen_training_updates)
 
         with K.name_scope('generator/functions/eval'):
             gen_f_outs = self.gen_losses.values()
@@ -230,7 +222,7 @@ class _MotionGAN(object):
                 interpolates = (alpha * real_seq) + ((1 - alpha) * gen_seq)
 
                 # Gradient Penalty
-                inter_outputs = self.disc_model([interpolates] + ([self.gen_outputs[1]] if self.action_cond else []))
+                inter_outputs = self.disc_model(interpolates)
                 inter_score = _get_tensor(inter_outputs, 'score_out')
                 grad_mixed = K.gradients(inter_score, [interpolates])[0]
                 norm_grad_mixed = K.sqrt(K.sum(K.square(grad_mixed), axis=(1, 2, 3)) + K.epsilon())
@@ -243,24 +235,6 @@ class _MotionGAN(object):
                 gen_loss_wgan = -loss_fake
                 gen_losses['gen_loss_wgan'] = self.wgan_scale_g * K.mean(gen_loss_wgan)
 
-                if self.name[-2:] == 'v6':
-                    for i, intermediate_out in enumerate(self.intermediate_outs):
-                        loss_fake = K.mean(_get_tensor(self.disc_model(intermediate_out), 'score_out'), axis=-1)
-
-                        interpolates = (alpha * real_seq) + ((1 - alpha) * intermediate_out[0])
-
-                        inter_outputs = self.disc_model([interpolates] + ([self.gen_outputs[1]] if self.action_cond else []))
-                        inter_score = _get_tensor(inter_outputs, 'score_out')
-                        grad_mixed = K.gradients(inter_score, [interpolates])[0]
-                        norm_grad_mixed = K.sqrt(K.sum(K.square(grad_mixed), axis=(1, 2, 3)) + K.epsilon())
-                        grad_penalty = K.mean(K.square(norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
-
-                        disc_loss_wgan = loss_fake - loss_real + (self.lambda_grads * grad_penalty)
-                        disc_losses['disc_loss_wgan_inter%d' % i] = self.wgan_scale_d * K.mean(disc_loss_wgan)
-
-                        gen_loss_wgan = -loss_fake
-                        gen_losses['gen_loss_wgan_inter%d' % i] = self.wgan_scale_g * K.mean(gen_loss_wgan)
-
             with K.name_scope('frame_wgan_loss'):
                 frame_loss_real = K.sum(K.squeeze(_get_tensor(self.real_outputs, 'frame_score_out'), axis=-1) * no_zero_frames, axis=1)
                 frame_loss_fake = K.sum(K.squeeze(_get_tensor(self.fake_outputs, 'frame_score_out'), axis=-1) * no_zero_frames, axis=1)
@@ -269,7 +243,7 @@ class _MotionGAN(object):
 
                 interpolates = (alpha * real_seq) + ((1 - alpha) * gen_seq)
 
-                inter_outputs = self.disc_model([interpolates] + ([self.gen_outputs[1]] if self.action_cond else []))
+                inter_outputs = self.disc_model(interpolates)
                 frame_inter_score = _get_tensor(inter_outputs, 'frame_score_out')
                 frame_grad_mixed = K.gradients(frame_inter_score, [interpolates])[0]
                 frame_norm_grad_mixed = K.sqrt(K.sum(K.sum(K.square(frame_grad_mixed), axis=(1, 3)) * no_zero_frames, axis=1) + K.epsilon())
@@ -281,46 +255,15 @@ class _MotionGAN(object):
                 frame_gen_loss_wgan = -frame_loss_fake
                 gen_losses['frame_gen_loss_wgan'] = self.wgan_frame_scale_g * K.mean(frame_gen_loss_wgan)
 
-                if self.name[-2:] == 'v6':
-                    for i, intermediate_out in enumerate(self.intermediate_outs):
-                        frame_loss_fake = K.sum(K.squeeze(_get_tensor(self.disc_model(intermediate_out), 'frame_score_out'), axis=-1) * no_zero_frames, axis=1)
-
-                        interpolates = (alpha * real_seq) + ((1 - alpha) * intermediate_out[0])
-
-                        inter_outputs = self.disc_model([interpolates] + ([self.gen_outputs[1]] if self.action_cond else []))
-                        frame_inter_score = _get_tensor(inter_outputs, 'frame_score_out')
-                        frame_grad_mixed = K.gradients(frame_inter_score, [interpolates])[0]
-                        frame_norm_grad_mixed = K.sqrt(K.sum(K.sum(K.square(frame_grad_mixed), axis=(1, 3)) * no_zero_frames, axis=1) + K.epsilon())
-                        frame_grad_penalty = K.mean(K.square(frame_norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
-
-                        # WGAN-GP losses
-                        frame_disc_loss_wgan = frame_loss_fake - frame_loss_real + (self.lambda_grads * frame_grad_penalty)
-                        disc_losses['frame_disc_loss_wgan_inter%d' % i] = self.wgan_frame_scale_d * K.mean(frame_disc_loss_wgan)
-
-                        frame_gen_loss_wgan = -frame_loss_fake
-                        gen_losses['frame_gen_loss_wgan_inter%d' % i] = self.wgan_frame_scale_g * K.mean(frame_gen_loss_wgan)
-
-
             # Reconstruction loss
             with K.name_scope('reconstruction_loss'):
                 loss_rec = K.sum(K.mean(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1), axis=(1, 2))
                 gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
-                # real_seq_vel = real_seq[:, :, 1:, :] - real_seq[:, :, :-1, :]
-                # gen_seq_vel = gen_seq[:, :, 1:, :] - gen_seq[:, :, :-1, :]
-                # seq_mask_vel = seq_mask[:, :, 1:, :] * seq_mask[:, :, :-1, :]
-                # loss_rec_vel = K.sum(K.mean(K.square((real_seq_vel * seq_mask_vel) - (gen_seq_vel * seq_mask_vel)), axis=-1), axis=(1, 2))
-                # gen_losses['gen_loss_rec_vel'] = self.rec_scale * K.pow(K.mean(loss_rec_vel), 1/2)
-                #
-                # real_seq_acl = real_seq_vel[:, :, 1:, :] - real_seq_vel[:, :, :-1, :]
-                # gen_seq_acl = gen_seq_vel[:, :, 1:, :] - gen_seq_vel[:, :, :-1, :]
-                # seq_mask_acl = seq_mask_vel[:, :, 1:, :] * seq_mask_vel[:, :, :-1, :]
-                # loss_rec_acl = K.sum(K.mean(K.square((real_seq_acl * seq_mask_acl) - (gen_seq_acl * seq_mask_acl)), axis=-1), axis=(1, 2))
-                # gen_losses['gen_loss_rec_acl'] = self.rec_scale * K.pow(K.mean(loss_rec_acl), 1/4)
                 if self.name[-2:] == 'v6' or self.name[-2:] == 'v7':
                     for i, intermediate_out in enumerate(self.intermediate_outs):
                         loss_rec = K.sum(K.mean(K.square((real_seq * seq_mask) - (intermediate_out[0] * seq_mask)), axis=-1), axis=(1, 2))
-                        gen_losses['gen_loss_rec_inter%i'%i] = self.rec_scale * K.mean(loss_rec)
+                        gen_losses['gen_loss_rec_inter%i' % i] = self.rec_scale * K.mean(loss_rec)
 
                 if self.use_diff:
                     loss_rec_diff = K.sum(K.mean(K.square((self.diff_input * self.diff_mask) -
@@ -331,23 +274,24 @@ class _MotionGAN(object):
                                                             (self.angles_output * self.angles_mask)), axis=-1), axis=(1, 2))
                     gen_losses['gen_loss_rec_angles'] = self.angles_scale * K.mean(loss_rec_angles)
 
+            # Action label loss
+            with K.name_scope('action_loss'):
+                loss_class_real = K.mean(K.sparse_categorical_crossentropy(
+                    _get_tensor(self.place_holders, 'true_label'),
+                    _get_tensor(self.real_outputs, 'label_out'), True))
+                loss_class_fake = K.mean(K.sparse_categorical_crossentropy(
+                    _get_tensor(self.place_holders, 'true_label'),
+                    _get_tensor(self.fake_outputs, 'label_out'), True))
+                disc_losses['disc_loss_action'] = self.action_scale_d * (loss_class_real + loss_class_fake)
+                gen_losses['gen_loss_action'] = self.action_scale_g * loss_class_fake
+
             # Optional losses
-            if self.action_cond:
-                with K.name_scope('action_loss'):
-                    loss_class_real = K.mean(K.sparse_categorical_crossentropy(
-                        _get_tensor(self.disc_inputs, 'true_label'),
-                        _get_tensor(self.real_outputs, 'label_out'), True))
-                    loss_class_fake = K.mean(K.sparse_categorical_crossentropy(
-                        _get_tensor(self.gen_inputs, 'true_label'),
-                        _get_tensor(self.fake_outputs, 'label_out'), True))
-                    disc_losses['disc_loss_action'] = self.action_scale_d * (loss_class_real + loss_class_fake)
-                    gen_losses['gen_loss_action'] = self.action_scale_g * loss_class_fake
-            if self.latent_cond_dim > 0:
-                with K.name_scope('latent_loss'):
-                    loss_latent = K.mean(K.square(_get_tensor(self.fake_outputs, 'latent_cond_out')
-                                                  - _get_tensor(self.gen_inputs, 'latent_cond_input')))
-                    disc_losses['disc_loss_latent'] = self.latent_scale_d * loss_latent
-                    gen_losses['gen_loss_latent'] = self.latent_scale_g * loss_latent
+            # if self.latent_cond_dim > 0:
+            #     with K.name_scope('latent_loss'):
+            #         loss_latent = K.mean(K.square(_get_tensor(self.fake_outputs, 'latent_cond_out')
+            #                                       - _get_tensor(self.gen_inputs, 'latent_cond_input')))
+            #         disc_losses['disc_loss_latent'] = self.latent_scale_d * loss_latent
+            #         gen_losses['gen_loss_latent'] = self.latent_scale_g * loss_latent
             if self.shape_loss:
                 with K.name_scope('shape_loss'):
                     mask = np.zeros((self.njoints, self.njoints), dtype='float32')
@@ -436,15 +380,15 @@ class _MotionGAN(object):
         with scope.name_scope('remove_hip'):
 
             if 'expmaps' in self.data_set:
-                self.stats[scope + 'hip_expmaps'] = Lambda(lambda arg: arg[:, :2, :, :], name=scope + 'hip_expmaps')(x)
+                self.stats[scope+'hip_expmaps'] = Lambda(lambda arg: arg[:, :2, :, :], name=scope+'hip_expmaps')(x)
 
                 x = Lambda(lambda arg: arg[:, 2:, ...], name=scope+'remove_hip_in')(x)
-                x_mask = Lambda(lambda arg: arg[:, 2:, ...], name=scope + 'remove_hip_mask_in')(x_mask)
+                x_mask = Lambda(lambda arg: arg[:, 2:, ...], name=scope+'remove_hip_mask_in')(x_mask)
             else:
                 def _get_hips(arg):
                     return K.reshape(arg[:, 0, :, :], (arg.shape[0], 1, arg.shape[2], 3))
 
-                self.stats[scope + 'hip_coords'] = Lambda(_get_hips, name=scope + 'hip_coords')(x)
+                self.stats[scope+'hip_coords'] = Lambda(_get_hips, name=scope+'hip_coords')(x)
 
                 x = Lambda(lambda args: (args[0] - args[1])[:, 1:, ...],
                            name=scope+'remove_hip_in')([x, self.stats[scope+'hip_coords']])
@@ -554,7 +498,7 @@ class _MotionGAN(object):
             x = Lambda(lambda arg: arg[:, :, 1:, :] - arg[:, :, :-1, :], name=scope+'seq_to_diff_in')(x)
 
             if x_mask is not None:
-                x_mask = Lambda(lambda arg: arg[:, :, 1:, :] * arg[:, :, :-1, :], name=scope + 'seq_mask_to_diff_in')(x_mask)
+                x_mask = Lambda(lambda arg: arg[:, :, 1:, :] * arg[:, :, :-1, :], name=scope+'seq_mask_to_diff_in')(x_mask)
         return x, x_mask
 
     def _seq_to_diff_out(self, x):
@@ -729,19 +673,18 @@ class _MotionGAN(object):
             score_out = Dense(1, name=scope+'score_out')(x)
 
             output_tensors = [score_out]
-            if self.action_cond:
-                label_out = Dense(self.num_actions, name=scope+'label_out')(x)
-                output_tensors.append(label_out)
-            if self.latent_cond_dim > 0:
-                latent_cond_out = Dense(self.latent_cond_dim, name=scope+'latent_cond_out')(x)
-                output_tensors.append(latent_cond_out)
 
-            seq = self.disc_inputs[0]
+            label_out = Dense(self.num_actions, name=scope+'label_out')(x)
+            output_tensors.append(label_out)
 
-            z = self._pose_encoder(seq)
+            z = self._pose_encoder(self.disc_inputs[0])
 
             frame_score_out = Conv1D(1, 1, 1, name=scope+'frame_score_out', **CONV1D_ARGS)(z)
             output_tensors.append(frame_score_out)
+
+            # if self.latent_cond_dim > 0:
+            #     latent_cond_out = Dense(self.latent_cond_dim, name=scope+'latent_cond_out')(x)
+            #     output_tensors.append(latent_cond_out)
 
         return output_tensors
 
@@ -853,9 +796,6 @@ class _MotionGAN(object):
 
             output_tensors = [x]
 
-            if self.action_cond:
-                output_tensors.append(_get_tensor(self.gen_inputs, 'true_label'))
-
         return output_tensors
 
     def _pose_encoder(self, seq):
@@ -899,11 +839,11 @@ class _MotionGAN(object):
                            name=scope+'conv_in', **CONV1D_ARGS)(gen_z)
             for i in range(3):
                 with scope.name_scope('block_%d' % i):
-                    # dec_h = Concatenate(axis=-1, name=scope + 'cat_feats')([dec_h, self.pose_features.pop()])
+                    # dec_h = Concatenate(axis=-1, name=scope+'cat_feats')([dec_h, self.pose_features.pop()])
                     # dec_h = Conv1D(fae_dim * 2, 1, 1, activation='relu',
-                    #                name=scope + 'conv_h_0', **CONV1D_ARGS)(dec_h)
+                    #                name=scope+'conv_h_0', **CONV1D_ARGS)(dec_h)
                     # dec_h = Conv1D(fae_dim, 1, 1, activation='relu',
-                    #                name=scope + 'conv_h_1', **CONV1D_ARGS)(dec_h)
+                    #                name=scope+'conv_h_1', **CONV1D_ARGS)(dec_h)
                     pi = Conv1D(fae_dim, 1, 1, activation='relu',
                                 name=scope+'pi_0', **CONV1D_ARGS)(dec_h)
                     pi = Conv1D(fae_dim, 1, 1, activation='relu',
@@ -987,7 +927,7 @@ class MotionGANV1(_MotionGAN):
 
                     if i < self.nblocks - 1:
                         shortcut = Conv2DTranspose(n_filters, strides, strides,
-                                                   name=scope + 'shortcut', **CONV2D_ARGS)(x)
+                                                   name=scope+'shortcut', **CONV2D_ARGS)(x)
                         x = Add(name=scope+'add')([shortcut, pi])
                     else:
                         x = pi
@@ -1219,7 +1159,7 @@ class MotionGANV4(_MotionGAN):
                                                 (0, int(skip_pi.shape[2] - pi.shape[2]))),
                                                name=scope+'pad_pi')(pi)
                         pi = Concatenate(name=scope+'cat_pi_1')([skip_pi, pi])
-                        pi = Activation('relu', name=scope + 'relu_pi_1')(pi)
+                        pi = Activation('relu', name=scope+'relu_pi_1')(pi)
                         pi = conv_func(n_filters, 3, 1, name=scope+'reduce_pi_1', **CONV2D_ARGS)(pi)
 
                     if i < u_blocks - 1:
@@ -1288,7 +1228,7 @@ class MotionGANV5(_MotionGAN):
                         n_filters = n_hidden * (i + 1)
                         pi = _conv_block(wave_output, n_filters, 2, 3, (2, 1), Conv2D)
                         shortcut = Conv2D(n_filters, (2, 1), (2, 1), name=scope+'shortcut', **CONV2D_ARGS)(wave_output)
-                        wave_output = Add(name=scope + 'add')([shortcut, pi])
+                        wave_output = Add(name=scope+'add')([shortcut, pi])
 
                 wave_output = Conv2D(1, 1, 1, name=scope+'merge_out', **CONV2D_ARGS)(wave_output)
                 wave_output = Reshape((x_shape[2], 1), name=scope+'squeeze_out')(wave_output)
@@ -1340,19 +1280,19 @@ class MotionGANV6(_MotionGAN):
             block_factors = [1, 1, 2, 2]
             block_strides = [2, 2, 1, 1]
 
-            x = Conv2D(n_hidden * block_factors[0], 3, 1, name=scope + 'conv_in', **CONV2D_ARGS)(x)
+            x = Conv2D(n_hidden * block_factors[0], 3, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
             for i, factor in enumerate(block_factors):
                 with scope.name_scope('block_%d' % i):
                     n_filters = n_hidden * factor
                     shortcut = Conv2D(n_filters, block_strides[i], block_strides[i],
-                                      name=scope + 'shortcut', **CONV2D_ARGS)(x)
+                                      name=scope+'shortcut', **CONV2D_ARGS)(x)
                     with scope.name_scope('branch_0'):  # scope for backward compat
                         pi = _conv_block(x, n_filters, 1, 3, block_strides[i])
 
-                    x = Add(name=scope + 'add')([shortcut, pi])
+                    x = Add(name=scope+'add')([shortcut, pi])
 
-            x = Activation('relu', name=scope + 'relu_out')(x)
-            x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope + 'mean_pool')(x)
+            x = Activation('relu', name=scope+'relu_out')(x)
+            x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
 
         return x
 
@@ -1371,8 +1311,8 @@ class MotionGANV6(_MotionGAN):
             macro_blocks = 4
 
             if not (self.time_pres_emb or self.use_pose_fae):
-                x = Dense(4 * 4 * n_hidden * block_factors[0], name=scope + 'dense_in')(x)
-                x = Reshape((4, 4, n_hidden * block_factors[0]), name=scope + 'reshape_in')(x)
+                x = Dense(4 * 4 * n_hidden * block_factors[0], name=scope+'dense_in')(x)
+                x = Reshape((4, 4, n_hidden * block_factors[0]), name=scope+'reshape_in')(x)
 
             conv_args = CONV2D_ARGS.copy()
             conv_args['padding'] = 'valid'
@@ -1392,23 +1332,23 @@ class MotionGANV6(_MotionGAN):
                             else:
                                 conv_func = Conv2DTranspose
 
-                            pi = conv_func(n_filters, strides, strides, name=scope + 'reduce_pi_0', **conv_args)(x)
+                            pi = conv_func(n_filters, strides, strides, name=scope+'reduce_pi_0', **conv_args)(x)
 
                             if (u_blocks // 2) <= i < u_blocks:
                                 skip_pi = u_skips.pop()
                                 if skip_pi.shape[1] != pi.shape[1] or skip_pi.shape[2] != pi.shape[2]:
                                     pi = ZeroPadding2D(((0, int(skip_pi.shape[1] - pi.shape[1])),
                                                         (0, int(skip_pi.shape[2] - pi.shape[2]))),
-                                                       name=scope + 'pad_pi')(pi)
-                                pi = Concatenate(name=scope + 'cat_pi_1')([skip_pi, pi])
-                                pi = Activation('relu', name=scope + 'relu_pi_1')(pi)
-                                pi = conv_func(n_filters, 3, 1, name=scope + 'reduce_pi_1', **CONV2D_ARGS)(pi)
+                                                       name=scope+'pad_pi')(pi)
+                                pi = Concatenate(name=scope+'cat_pi_1')([skip_pi, pi])
+                                pi = Activation('relu', name=scope+'relu_pi_1')(pi)
+                                pi = conv_func(n_filters, 3, 1, name=scope+'reduce_pi_1', **CONV2D_ARGS)(pi)
 
                             shortcut = conv_func(n_filters, strides, strides, name=scope+'shortcut', **conv_args)(x)
                             if pi.shape[1] != shortcut.shape[1] or pi.shape[2] != shortcut.shape[2]:
                                 shortcut = ZeroPadding2D(((0, int(pi.shape[1] - shortcut.shape[1])),
                                                           (0, int(pi.shape[2] - shortcut.shape[2]))),
-                                                         name=scope + 'pad_short')(shortcut)
+                                                         name=scope+'pad_short')(shortcut)
                             x = Add(name=scope+'add_short')([shortcut, pi])
 
                     if k < macro_blocks - 1:
@@ -1423,51 +1363,60 @@ class MotionGANV7(_MotionGAN):
     def discriminator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('discriminator'):
-            blocks = [{'size': 64,  'bneck_f': 4, 'strides': 3},
-                      {'size': 128, 'bneck_f': 4, 'strides': 3},
-                      {'size': 256, 'bneck_f': 4, 'strides': 3}]
-            n_reps = 2
-            x_pos = Lambda(lambda arg: arg[:, 0, :, :], name=scope+'slice_pos')(x)
 
-            x = CombMatrix(self.njoints, name=scope+'comb_matrix')(x)
+            def resnet_disc(x):
+                with scope.name_scope('resnet'):
+                    n_hidden = 64
+                    block_factors = [1, 2, 2]
+                    block_strides = [3, 3, 3]
 
-            x = EDM(name=scope+'edms')(x)
-            x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name=scope+'resh_in')(x)
+                    x = Conv2D(n_hidden * block_factors[0], 3, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+                    for i, factor in enumerate(block_factors):
+                        with scope.name_scope('block_%d' % i):
+                            n_filters = n_hidden * factor
+                            shortcut = Conv2D(n_filters, block_strides[i], block_strides[i],
+                                              name=scope+'shortcut', **CONV2D_ARGS)(x)
+                            pi = _conv_block(x, n_filters, 1, 3, block_strides[i])
+                            x = Add(name=scope+'add')([shortcut, pi])
 
-            # x = InstanceNormalization(axis=-1, name=scope+'inorm_in')(x)
-            x = Conv2D(blocks[0]['size'] // blocks[0]['bneck_f'], 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
-            for i in range(len(blocks)):
-                for j in range(n_reps):
-                    with scope.name_scope('block_%d_%d' % (i, j)):
-                        strides = blocks[i]['strides'] if j == 0 else 1
-                        if int(x.shape[-1]) != blocks[i]['size'] or strides > 1:
-                            with scope.name_scope('shortcut'):
-                                shortcut = Activation('relu', name=scope+'relu')(x)
-                                shortcut = Conv2D(blocks[i]['size'], 1, strides,
-                                                  name=scope+'conv', **CONV2D_ARGS)(shortcut)
-                        else:
-                            shortcut = x
+                    x = Activation('relu', name=scope+'relu_out')(x)
+                    x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
+                return x
 
-                        x = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'], 3, strides)
-                        x = Add(name=scope+'add')([shortcut, x])
+            def dmnn_disc(x):
+                with scope.name_scope('dmnn'):
+                    blocks = [{'size': 64,  'bneck_f': 4, 'strides': 3},
+                              {'size': 128, 'bneck_f': 4, 'strides': 3},
+                              {'size': 256, 'bneck_f': 4, 'strides': 3}]
+                    n_reps = 2
+                    
+                    
+                    x = CombMatrix(self.njoints, name=scope+'comb_matrix')(x)
+        
+                    x = EDM(name=scope+'edms')(x)
+                    x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name=scope+'resh_in')(x)
+        
+                    # x = InstanceNormalization(axis=-1, name=scope+'inorm_in')(x)
+                    x = Conv2D(blocks[0]['size'] // blocks[0]['bneck_f'], 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+                    for i in range(len(blocks)):
+                        for j in range(n_reps):
+                            with scope.name_scope('block_%d_%d' % (i, j)):
+                                strides = blocks[i]['strides'] if j == 0 else 1
+                                if int(x.shape[-1]) != blocks[i]['size'] or strides > 1:
+                                    with scope.name_scope('shortcut'):
+                                        shortcut = Activation('relu', name=scope+'relu')(x)
+                                        shortcut = Conv2D(blocks[i]['size'], 1, strides,
+                                                          name=scope+'conv', **CONV2D_ARGS)(shortcut)
+                                else:
+                                    shortcut = x
+        
+                                x = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'], 3, strides)
+                                x = Add(name=scope+'add')([shortcut, x])
+        
+                    x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name=scope+'mean_pool')(x)
+                return x
 
-            x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name=scope+'mean_pool')(x)
-
-            with scope.name_scope('pos_discriminator'):
-                n_hidden = 256
-
-                x_pos = Reshape((self.seq_len * 3,), name=scope+'reshape_in')(x_pos)
-                x_pos = Dense(n_hidden, name=scope+'dense_0', activation='relu')(x_pos)
-                for i in range(4):
-                    with scope.name_scope('block_%d' % i):
-                        pi = Dense(n_hidden, name=scope+'dense_0', activation='relu')(x_pos)
-                        pi = Dense(n_hidden, name=scope+'dense_1', activation='relu')(pi)
-
-                        x_pos = Add(name=scope + 'add')([x_pos, pi])
-
-                x_pos = Dense(blocks[-1]['size'], name=scope + 'dense_out', activation='relu')(x_pos)
-
-            x = Concatenate(axis=-1, name=scope+'features_cat')([x, x_pos])
+            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
 
         return x
 
@@ -1486,8 +1435,8 @@ class MotionGANV7(_MotionGAN):
             macro_blocks = 4
 
             if not (self.time_pres_emb or self.use_pose_fae):
-                x = Dense(4 * 4 * n_hidden * block_factors[0], name=scope + 'dense_in')(x)
-                x = Reshape((4, 4, n_hidden * block_factors[0]), name=scope + 'reshape_in')(x)
+                x = Dense(4 * 4 * n_hidden * block_factors[0], name=scope+'dense_in')(x)
+                x = Reshape((4, 4, n_hidden * block_factors[0]), name=scope+'reshape_in')(x)
 
             conv_args = CONV2D_ARGS.copy()
             conv_args['padding'] = 'valid'
@@ -1496,7 +1445,7 @@ class MotionGANV7(_MotionGAN):
             for k in range(macro_blocks):
                 with scope.name_scope('macro_block_%d' % k):
                     if k < macro_blocks - 1:
-                        macro_shortcut = Conv2D(n_hidden, 1, 1, name=scope + 'shortcut', **conv_args)(x)
+                        macro_shortcut = Conv2D(n_hidden, 1, 1, name=scope+'shortcut', **conv_args)(x)
                     for i, factor in enumerate(block_factors):
                         with scope.name_scope('block_%d' % i):
                             n_filters = n_hidden * factor
@@ -1507,27 +1456,27 @@ class MotionGANV7(_MotionGAN):
                             else:
                                 conv_func = Conv2DTranspose
 
-                            pi = conv_func(n_filters, strides, strides, name=scope + 'reduce_pi_0', **conv_args)(x)
+                            pi = conv_func(n_filters, strides, strides, name=scope+'reduce_pi_0', **conv_args)(x)
 
                             if (u_blocks // 2) <= i < u_blocks:
                                 skip_pi = u_skips.pop()
                                 if skip_pi.shape[1] != pi.shape[1] or skip_pi.shape[2] != pi.shape[2]:
                                     pi = ZeroPadding2D(((0, int(skip_pi.shape[1] - pi.shape[1])),
                                                         (0, int(skip_pi.shape[2] - pi.shape[2]))),
-                                                       name=scope + 'pad_pi')(pi)
-                                pi = Concatenate(name=scope + 'cat_pi_1')([skip_pi, pi])
-                                pi = Activation('relu', name=scope + 'relu_pi_1')(pi)
-                                pi = conv_func(n_filters, 3, 1, name=scope + 'reduce_pi_1', **CONV2D_ARGS)(pi)
+                                                       name=scope+'pad_pi')(pi)
+                                pi = Concatenate(name=scope+'cat_pi_1')([skip_pi, pi])
+                                pi = Activation('relu', name=scope+'relu_pi_1')(pi)
+                                pi = conv_func(n_filters, 3, 1, name=scope+'reduce_pi_1', **CONV2D_ARGS)(pi)
 
-                            shortcut = conv_func(n_filters, strides, strides, name=scope + 'shortcut', **conv_args)(
+                            shortcut = conv_func(n_filters, strides, strides, name=scope+'shortcut', **conv_args)(
                                 x)
                             if pi.shape[1] != shortcut.shape[1] or pi.shape[2] != shortcut.shape[2]:
                                 shortcut = ZeroPadding2D(((0, int(pi.shape[1] - shortcut.shape[1])),
                                                           (0, int(pi.shape[2] - shortcut.shape[2]))),
-                                                         name=scope + 'pad_short')(shortcut)
-                            x = Add(name=scope + 'add_short')([shortcut, pi])
+                                                         name=scope+'pad_short')(shortcut)
+                            x = Add(name=scope+'add_short')([shortcut, pi])
 
                     if k < macro_blocks - 1:
                         self.intermediate_xs.append(x)
-                        x = Concatenate(axis=-1, name=scope + 'cat_short')([macro_shortcut, x])
+                        x = Concatenate(axis=-1, name=scope+'cat_short')([macro_shortcut, x])
         return x

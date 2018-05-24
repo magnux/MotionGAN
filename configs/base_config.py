@@ -67,6 +67,8 @@
     'pick_num': 20,
     # Size of the random crop (0 == deactivated)
     'crop_len': 0,
+    # Train on future prediction task only
+    'train_fp': False,
 
 
     ## Environment Options

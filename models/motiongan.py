@@ -1423,17 +1423,16 @@ class MotionGANV7(_MotionGAN):
     def discriminator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('discriminator'):
-            blocks = [{'size': 64,  'bneck_f': 2, 'strides': 3},
-                      {'size': 128, 'bneck_f': 2, 'strides': 3}]
+            blocks = [{'size': 64,  'bneck_f': 4, 'strides': 3},
+                      {'size': 128, 'bneck_f': 4, 'strides': 3},
+                      {'size': 256, 'bneck_f': 4, 'strides': 3}]
             n_reps = 2
             x_pos = Lambda(lambda arg: arg[:, 0, :, :], name=scope+'slice_pos')(x)
 
-            new_len = self.seq_len // 2
-            x = Lambda(lambda arg: arg[:, :, :new_len, :], name=scope+'slice_gen')(x)
             x = CombMatrix(self.njoints, name=scope+'comb_matrix')(x)
 
             x = EDM(name=scope+'edms')(x)
-            x = Reshape((self.njoints * self.njoints, new_len, 1), name=scope+'resh_in')(x)
+            x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name=scope+'resh_in')(x)
 
             # x = InstanceNormalization(axis=-1, name=scope+'inorm_in')(x)
             x = Conv2D(blocks[0]['size'] // blocks[0]['bneck_f'], 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)

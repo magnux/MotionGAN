@@ -112,7 +112,7 @@ if __name__ == "__main__":
                     if config.latent_cond_dim > 0:
                         gen_inputs.append(gen_latent_noise(config.batch_size, config.latent_cond_dim))
 
-                    losses = model_wrap.disc_train(disc_inputs + place_holders + gen_inputs)
+                    losses = model_wrap.disc_train(disc_inputs + gen_inputs + place_holders)
 
                     if disc_batch == 0:
                         disc_losses = losses
@@ -132,13 +132,14 @@ if __name__ == "__main__":
                 poses_batch = poses_batch[..., :3]
 
                 gen_inputs = [poses_batch, mask_batch]
+                labels = np.reshape(labs_batch[:, 2], (config.batch_size, 1))
+                place_holders = [labels]
                 if config.action_cond:
-                    labels = np.reshape(labs_batch[:, 2], (config.batch_size, 1))
                     gen_inputs.append(labels)
                 if config.latent_cond_dim > 0:
                     gen_inputs.append(gen_latent_noise(config.batch_size, config.latent_cond_dim))
 
-                gen_losses = model_wrap.gen_train(gen_inputs)
+                gen_losses = model_wrap.gen_train(gen_inputs + place_holders)
 
                 # Output to terminal, note output is averaged over the epoch
                 disc_loss_sum += disc_losses['train/disc_loss_wgan']
@@ -190,8 +191,8 @@ if __name__ == "__main__":
             if config.latent_cond_dim > 0:
                 gen_inputs.append(gen_latent_noise(config.batch_size, config.latent_cond_dim))
 
-            disc_losses = model_wrap.disc_eval(disc_inputs + place_holders + gen_inputs)
-            gen_losses = model_wrap.gen_eval(gen_inputs)
+            disc_losses = model_wrap.disc_eval(disc_inputs + gen_inputs + place_holders)
+            gen_losses = model_wrap.gen_eval(gen_inputs + place_holders)
             if config.use_pose_fae:
                 fae_z = gen_losses.pop('fae_z', None)
             # aux_out = gen_losses.pop('aux_out', None)

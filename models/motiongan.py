@@ -129,12 +129,12 @@ class _MotionGAN(object):
         with K.name_scope('discriminator/functions/train'):
             disc_optimizer = Adam(lr=config.learning_rate)
             disc_training_updates = disc_optimizer.get_updates(disc_loss, self.disc_model.trainable_weights)
-            self.disc_train_f = K.function(self.disc_inputs + self.place_holders + self.gen_inputs,
+            self.disc_train_f = K.function(self.disc_inputs + self.gen_inputs + self.place_holders,
                                            self.wgan_losses.values() + self.disc_losses.values(),
                                            disc_training_updates)
 
         with K.name_scope('discriminator/functions/eval'):
-            self.disc_eval_f = K.function(self.disc_inputs + self.place_holders + self.gen_inputs,
+            self.disc_eval_f = K.function(self.disc_inputs + self.gen_inputs + self.place_holders,
                                           self.wgan_losses.values() + self.disc_losses.values())
 
         self.disc_model = self._pseudo_build_model(self.disc_model, disc_optimizer)
@@ -142,7 +142,7 @@ class _MotionGAN(object):
         with K.name_scope('generator/functions/train'):
             gen_optimizer = Adam(lr=config.learning_rate)
             gen_training_updates = gen_optimizer.get_updates(gen_loss, self.gen_model.trainable_weights)
-            self.gen_train_f = K.function(self.gen_inputs, self.gen_losses.values(), gen_training_updates)
+            self.gen_train_f = K.function(self.gen_inputs + self.place_holders, self.gen_losses.values(), gen_training_updates)
 
         with K.name_scope('generator/functions/eval'):
             gen_f_outs = self.gen_losses.values()
@@ -150,7 +150,7 @@ class _MotionGAN(object):
                 gen_f_outs.append(self.fae_z)
             # gen_f_outs.append(self.aux_out)
             gen_f_outs += self.gen_outputs
-            self.gen_eval_f = K.function(self.gen_inputs, gen_f_outs)
+            self.gen_eval_f = K.function(self.gen_inputs + self.place_holders, gen_f_outs)
 
         self.gen_model = self._pseudo_build_model(self.gen_model, gen_optimizer)
 

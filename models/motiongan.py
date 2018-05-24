@@ -319,7 +319,7 @@ class _MotionGAN(object):
                 # gen_losses['gen_loss_rec_acl'] = self.rec_scale * K.pow(K.mean(loss_rec_acl), 1/4)
                 if self.name[-2:] == 'v6':
                     for i, intermediate_out in enumerate(self.intermediate_outs):
-                        loss_rec = K.sum(K.mean(K.square((real_seq * seq_mask) - (intermediate_out * seq_mask)), axis=-1), axis=(1, 2))
+                        loss_rec = K.sum(K.mean(K.square((real_seq * seq_mask) - (intermediate_out[0] * seq_mask)), axis=-1), axis=(1, 2))
                         gen_losses['gen_loss_rec_inter%i'%i] = self.rec_scale * K.mean(loss_rec)
 
                 if self.use_diff:

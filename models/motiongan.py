@@ -1444,8 +1444,7 @@ class MotionGANV7(_MotionGAN):
             self.intermediate_xs = []
             for k in range(macro_blocks):
                 with scope.name_scope('macro_block_%d' % k):
-                    if k < macro_blocks - 1:
-                        macro_shortcut = Conv2D(n_hidden, 1, 1, name=scope+'shortcut', **conv_args)(x)
+                    macro_shortcut = Conv2D(n_hidden, 1, 1, name=scope+'shortcut', **conv_args)(x)
                     for i, factor in enumerate(block_factors):
                         with scope.name_scope('block_%d' % i):
                             n_filters = n_hidden * factor
@@ -1478,5 +1477,5 @@ class MotionGANV7(_MotionGAN):
 
                     if k < macro_blocks - 1:
                         self.intermediate_xs.append(x)
-                        x = Concatenate(axis=-1, name=scope+'cat_short')([macro_shortcut, x])
+                    x = Concatenate(axis=-1, name=scope+'cat_short')([macro_shortcut, x])
         return x

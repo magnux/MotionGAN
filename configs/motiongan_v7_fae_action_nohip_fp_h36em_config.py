@@ -17,11 +17,11 @@
     'action_cond': True,
 
     # How fast should we learn?
-    'learning_rate': 1.0e-4,
+    'learning_rate': 1.0e-3,
     # It's the batch size
     'batch_size': 256,
     # Multiplies length of epoch, useful for tiny datasets
-    'epoch_factor': 300,
+    'epoch_factor': 200,
     # Number of the random picks (0 == deactivated)
     'pick_num': 20,
     # Size of the random crop (0 == deactivated)

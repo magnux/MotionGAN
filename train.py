@@ -84,7 +84,7 @@ if __name__ == "__main__":
             t.set_description('| ep: %d | lr: %.2e |' % (config.epoch, learning_rate))
             disc_loss_sum = 0.0
             gen_loss_sum = 0.0
-            keep_prob = 0.5 if config.train_fp else (0.8 - (0.6 * config.epoch / config.num_epochs))
+            keep_prob = 0.5 if config.train_fp else (np.random.rand() * 0.5) + 0.25
             for batch in t:
                 tensorboard.on_batch_begin(batch)
 

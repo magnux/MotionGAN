@@ -1442,7 +1442,8 @@ class MotionGANV7(_MotionGAN):
                             else:
                                 conv_func = Conv2DTranspose
 
-                            x = _conv_block(x, n_filters, 2, 3, strides, conv_func)
+                            with scope.name_scope('pi'):
+                                x = _conv_block(x, n_filters, 2, 3, strides, conv_func)
 
                             if (u_blocks // 2) <= i < u_blocks:
                                 skip_x = u_skips.pop()
@@ -1451,8 +1452,8 @@ class MotionGANV7(_MotionGAN):
                                                     (0, int(x.shape[2] - skip_x.shape[2]))),
                                                      name=scope+'crop_x')(x)
                                 x = Concatenate(name=scope+'cat_skip')([skip_x, x])
-                                x = Activation('relu', name=scope+'relu_skip')(x)
-                                x = conv_func(n_filters, 3, 1, name=scope+'reduce_skip', **CONV2D_ARGS)(x)
+                                with scope.name_scope('skip_pi'):
+                                    x = _conv_block(x, n_filters, 2, 3, 1, conv_func)
 
                     x = Add(name=scope+'add_short')([macro_shortcut, x])
         return x

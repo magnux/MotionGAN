@@ -1467,5 +1467,5 @@ class MotionGANV7(_MotionGAN):
                                 x = Activation('relu', name=scope+'relu_skip')(x)
                                 x = conv_func(n_filters, 3, 1, name=scope+'reduce_skip', **CONV2D_ARGS)(x)
 
-                    x = Add(axis=-1, name=scope+'cat_short')([macro_shortcut, x])
+                    x = Add(name=scope+'add_short')([macro_shortcut, x])
         return x

@@ -106,10 +106,6 @@ class _MotionGAN(object):
             self.gen_inputs.append(true_label)
         x = self._proc_gen_inputs(self.gen_inputs)
         self.gen_outputs = self._proc_gen_outputs(self.generator(x))
-        if self.name[-2:] == 'v6' or self.name[-2:] == 'v7':
-            self.intermediate_outs = []
-            for inter_x in self.intermediate_xs:
-                self.intermediate_outs.append(self._proc_gen_outputs(inter_x))
         self.gen_model = Model(self.gen_inputs, self.gen_outputs, name=self.name + '_generator')
         self.fake_outputs = self.disc_model(self.gen_outputs)
 
@@ -259,11 +255,6 @@ class _MotionGAN(object):
             with K.name_scope('reconstruction_loss'):
                 loss_rec = K.sum(K.mean(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1), axis=(1, 2))
                 gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
-
-                if self.name[-2:] == 'v6' or self.name[-2:] == 'v7':
-                    for i, intermediate_out in enumerate(self.intermediate_outs):
-                        loss_rec = K.sum(K.mean(K.square((real_seq * seq_mask) - (intermediate_out[0] * seq_mask)), axis=-1), axis=(1, 2))
-                        gen_losses['gen_loss_rec_inter%i' % i] = self.rec_scale * K.mean(loss_rec)
 
                 if self.use_diff:
                     loss_rec_diff = K.sum(K.mean(K.square((self.diff_input * self.diff_mask) -
@@ -1317,7 +1308,6 @@ class MotionGANV6(_MotionGAN):
             conv_args = CONV2D_ARGS.copy()
             conv_args['padding'] = 'valid'
             u_skips = []
-            self.intermediate_xs = []
             for k in range(macro_blocks):
                 with scope.name_scope('macro_block_%d' % k):
                     if k < macro_blocks - 1:
@@ -1352,7 +1342,6 @@ class MotionGANV6(_MotionGAN):
                             x = Add(name=scope+'add_short')([shortcut, pi])
 
                     if k < macro_blocks - 1:
-                        self.intermediate_xs.append(x)
                         x = Concatenate(axis=-1, name=scope+'cat_short')([macro_shortcut, x])
         return x
 
@@ -1439,12 +1428,10 @@ class MotionGANV7(_MotionGAN):
                 x = Reshape((4, 4, n_hidden * block_factors[0]), name=scope+'reshape_in')(x)
 
             u_skips = []
-            self.intermediate_xs = []
             x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
             for k in range(macro_blocks):
                 with scope.name_scope('macro_block_%d' % k):
                     macro_shortcut = x
-                    self.intermediate_xs.append(macro_shortcut)
                     for i, factor in enumerate(block_factors):
                         with scope.name_scope('block_%d' % i):
                             n_filters = n_hidden * factor

@@ -1444,6 +1444,7 @@ class MotionGANV7(_MotionGAN):
             for k in range(macro_blocks):
                 with scope.name_scope('macro_block_%d' % k):
                     macro_shortcut = x
+                    self.intermediate_xs.append(macro_shortcut)
                     for i, factor in enumerate(block_factors):
                         with scope.name_scope('block_%d' % i):
                             n_filters = n_hidden * factor
@@ -1466,7 +1467,5 @@ class MotionGANV7(_MotionGAN):
                                 x = Activation('relu', name=scope+'relu_skip')(x)
                                 x = conv_func(n_filters, 3, 1, name=scope+'reduce_skip', **CONV2D_ARGS)(x)
 
-                    x = Concatenate(axis=-1, name=scope+'cat_short')([macro_shortcut, x])
-                    if k < macro_blocks - 1:
-                        self.intermediate_xs.append(x)
+                    x = Add(axis=-1, name=scope+'cat_short')([macro_shortcut, x])
         return x

@@ -8,7 +8,7 @@ from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, Conv2D, \
     Dense, Activation, Lambda, Add, Concatenate, Permute, Reshape, Flatten, \
-    Conv1D, Multiply, Embedding, LeakyReLU, ZeroPadding2D
+    Conv1D, Multiply, Embedding, LeakyReLU, ZeroPadding2D, Cropping2D
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 from tensorflow.contrib.keras.api.keras.initializers import Constant
@@ -1438,13 +1438,12 @@ class MotionGANV7(_MotionGAN):
                 x = Dense(4 * 4 * n_hidden * block_factors[0], name=scope+'dense_in')(x)
                 x = Reshape((4, 4, n_hidden * block_factors[0]), name=scope+'reshape_in')(x)
 
-            conv_args = CONV2D_ARGS.copy()
-            conv_args['padding'] = 'valid'
             u_skips = []
             self.intermediate_xs = []
+            x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
             for k in range(macro_blocks):
                 with scope.name_scope('macro_block_%d' % k):
-                    macro_shortcut = Conv2D(n_hidden, 1, 1, name=scope+'shortcut', **conv_args)(x)
+                    macro_shortcut = x
                     for i, factor in enumerate(block_factors):
                         with scope.name_scope('block_%d' % i):
                             n_filters = n_hidden * factor
@@ -1455,26 +1454,19 @@ class MotionGANV7(_MotionGAN):
                             else:
                                 conv_func = Conv2DTranspose
 
-                            pi = conv_func(n_filters, strides, strides, name=scope+'reduce_pi_0', **conv_args)(x)
+                            x = _conv_block(x, n_filters, 2, 3, strides, conv_func)
 
                             if (u_blocks // 2) <= i < u_blocks:
-                                skip_pi = u_skips.pop()
-                                if skip_pi.shape[1] != pi.shape[1] or skip_pi.shape[2] != pi.shape[2]:
-                                    pi = ZeroPadding2D(((0, int(skip_pi.shape[1] - pi.shape[1])),
-                                                        (0, int(skip_pi.shape[2] - pi.shape[2]))),
-                                                       name=scope+'pad_pi')(pi)
-                                pi = Concatenate(name=scope+'cat_pi_1')([skip_pi, pi])
-                                pi = Activation('relu', name=scope+'relu_pi_1')(pi)
-                                pi = conv_func(n_filters, 3, 1, name=scope+'reduce_pi_1', **CONV2D_ARGS)(pi)
+                                skip_x = u_skips.pop()
+                                if skip_x.shape[1] != x.shape[1] or skip_x.shape[2] != x.shape[2]:
+                                    x = Cropping2D(((0, int(x.shape[1] - skip_x.shape[1])),
+                                                    (0, int(x.shape[2] - skip_x.shape[2]))),
+                                                     name=scope+'crop_x')(x)
+                                x = Concatenate(name=scope+'cat_skip')([skip_x, x])
+                                x = Activation('relu', name=scope+'relu_skip')(x)
+                                x = conv_func(n_filters, 3, 1, name=scope+'reduce_skip', **CONV2D_ARGS)(x)
 
-                            shortcut = conv_func(n_filters, strides, strides, name=scope+'shortcut', **conv_args)(x)
-                            if pi.shape[1] != shortcut.shape[1] or pi.shape[2] != shortcut.shape[2]:
-                                shortcut = ZeroPadding2D(((0, int(pi.shape[1] - shortcut.shape[1])),
-                                                          (0, int(pi.shape[2] - shortcut.shape[2]))),
-                                                         name=scope+'pad_short')(shortcut)
-                            x = Add(name=scope+'add_short')([shortcut, pi])
-
-                    x = Concatenate(axis=-1, name=scope+'cat_short')([macro_shortcut, x])
+                    x = Add(name=scope+'add_short')([macro_shortcut, x])
                     if k < macro_blocks - 1:
                         self.intermediate_xs.append(x)
         return x

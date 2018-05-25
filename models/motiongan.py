@@ -1467,15 +1467,14 @@ class MotionGANV7(_MotionGAN):
                                 pi = Activation('relu', name=scope+'relu_pi_1')(pi)
                                 pi = conv_func(n_filters, 3, 1, name=scope+'reduce_pi_1', **CONV2D_ARGS)(pi)
 
-                            shortcut = conv_func(n_filters, strides, strides, name=scope+'shortcut', **conv_args)(
-                                x)
+                            shortcut = conv_func(n_filters, strides, strides, name=scope+'shortcut', **conv_args)(x)
                             if pi.shape[1] != shortcut.shape[1] or pi.shape[2] != shortcut.shape[2]:
                                 shortcut = ZeroPadding2D(((0, int(pi.shape[1] - shortcut.shape[1])),
                                                           (0, int(pi.shape[2] - shortcut.shape[2]))),
                                                          name=scope+'pad_short')(shortcut)
                             x = Add(name=scope+'add_short')([shortcut, pi])
 
+                    x = Concatenate(axis=-1, name=scope+'cat_short')([macro_shortcut, x])
                     if k < macro_blocks - 1:
                         self.intermediate_xs.append(x)
-                    x = Concatenate(axis=-1, name=scope+'cat_short')([macro_shortcut, x])
         return x

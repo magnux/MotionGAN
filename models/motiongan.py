@@ -792,7 +792,7 @@ class _MotionGAN(object):
     def _pose_encoder(self, seq):
         scope = Scoping.get_global_scope()
         with scope.name_scope('encoder'):
-            fae_dim = self.org_shape[1] * self.org_shape[3]
+            fae_dim = self.org_shape[1] * self.org_shape[3] * 2
 
             h = Permute((2, 1, 3), name=scope+'perm_in')(seq)
             h = Reshape((int(seq.shape[2]), int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
@@ -824,7 +824,7 @@ class _MotionGAN(object):
     def _pose_decoder(self, gen_z):
         scope = Scoping.get_global_scope()
         with scope.name_scope('decoder'):
-            fae_dim = self.org_shape[1] * self.org_shape[3]
+            fae_dim = self.org_shape[1] * self.org_shape[3] * 2
 
             dec_h = Conv1D(fae_dim, 1, 1,
                            name=scope+'conv_in', **CONV1D_ARGS)(gen_z)
@@ -855,13 +855,13 @@ def _conv_block(x, out_filters, bneck_factor, kernel_size, strides, conv_func=Co
     scope = Scoping.get_global_scope()
     # if 'generator' in str(scope):
     #     x = InstanceNormalization(axis=-1, name=scope+'inorm_in')(x)
-    x = LeakyReLU(name=scope+'relu_in')(x)
+    x = Activation('relu', name=scope+'relu_in')(x)
     x = conv_func(filters=out_filters // bneck_factor,
                   kernel_size=kernel_size, strides=1,
                   dilation_rate=dilation_rate, name=scope+'conv_in', **CONV2D_ARGS)(x)
     # if 'generator' in str(scope):
     #     x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
-    x = LeakyReLU(name=scope+'relu_out')(x)
+    x = Activation('relu', name=scope+'relu_out')(x)
     x = conv_func(filters=out_filters, kernel_size=kernel_size, strides=strides,
                   dilation_rate=dilation_rate, name=scope+'conv_out', **CONV2D_ARGS)(x)
     return x
@@ -1057,7 +1057,7 @@ class MotionGANV3(_MotionGAN):
                     x = Add(name=scope+'add')([x, pi])
 
             if self.use_pose_fae:
-                fae_dim = self.org_shape[1] * 3
+                fae_dim = self.org_shape[1] * self.org_shape[3] * 2
                 x = Dense((self.seq_len * fae_dim),
                           name=scope+'dense_out', activation='relu')(x)
                 x = Reshape((self.seq_len, fae_dim, 1),

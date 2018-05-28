@@ -1455,5 +1455,5 @@ class MotionGANV7(_MotionGAN):
                                 with scope.name_scope('skip_pi'):
                                     x = _conv_block(x, n_filters, 2, 3, 1, conv_func)
 
-                    x = Add(name=scope+'add_short')([macro_shortcut, x])
+                    x = Concatenate(name=scope+'cat_short')([macro_shortcut, x])
         return x

@@ -388,8 +388,6 @@ if __name__ == "__main__":
                         action_label = np.ones((poses_batch.shape[0], 1), dtype=np.float32) * action_label
                         gen_inputs.append(action_label)
                     gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
-                    if configs[0].action_cond:
-                        gen_output = gen_output[0]
                     print(np.mean(np.square(poses_batch[:, :, :pred_len, ...] - gen_output[:, :, :pred_len, ...])),
                           np.mean(np.square(poses_batch[:, :,  pred_len:, ...] - gen_output[:, :,  pred_len:, ...])))
                     if configs[0].normalize_data:

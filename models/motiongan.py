@@ -855,13 +855,13 @@ def _conv_block(x, out_filters, bneck_factor, kernel_size, strides, conv_func=Co
     scope = Scoping.get_global_scope()
     # if 'generator' in str(scope):
     #     x = InstanceNormalization(axis=-1, name=scope+'inorm_in')(x)
-    x = Activation('relu', name=scope+'relu_in')(x)
+    x = LeakyReLU(name=scope+'relu_in')(x)
     x = conv_func(filters=out_filters // bneck_factor,
                   kernel_size=kernel_size, strides=1,
                   dilation_rate=dilation_rate, name=scope+'conv_in', **CONV2D_ARGS)(x)
     # if 'generator' in str(scope):
     #     x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
-    x = Activation('relu', name=scope+'relu_out')(x)
+    x = LeakyReLU(name=scope+'relu_out')(x)
     x = conv_func(filters=out_filters, kernel_size=kernel_size, strides=strides,
                   dilation_rate=dilation_rate, name=scope+'conv_out', **CONV2D_ARGS)(x)
     return x
@@ -1378,8 +1378,7 @@ class MotionGANV7(_MotionGAN):
                               {'size': 128, 'bneck_f': 4, 'strides': 2},
                               {'size': 256, 'bneck_f': 4, 'strides': 2}]
                     n_reps = 2
-                    
-                    
+
                     x = CombMatrix(self.njoints, name=scope+'comb_matrix')(x)
         
                     x = EDM(name=scope+'edms')(x)
@@ -1456,30 +1455,5 @@ class MotionGANV7(_MotionGAN):
                                 with scope.name_scope('skip_pi'):
                                     x = _conv_block(x, n_filters, 2, 3, 1, conv_func)
 
-                    with scope.name_scope('block_out'):
-                        with scope.name_scope('gamma'):
-
-                            mean_tmp = Lambda(lambda arg: K.reshape(K.mean(arg, axis=1), (batch_size, -1)),
-                                              name=scope+'mean_tmp')(x)
-
-                            mean_spc = Lambda(lambda arg: K.reshape(K.mean(arg, axis=2), (batch_size, -1)),
-                                              name=scope+'mean_spc')(x)
-
-                            with scope.name_scope('gamma_tmp_0'):
-                                gamma_tmp = _preact_dense(mean_tmp, n_hidden * 4)
-                            with scope.name_scope('gamma_tmp_1'):
-                                gamma_tmp = _preact_dense(gamma_tmp, n_hidden)
-
-                            with scope.name_scope('gamma_spc_0'):
-                                gamma_spc = _preact_dense(mean_spc, n_hidden * 4)
-                            with scope.name_scope('gamma_spc_1'):
-                                gamma_spc = _preact_dense(gamma_spc, n_hidden)
-
-                            gamma = Lambda(lambda args: K.reshape(K.sigmoid(args[0]) * K.sigmoid(args[1]), (batch_size, 1, 1, n_hidden)),
-                                           name=scope+'gamma')([gamma_tmp, gamma_spc])
-
-                        x = Lambda(lambda args: (args[0] * args[2]) + (args[1] * (1 - args[2])),
-                                   name=scope+'out_x')([x, shortcut, gamma])
-
-
+                    x = Add(name=scope+'add_short')([shortcut, x])
         return x

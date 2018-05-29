@@ -200,7 +200,7 @@ class _MotionGAN(object):
 
             # Grabbing tensors
             real_seq = _get_tensor(self.disc_inputs, 'real_seq')
-            # seq_mask = _get_tensor(self.gen_inputs, 'seq_mask')
+            seq_mask = _get_tensor(self.gen_inputs, 'seq_mask')
             gen_seq = self.gen_outputs[0]
 
             no_zero_frames = K.cast(K.greater_equal(K.abs(K.sum(real_seq, axis=(1, 3))), K.epsilon()), 'float32')
@@ -253,7 +253,7 @@ class _MotionGAN(object):
 
             # Reconstruction loss
             with K.name_scope('reconstruction_loss'):
-                loss_rec = K.sum(K.mean(K.square(real_seq - gen_seq), axis=-1), axis=(1, 2))  # * seq_mask
+                loss_rec = K.sum(K.mean(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1), axis=(1, 2))
                 gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
                 if self.use_diff:
@@ -311,24 +311,24 @@ class _MotionGAN(object):
 
                     mask = np.reshape(mask, (1, self.njoints, self.njoints, 1))
                     mask = K.constant(mask, dtype='float32')
-                    # seq_mask_edm = K.prod(K.expand_dims(seq_mask, axis=1) * K.expand_dims(seq_mask, axis=2), axis=-1)
-                    real_shape = edm(real_seq) * mask  # * seq_mask_edm
-                    gen_shape = edm(gen_seq) * mask  # * seq_mask_edm
+                    seq_mask_edm = K.prod(K.expand_dims(seq_mask, axis=1) * K.expand_dims(seq_mask, axis=2), axis=-1)
+                    real_shape = edm(real_seq) * seq_mask_edm * mask
+                    gen_shape = edm(gen_seq) * seq_mask_edm * mask
                     loss_shape = K.sum(K.square(real_shape - gen_shape), axis=(1, 2, 3))
                     gen_losses['gen_loss_limbs'] = self.shape_scale * K.mean(loss_shape)
 
-            # if self.rotation_loss:
-            #     with K.name_scope('rotation_loss'):
-            #         def vector_mag(x):
-            #             return K.sqrt(K.sum(K.square(x), axis=-1, keepdims=True) + K.epsilon())
-            #         masked_real = real_seq * seq_mask
-            #         masked_gen = gen_seq * seq_mask
-            #         unit_real = masked_real / vector_mag(masked_real)
-            #         unit_gen = masked_gen / vector_mag(masked_gen)
-            #         unit_real = K.reshape(unit_real, [-1, 3])
-            #         unit_gen = K.reshape(unit_gen, [-1, 3])
-            #         loss_rot = K.square(1 - K.batch_dot(unit_real, unit_gen, axes=[-1, -2]))
-            #         gen_losses['gen_loss_rotation'] = self.rotation_scale * K.mean(loss_rot)
+            if self.rotation_loss:
+                with K.name_scope('rotation_loss'):
+                    def vector_mag(x):
+                        return K.sqrt(K.sum(K.square(x), axis=-1, keepdims=True) + K.epsilon())
+                    masked_real = real_seq * seq_mask
+                    masked_gen = gen_seq * seq_mask
+                    unit_real = masked_real / vector_mag(masked_real)
+                    unit_gen = masked_gen / vector_mag(masked_gen)
+                    unit_real = K.reshape(unit_real, [-1, 3])
+                    unit_gen = K.reshape(unit_gen, [-1, 3])
+                    loss_rot = K.square(1 - K.batch_dot(unit_real, unit_gen, axes=[-1, -2]))
+                    gen_losses['gen_loss_rotation'] = self.rotation_scale * K.mean(loss_rot)
             if self.smoothing_loss:
                 with K.name_scope('smoothing_loss'):
                     Q = idct(np.eye(self.seq_len))[:self.smoothing_basis, :]
@@ -792,7 +792,7 @@ class _MotionGAN(object):
     def _pose_encoder(self, seq):
         scope = Scoping.get_global_scope()
         with scope.name_scope('encoder'):
-            fae_dim = self.org_shape[1] * self.org_shape[3] * 2
+            fae_dim = self.org_shape[1] * self.org_shape[3] * 4
 
             h = Permute((2, 1, 3), name=scope+'perm_in')(seq)
             h = Reshape((int(seq.shape[2]), int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
@@ -824,7 +824,7 @@ class _MotionGAN(object):
     def _pose_decoder(self, gen_z):
         scope = Scoping.get_global_scope()
         with scope.name_scope('decoder'):
-            fae_dim = self.org_shape[1] * self.org_shape[3] * 2
+            fae_dim = self.org_shape[1] * self.org_shape[3] * 4
 
             dec_h = Conv1D(fae_dim, 1, 1,
                            name=scope+'conv_in', **CONV1D_ARGS)(gen_z)
@@ -1057,7 +1057,7 @@ class MotionGANV3(_MotionGAN):
                     x = Add(name=scope+'add')([x, pi])
 
             if self.use_pose_fae:
-                fae_dim = self.org_shape[1] * self.org_shape[3] * 2
+                fae_dim = self.org_shape[1] * self.org_shape[3] * 4
                 x = Dense((self.seq_len * fae_dim),
                           name=scope+'dense_out', activation='relu')(x)
                 x = Reshape((self.seq_len, fae_dim, 1),

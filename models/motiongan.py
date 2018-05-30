@@ -58,8 +58,8 @@ class _MotionGAN(object):
         self.gamma_grads = 1.0
         self.wgan_scale_d = 10.0 * config.loss_factor
         self.wgan_scale_g = 2.0 * config.loss_factor * (0.0 if config.no_gan_loss else 1.0)
-        self.wgan_frame_scale_d = 10.0 * config.loss_factor
-        self.wgan_frame_scale_g = 2.0 * config.loss_factor * (0.0 if config.no_gan_loss else 1.0)
+        # self.wgan_frame_scale_d = 10.0 * config.loss_factor
+        # self.wgan_frame_scale_g = 2.0 * config.loss_factor * (0.0 if config.no_gan_loss else 1.0)
         self.rec_scale = 1.0   # if 'expmaps' not in self.data_set else 10.0
         self.action_cond = config.action_cond
         self.action_scale_d = 10.0
@@ -759,24 +759,17 @@ class _MotionGAN(object):
             h = Permute((2, 1, 3), name=scope+'perm_in')(seq)
             h = Reshape((int(seq.shape[2]), int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
 
-            h = Conv1D(fae_dim, 1, 1,
-                       name=scope+'conv_in', **CONV1D_ARGS)(h)
-            # self.pose_features = []
+            h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(h)
             for i in range(3):
                 with scope.name_scope('block_%d' % i):
-                    # self.pose_features.append(h)
-                    pi = Conv1D(fae_dim, 1, 1, activation='relu',
-                                name=scope+'pi_0', **CONV1D_ARGS)(h)
-                    pi = Conv1D(fae_dim, 1, 1, activation='relu',
-                                name=scope+'pi_1', **CONV1D_ARGS)(pi)
-                    tau = Conv1D(fae_dim, 1, 1, activation='sigmoid',
-                                 name=scope+'tau_0', **CONV1D_ARGS)(h)
+                    pi = Conv1D(fae_dim, 1, 1, activation='relu', name=scope+'pi_0', **CONV1D_ARGS)(h)
+                    pi = Conv1D(fae_dim, 1, 1, activation='relu', name=scope+'pi_1', **CONV1D_ARGS)(pi)
+                    tau = Conv1D(fae_dim, 1, 1, activation='sigmoid', name=scope+'tau_0', **CONV1D_ARGS)(h)
                     h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                                name=scope+'attention')([h, pi, tau])
 
             z = Conv1D(fae_dim, 1, 1, name=scope+'z_mean', **CONV1D_ARGS)(h)
-            z_attention = Conv1D(fae_dim, 1, 1, activation='sigmoid',
-                                 name=scope+'attention_mask', **CONV1D_ARGS)(h)
+            z_attention = Conv1D(fae_dim, 1, 1, activation='sigmoid', name=scope+'attention_mask', **CONV1D_ARGS)(h)
 
             # We are only expecting half of the latent features to be activated
             z = Multiply(name=scope+'z_attention')([z, z_attention])
@@ -788,21 +781,12 @@ class _MotionGAN(object):
         with scope.name_scope('decoder'):
             fae_dim = self.org_shape[1] * self.org_shape[3] * 4
 
-            dec_h = Conv1D(fae_dim, 1, 1,
-                           name=scope+'conv_in', **CONV1D_ARGS)(gen_z)
+            dec_h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(gen_z)
             for i in range(3):
                 with scope.name_scope('block_%d' % i):
-                    # dec_h = Concatenate(axis=-1, name=scope+'cat_feats')([dec_h, self.pose_features.pop()])
-                    # dec_h = Conv1D(fae_dim * 2, 1, 1, activation='relu',
-                    #                name=scope+'conv_h_0', **CONV1D_ARGS)(dec_h)
-                    # dec_h = Conv1D(fae_dim, 1, 1, activation='relu',
-                    #                name=scope+'conv_h_1', **CONV1D_ARGS)(dec_h)
-                    pi = Conv1D(fae_dim, 1, 1, activation='relu',
-                                name=scope+'pi_0', **CONV1D_ARGS)(dec_h)
-                    pi = Conv1D(fae_dim, 1, 1, activation='relu',
-                                name=scope+'pi_1', **CONV1D_ARGS)(pi)
-                    tau = Conv1D(fae_dim, 1, 1, activation='sigmoid',
-                                 name=scope+'tau_0', **CONV1D_ARGS)(dec_h)
+                    pi = Conv1D(fae_dim, 1, 1, activation='relu', name=scope+'pi_0', **CONV1D_ARGS)(dec_h)
+                    pi = Conv1D(fae_dim, 1, 1, activation='relu', name=scope+'pi_1', **CONV1D_ARGS)(pi)
+                    tau = Conv1D(fae_dim, 1, 1, activation='sigmoid', name=scope+'tau_0', **CONV1D_ARGS)(dec_h)
                     dec_h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                                    name=scope+'attention')([dec_h, pi, tau])
 
@@ -818,8 +802,7 @@ def _conv_block(x, out_filters, bneck_factor, kernel_size, strides, conv_func=Co
     # if 'generator' in str(scope):
     #     x = InstanceNormalization(axis=-1, name=scope+'inorm_in')(x)
     x = Activation('relu', name=scope+'relu_in')(x)
-    x = conv_func(filters=out_filters // bneck_factor,
-                  kernel_size=kernel_size, strides=1,
+    x = conv_func(filters=out_filters // bneck_factor, kernel_size=kernel_size, strides=1,
                   dilation_rate=dilation_rate, name=scope+'conv_in', **CONV2D_ARGS)(x)
     # if 'generator' in str(scope):
     #     x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
@@ -1020,15 +1003,11 @@ class MotionGANV3(_MotionGAN):
 
             if self.use_pose_fae:
                 fae_dim = self.org_shape[1] * self.org_shape[3] * 4
-                x = Dense((self.seq_len * fae_dim),
-                          name=scope+'dense_out', activation='relu')(x)
-                x = Reshape((self.seq_len, fae_dim, 1),
-                            name=scope+'reshape_out')(x)
+                x = Dense((self.seq_len * fae_dim), name=scope+'dense_out', activation='relu')(x)
+                x = Reshape((self.seq_len, fae_dim, 1), name=scope+'reshape_out')(x)
             else:
-                x = Dense((self.njoints * self.seq_len * 3),
-                          name=scope+'dense_out', activation='relu')(x)
-                x = Reshape((self.njoints, self.seq_len, 3),
-                            name=scope+'reshape_out')(x)
+                x = Dense((self.njoints * self.seq_len * 3), name=scope+'dense_out', activation='relu')(x)
+                x = Reshape((self.njoints, self.seq_len, 3), name=scope+'reshape_out')(x)
 
         return x
 

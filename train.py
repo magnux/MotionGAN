@@ -10,6 +10,7 @@ from tqdm import trange
 from utils.viz import plot_seq_gif, plot_seq_emb
 from utils.seq_utils import MASK_MODES, gen_mask, gen_latent_noise
 
+
 def _reset_rand_seed():
     seed = 42
     np.random.seed(seed)

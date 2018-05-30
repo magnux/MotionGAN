@@ -22,16 +22,12 @@
     'loss_factor': 1.0,
     # Body shape conservation loss
     'shape_loss': False,
-    # Body rotation loss
-    'rotation_loss': False,
     # Sequence smoothing loss
     'smoothing_loss': False,
     # Disable GAN loss on the generator
     'no_gan_loss': False,
     # Action label conditional model
     'action_cond': False,
-    # Latent factor conditional model, size (0 means no condition)
-    'latent_cond_dim': 0,
     # Time preserving embedding (NOT COMPATIBLE with latent or FAE)
     'time_pres_emb': False,
     # Use pose FAE

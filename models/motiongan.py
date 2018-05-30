@@ -64,9 +64,6 @@ class _MotionGAN(object):
         self.action_cond = config.action_cond
         self.action_scale_d = 10.0
         self.action_scale_g = 1.0
-        # self.latent_cond_dim = config.latent_cond_dim
-        self.latent_scale_d = 10.0
-        self.latent_scale_g = 1.0
         self.shape_loss = config.shape_loss
         self.shape_scale = 1.0
         self.smoothing_loss = config.smoothing_loss
@@ -74,8 +71,6 @@ class _MotionGAN(object):
         self.smoothing_basis = 5
         self.time_pres_emb = config.time_pres_emb
         self.use_pose_fae = config.use_pose_fae
-        self.rotation_loss = config.rotation_loss
-        self.rotation_scale = 10.0
         self.translate_start = config.translate_start
         self.rotate_start = config.rotate_start
         self.rescale_coords = config.rescale_coords
@@ -98,10 +93,6 @@ class _MotionGAN(object):
         # Generator
         seq_mask = Input(batch_shape=(self.batch_size, self.njoints, self.seq_len, 1), name='seq_mask', dtype='float32')
         self.gen_inputs = [real_seq, seq_mask]
-        # if self.latent_cond_dim > 0:
-        #     latent_cond_input = Input(batch_shape=(self.batch_size, self.latent_cond_dim),
-        #                               name='latent_cond_input', dtype='float32')
-        #     self.gen_inputs.append(latent_cond_input)
         if self.action_cond:
             self.gen_inputs.append(true_label)
         x = self._proc_gen_inputs(self.gen_inputs)
@@ -231,25 +222,25 @@ class _MotionGAN(object):
                 gen_loss_wgan = -loss_fake
                 gen_losses['gen_loss_wgan'] = self.wgan_scale_g * K.mean(gen_loss_wgan)
 
-            with K.name_scope('frame_wgan_loss'):
-                frame_loss_real = K.sum(K.squeeze(_get_tensor(self.real_outputs, 'frame_score_out'), axis=-1) * no_zero_frames, axis=1)
-                frame_loss_fake = K.sum(K.squeeze(_get_tensor(self.fake_outputs, 'frame_score_out'), axis=-1) * no_zero_frames, axis=1)
-                wgan_losses['frame_loss_real'] = K.mean(frame_loss_real)
-                wgan_losses['frame_loss_fake'] = K.mean(frame_loss_fake)
-
-                interpolates = (alpha * real_seq) + ((1 - alpha) * gen_seq)
-
-                inter_outputs = self.disc_model(interpolates)
-                frame_inter_score = _get_tensor(inter_outputs, 'frame_score_out')
-                frame_grad_mixed = K.gradients(frame_inter_score, [interpolates])[0]
-                frame_norm_grad_mixed = K.sqrt(K.sum(K.sum(K.square(frame_grad_mixed), axis=(1, 3)) * no_zero_frames, axis=1) + K.epsilon())
-                frame_grad_penalty = K.mean(K.square(frame_norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
-
-                frame_disc_loss_wgan = frame_loss_fake - frame_loss_real + (self.lambda_grads * frame_grad_penalty)
-                disc_losses['frame_disc_loss_wgan'] = self.wgan_frame_scale_d * K.mean(frame_disc_loss_wgan)
-
-                frame_gen_loss_wgan = -frame_loss_fake
-                gen_losses['frame_gen_loss_wgan'] = self.wgan_frame_scale_g * K.mean(frame_gen_loss_wgan)
+            # with K.name_scope('frame_wgan_loss'):
+            #     frame_loss_real = K.sum(K.squeeze(_get_tensor(self.real_outputs, 'frame_score_out'), axis=-1) * no_zero_frames, axis=1)
+            #     frame_loss_fake = K.sum(K.squeeze(_get_tensor(self.fake_outputs, 'frame_score_out'), axis=-1) * no_zero_frames, axis=1)
+            #     wgan_losses['frame_loss_real'] = K.mean(frame_loss_real)
+            #     wgan_losses['frame_loss_fake'] = K.mean(frame_loss_fake)
+            #
+            #     interpolates = (alpha * real_seq) + ((1 - alpha) * gen_seq)
+            #
+            #     inter_outputs = self.disc_model(interpolates)
+            #     frame_inter_score = _get_tensor(inter_outputs, 'frame_score_out')
+            #     frame_grad_mixed = K.gradients(frame_inter_score, [interpolates])[0]
+            #     frame_norm_grad_mixed = K.sqrt(K.sum(K.sum(K.square(frame_grad_mixed), axis=(1, 3)) * no_zero_frames, axis=1) + K.epsilon())
+            #     frame_grad_penalty = K.mean(K.square(frame_norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
+            #
+            #     frame_disc_loss_wgan = frame_loss_fake - frame_loss_real + (self.lambda_grads * frame_grad_penalty)
+            #     disc_losses['frame_disc_loss_wgan'] = self.wgan_frame_scale_d * K.mean(frame_disc_loss_wgan)
+            #
+            #     frame_gen_loss_wgan = -frame_loss_fake
+            #     gen_losses['frame_gen_loss_wgan'] = self.wgan_frame_scale_g * K.mean(frame_gen_loss_wgan)
 
             # Reconstruction loss
             with K.name_scope('reconstruction_loss'):
@@ -276,13 +267,6 @@ class _MotionGAN(object):
                 disc_losses['disc_loss_action'] = self.action_scale_d * (loss_class_real + loss_class_fake)
                 gen_losses['gen_loss_action'] = self.action_scale_g * loss_class_fake
 
-            # Optional losses
-            # if self.latent_cond_dim > 0:
-            #     with K.name_scope('latent_loss'):
-            #         loss_latent = K.mean(K.square(_get_tensor(self.fake_outputs, 'latent_cond_out')
-            #                                       - _get_tensor(self.gen_inputs, 'latent_cond_input')))
-            #         disc_losses['disc_loss_latent'] = self.latent_scale_d * loss_latent
-            #         gen_losses['gen_loss_latent'] = self.latent_scale_g * loss_latent
             if self.shape_loss:
                 with K.name_scope('shape_loss'):
                     mask = np.zeros((self.njoints, self.njoints), dtype='float32')
@@ -317,18 +301,6 @@ class _MotionGAN(object):
                     loss_shape = K.sum(K.square(real_shape - gen_shape), axis=(1, 2, 3))
                     gen_losses['gen_loss_limbs'] = self.shape_scale * K.mean(loss_shape)
 
-            if self.rotation_loss:
-                with K.name_scope('rotation_loss'):
-                    def vector_mag(x):
-                        return K.sqrt(K.sum(K.square(x), axis=-1, keepdims=True) + K.epsilon())
-                    masked_real = real_seq * seq_mask
-                    masked_gen = gen_seq * seq_mask
-                    unit_real = masked_real / vector_mag(masked_real)
-                    unit_gen = masked_gen / vector_mag(masked_gen)
-                    unit_real = K.reshape(unit_real, [-1, 3])
-                    unit_gen = K.reshape(unit_gen, [-1, 3])
-                    loss_rot = K.square(1 - K.batch_dot(unit_real, unit_gen, axes=[-1, -2]))
-                    gen_losses['gen_loss_rotation'] = self.rotation_scale * K.mean(loss_rot)
             if self.smoothing_loss:
                 with K.name_scope('smoothing_loss'):
                     Q = idct(np.eye(self.seq_len))[:self.smoothing_basis, :]
@@ -339,7 +311,6 @@ class _MotionGAN(object):
                     gen_seq_s = K.permute_dimensions(gen_seq_s, (0, 1, 3, 2))
                     loss_smooth = K.sum(K.mean(K.square(gen_seq_s - gen_seq), axis=-1), axis=(1, 2))
                     gen_losses['gen_loss_smooth'] = self.smoothing_scale * K.mean(loss_smooth)
-
 
             # Regularization losses
             with K.name_scope('regularization_loss'):
@@ -668,14 +639,10 @@ class _MotionGAN(object):
             label_out = Dense(self.num_actions, name=scope+'label_out')(x)
             output_tensors.append(label_out)
 
-            z = self._pose_encoder(self.disc_inputs[0])
-
-            frame_score_out = Conv1D(1, 1, 1, name=scope+'frame_score_out', **CONV1D_ARGS)(z)
-            output_tensors.append(frame_score_out)
-
-            # if self.latent_cond_dim > 0:
-            #     latent_cond_out = Dense(self.latent_cond_dim, name=scope+'latent_cond_out')(x)
-            #     output_tensors.append(latent_cond_out)
+            # z = self._pose_encoder(self.disc_inputs[0])
+            #
+            # frame_score_out = Conv1D(1, 1, 1, name=scope+'frame_score_out', **CONV1D_ARGS)(z)
+            # output_tensors.append(frame_score_out)
 
         return output_tensors
 
@@ -744,11 +711,6 @@ class _MotionGAN(object):
                 x_label = Reshape((1, 1, 4), name=scope+'res_label')(x_label)
                 x_label = Tile((x.shape[1], x.shape[2], 1), name=scope+'tile_label')(x_label)
                 x = Concatenate(axis=-1, name=scope+'cat_label')([x, x_label])
-
-
-            # if self.latent_cond_dim > 0:
-            #     x_lat = _get_tensor(input_tensors, 'latent_cond_input')
-            #     x.append(x_lat)
 
         return x
 
@@ -1384,7 +1346,6 @@ class MotionGANV7(_MotionGAN):
                     x = EDM(name=scope+'edms')(x)
                     x = Reshape((self.njoints * self.njoints, self.seq_len, 1), name=scope+'resh_in')(x)
         
-                    # x = InstanceNormalization(axis=-1, name=scope+'inorm_in')(x)
                     x = Conv2D(blocks[0]['size'] // blocks[0]['bneck_f'], 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
                     for i in range(len(blocks)):
                         for j in range(n_reps):
@@ -1428,7 +1389,6 @@ class MotionGANV7(_MotionGAN):
 
             u_skips = []
             x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
-            batch_size = self.batch_size
             for k in range(macro_blocks):
                 with scope.name_scope('macro_block_%d' % k):
                     shortcut = x

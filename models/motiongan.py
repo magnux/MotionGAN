@@ -469,7 +469,7 @@ class _MotionGAN(object):
                 self.diff_output = x
                 x = seq_to_diff_out(x, self.stats[scope+'start_pose'])
             if self.remove_hip:
-                x = remove_hip_out(x, self.stats[scope+'hip_info'])
+                x = remove_hip_out(x, self.stats[scope+'hip_info'], self.data_set)
             if self.rescale_coords:
                 x = rescale_body_out(x, self.stats[scope+'bone_len'])
             if self.rotate_start:

@@ -7,6 +7,7 @@ import os
 from glob import glob
 from tqdm import trange
 from utils.threadsafe_iter import threadsafe_generator
+from utils.seq_utils import get_swap_list
 import re
 
 
@@ -24,6 +25,9 @@ class DataInput(object):
         self.normalize_per_joint = config.normalize_per_joint
         self.epoch_factor = config.epoch_factor
         self.augment_data = config.augment_data
+        self.body_members = config.body_members
+
+        self.swap_list = get_swap_list(self.body_members)
 
         if "Human36" in self.data_set:
             self.used_joints = config.used_joints
@@ -230,8 +234,12 @@ class DataInput(object):
             return poses
 
         def _swap_sides(poses):
-            swap_tensor = 2.0 * np.random.binomial(1, 0.5, (self.batch_size, 1, 1, 2)) - 1.0
-            poses[..., :2] = poses[..., :2] * swap_tensor
+            if np.random.rand() > 0.5:
+                poses[..., :1] = poses[..., :1] * -1.0
+                for swap_tup in self.swap_list:
+                    poses_tmp = poses[:, swap_tup[0], :, :].copy()
+                    poses[:, swap_tup[0], :, :] = poses[:, swap_tup[1], :, :]
+                    poses[:, swap_tup[1], :, :] = poses_tmp
             return poses
 
         poses = _jitter_height(poses)

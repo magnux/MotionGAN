@@ -25,6 +25,13 @@ flags.DEFINE_integer("mask_mode", 3, "Mask modes: " + ' '.join(['%d:%s' % tup fo
 flags.DEFINE_float("keep_prob", 0.8, "Probability of keeping input data. (1 == Keep All)")
 FLAGS = flags.FLAGS
 
+
+def _reset_rand_seed():
+    seed = 42
+    np.random.seed(seed)
+    tf.set_random_seed(seed)
+
+
 if __name__ == "__main__":
     # Config stuff
     batch_size = 1 if not "dmnn_score" in FLAGS.test_mode else 256
@@ -64,6 +71,7 @@ if __name__ == "__main__":
 
     # TODO: assert all configs are for the same dataset
     data_input = DataInput(configs[0])
+    _reset_rand_seed()
     val_batches = data_input.val_epoch_size
     val_generator = data_input.batch_generator(False)
 

@@ -160,6 +160,16 @@ def get_body_graph(body_members):
     return members_from, members_to, graph
 
 
+def get_swap_list(body_members):
+    swap_list = []
+    for member in [member for member in body_members.keys() if 'left' in member]:
+        left_joints = body_members[member]['joints']
+        right_joints = body_members['right' + member[4:]]['joints']
+        swap_list.append((left_joints, right_joints))
+
+    return swap_list
+
+
 def post_process(real_seq, gen_seq, mask, body_members):
     _, _, graph = get_body_graph(body_members)
 

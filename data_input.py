@@ -23,6 +23,7 @@ class DataInput(object):
         self.normalize_data = config.normalize_data
         self.normalize_per_joint = config.normalize_per_joint
         self.epoch_factor = config.epoch_factor
+        self.augment_data = config.augment_data
 
         if "Human36" in self.data_set:
             self.used_joints = config.used_joints
@@ -203,7 +204,7 @@ class DataInput(object):
 
         return pose  #, plen
 
-    def sub_sample_batch(self, batch):
+    def sub_sample_batch(self, batch, is_training):
         labs_batch, poses_batch = batch
 
         if self.pshape[1] is not None:
@@ -217,7 +218,25 @@ class DataInput(object):
             labs_batch = new_labs_batch
             poses_batch = new_poses_batch
 
+            if self.augment_data and is_training:
+                poses_batch = self.data_augmentation(poses_batch)
+
         return labs_batch, poses_batch
+
+    def data_augmentation(self, poses):
+        def _jitter_height(poses):
+            jitter_tensor = np.random.uniform(0.7, 1.3, (self.batch_size, 1, 1, 1))
+            poses[..., 2:] = poses[..., 2:] * jitter_tensor
+            return poses
+
+        def _swap_sides(poses):
+            swap_tensor = 2.0 * np.random.binomial(1, 0.5, (self.batch_size, 1, 1, 2)) - 1.0
+            poses[..., :2] = poses[..., :2] * swap_tensor
+            return poses
+
+        poses = _jitter_height(poses)
+        poses = _swap_sides(poses)
+        return poses
 
     @threadsafe_generator
     def batch_generator(self, is_training):
@@ -228,9 +247,9 @@ class DataInput(object):
             rand_indices = np.random.permutation(epoch_size)
             for slice_idx in range(epoch_size):
                 if not self.only_val:
-                    yield self.sub_sample_batch(batches[rand_indices[slice_idx]])
+                    yield self.sub_sample_batch(batches[rand_indices[slice_idx]], is_training)
                 else:
-                    yield self.sub_sample_batch(batches[slice_idx])
+                    yield self.sub_sample_batch(batches[slice_idx], is_training)
 
     def normalize_poses(self, poses):
         return (poses - self.poses_mean) / (self.poses_std + 1e-8)

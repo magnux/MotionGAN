@@ -110,8 +110,6 @@ if __name__ == "__main__":
                     place_holders = [labels]
                     if config.action_cond:
                         gen_inputs.append(labels)
-                    if config.latent_cond_dim > 0:
-                        gen_inputs.append(gen_latent_noise(config.batch_size, config.latent_cond_dim))
 
                     losses = model_wrap.disc_train(disc_inputs + gen_inputs + place_holders)
 
@@ -137,8 +135,6 @@ if __name__ == "__main__":
                 place_holders = [labels]
                 if config.action_cond:
                     gen_inputs.append(labels)
-                if config.latent_cond_dim > 0:
-                    gen_inputs.append(gen_latent_noise(config.batch_size, config.latent_cond_dim))
 
                 gen_losses = model_wrap.gen_train(gen_inputs + place_holders)
 
@@ -189,8 +185,6 @@ if __name__ == "__main__":
             place_holders = [labels]
             if config.action_cond:
                 gen_inputs.append(labels)
-            if config.latent_cond_dim > 0:
-                gen_inputs.append(gen_latent_noise(config.batch_size, config.latent_cond_dim))
 
             disc_losses = model_wrap.disc_eval(disc_inputs + gen_inputs + place_holders)
             gen_losses = model_wrap.gen_eval(gen_inputs + place_holders)

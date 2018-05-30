@@ -17,6 +17,8 @@
     'rotate_start': True,
     # Action label conditional model
     'action_cond': True,
+    # Augment data on training
+    'augment_data': True,
 
     # How fast should we learn?
     'learning_rate': 1.0e-3,

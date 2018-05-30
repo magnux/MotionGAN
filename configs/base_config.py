@@ -32,7 +32,7 @@
     'time_pres_emb': False,
     # Use pose FAE
     'use_pose_fae': False,
-    # Remove Hip, use hip relative coordinates
+    # Remove Hip, use hip relative coordinates, incompatible with use_angles
     'remove_hip': False,
     # Rescale coords using skeleton average bone len
     'rescale_coords': False,
@@ -44,6 +44,8 @@
     'use_diff': False,
     # Transform euclidean coordinates input to angles in exponential maps
     'use_angles': False,
+    # Augment data on training
+    'augment_data': False,
 
     ## DMNN Model Options
     'motiongan_save_path': None,

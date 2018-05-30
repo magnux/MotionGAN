@@ -81,10 +81,10 @@ def _conv_block(x, out_filters, bneck_filters, groups, kernel_size, strides):
 def _jitter_height(poses):
     with K.name_scope('jitter_height'):
         select_mask = np.zeros(poses.shape)
-        select_mask[..., 1] = 1.0
+        select_mask[..., 2] = 1.0
         select_mask = K.constant(select_mask, dtype='float32')
-        jitter_y = poses * K.random_uniform([int(poses.shape[0]), 1, 1, 1], minval=0.7, maxval=1.3)
-        new_poses = (poses * (1 - select_mask)) + (jitter_y * select_mask)
+        jitter_z = poses * K.random_uniform([int(poses.shape[0]), 1, 1, 1], minval=0.7, maxval=1.3)
+        new_poses = (poses * (1 - select_mask)) + (jitter_z * select_mask)
         return new_poses
 
 

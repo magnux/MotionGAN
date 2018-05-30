@@ -15,6 +15,8 @@
     'translate_start': True,
     # Rotate sequence starting point
     'rotate_start': True,
+    # Augment data on training
+    'augment_data': True,
 
     # How fast should we learn?
     'learning_rate': 1.0e-3,

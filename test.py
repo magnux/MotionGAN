@@ -86,7 +86,7 @@ if __name__ == "__main__":
     body_members = configs[0].body_members
 
     if FLAGS.test_mode != 'hmp_compare':
-        angle_trans = seq_to_angles_transformer(body_members, (batch_size, njoints, seq_len, 3))
+        angle_trans = seq_to_angles_transformer(body_members)
 
     def get_inputs():
         labs_batch, poses_batch = val_generator.next()
@@ -98,22 +98,22 @@ if __name__ == "__main__":
 
         gen_inputs = [poses_batch, mask_batch]
 
-        if configs[0].latent_cond_dim > 0:
-            latent_noise = np.random.uniform(
-                size=(batch_size, configs[0].latent_cond_dim))
-            gen_inputs.append(latent_noise)
-
         return labs_batch, poses_batch, mask_batch, gen_inputs
 
     if "images" in FLAGS.test_mode:
 
         for i in trange(val_batches):
             labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
+            labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
 
             gen_outputs = []
             proc_gen_outputs = []
             for m, model_wrap in enumerate(model_wraps):
+                if configs[m].action_cond:
+                    gen_inputs.append(labels)
                 gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
+                if configs[m].action_cond:
+                    gen_inputs.pop(-1)
                 proc_gen_output = np.empty_like(gen_output)
                 for j in range(batch_size):
                     proc_gen_output[j, ...] = post_process(poses_batch[j, ...], gen_output[j, ...],
@@ -173,9 +173,14 @@ if __name__ == "__main__":
         for _ in trange(val_batches):
 
             labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
+            labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
 
             for m, model_wrap in enumerate(model_wraps):
+                if configs[m].action_cond:
+                    gen_inputs.append(labels)
                 gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
+                if configs[m].action_cond:
+                    gen_inputs.pop(-1)
                 for j in range(batch_size):
                     gen_output[j, ...] = post_process(poses_batch[j, ...], gen_output[j, ...],
                                                       mask_batch[j, ...], body_members)
@@ -255,6 +260,7 @@ if __name__ == "__main__":
             for i in t:
 
                 labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
+                labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
 
                 unorm_poses_batch = unnormalize_batch(poses_batch)
                 unorm_poses_batch_edm = edm(unorm_poses_batch)
@@ -267,7 +273,11 @@ if __name__ == "__main__":
                 angles_occ_num = np.sum(1.0 - angles_mask_batch) + 1e-8
 
                 for m, model_wrap in enumerate(model_wraps):
+                    if configs[m].action_cond:
+                        gen_inputs.append(labels)
                     gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
+                    if configs[m].action_cond:
+                        gen_inputs.pop(-1)
                     # for j in range(batch_size):
                     #     gen_output[j, ...] = post_process(poses_batch[j, ...], gen_output[j, ...],
                     #                                       mask_batch[j, ...], body_members)

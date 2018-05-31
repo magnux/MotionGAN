@@ -1,8 +1,6 @@
 from __future__ import absolute_import, division, print_function
 import numpy as np
-import tensorflow as tf
-from utils.tfangles import quaternion_between, quaternion_to_expmap, expmap_to_rotmat, rotmat_to_euler
-
+from utils.npangles import quaternion_between, quaternion_to_expmap, expmap_to_rotmat, rotmat_to_euler
 
 MASK_MODES = ('No mask', 'Future Prediction', 'Missing Frames', 'Occlusion Simulation', 'Structured Occlusion', 'Noisy Transmission')
 
@@ -195,7 +193,7 @@ def post_process(real_seq, gen_seq, mask, body_members):
     return blend_seq
 
 
-def seq_to_angles_transformer(body_members, shape):
+def seq_to_angles_transformer(body_members):
     _, _, body_graph = get_body_graph(body_members)
 
     def _get_angles(coords):
@@ -203,13 +201,14 @@ def seq_to_angles_transformer(body_members, shape):
         base_shape.pop(1)
         base_shape[-1] = 1
 
-        coords_list = tf.unstack(coords, axis=1)
+        coords_list = np.split(coords, int(coords.shape[1]), axis=1)
+        coords_list = [np.squeeze(elem, axis=1) for elem in coords_list]
 
         def _get_angle_for_joint(joint_idx, parent_idx, angles):
             if parent_idx is None:  # joint_idx should be 0
-                parent_bone = tf.constant(np.concatenate([np.ones(base_shape),
-                                                         np.zeros(base_shape),
-                                                         np.zeros(base_shape)], axis=-1), dtype=tf.float32)
+                parent_bone = np.concatenate([np.ones(base_shape),
+                                              np.zeros(base_shape),
+                                              np.zeros(base_shape)], axis=-1)
             else:
                 parent_bone = coords_list[parent_idx] - coords_list[joint_idx]
 
@@ -227,16 +226,9 @@ def seq_to_angles_transformer(body_members, shape):
             return angles
 
         angles = _get_angle_for_joint(0, None, [])
-        return tf.stack(angles, axis=1)
+        return np.stack(angles, axis=1)
 
-    seq_ph = tf.placeholder(tf.float32, shape=shape)
-    angles = _get_angles(seq_ph)
-    sess = tf.Session()
-
-    def _run_ops(seq):
-        return sess.run(angles, feed_dict={seq_ph: seq})
-
-    return _run_ops
+    return _get_angles
 
 
 def get_angles_mask(coord_masks, body_members):
@@ -248,10 +240,11 @@ def get_angles_mask(coord_masks, body_members):
     base_shape[-1] = 1
 
     coord_masks_list = np.split(coord_masks, int(coord_masks.shape[1]), axis=1)
+    coord_masks_list = [np.squeeze(elem, axis=1) for elem in coord_masks_list]
 
     def _get_angle_mask_for_joint(joint_idx, angles_mask):
         for child_idx in body_graph[joint_idx]:
-            angles_mask.append(np.squeeze(coord_masks_list[child_idx], axis=1))
+            angles_mask.append(coord_masks_list[child_idx])
 
         for child_idx in body_graph[joint_idx]:
             angles_mask = _get_angle_mask_for_joint(child_idx, angles_mask)

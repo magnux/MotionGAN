@@ -267,7 +267,7 @@ def quaternion_to_rotmat(q):
 
     qnorm = np.sqrt(np.sum(np.square(q), axis=-1, keepdims=True) + 1e-8)
     normed_q = np.split(q / qnorm, int(q.shape[-1]), axis=-1)
-    w, x, y, z = [np.squeeze(comp, axis=1) for comp in normed_q]
+    w, x, y, z = [np.squeeze(comp, axis=-1) for comp in normed_q]
     m = [[diag(y, z), tr_sub(x, y, z, w), tr_add(x, z, y, w)],
          [tr_add(x, y, z, w), diag(x, z), tr_sub(y, z, x, w)],
          [tr_sub(x, z, y, w), tr_add(y, z, x, w), diag(x, y)]]

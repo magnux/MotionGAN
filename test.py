@@ -412,77 +412,71 @@ if __name__ == "__main__":
                                 poses_batch = poses_batch[..., :3]
                                 break
 
-                    angles_batch = angle_trans(poses_batch)
-                    print(angles_batch[0, :, 10, :])
-                    print(eul_gt[0, :, :])
+                    mask_batch = np.ones((1, njoints, pred_len*2, 1), dtype=np.float32)
+                    mask_batch[:, :, pred_len:, :] = 0.0
 
-                    # mask_batch = np.ones((1, njoints, pred_len*2, 1), dtype=np.float32)
-                    # mask_batch[:, :, pred_len:, :] = 0.0
-                    #
-                    # if configs[0].normalize_data:
-                    #     poses_batch = data_input.normalize_poses(poses_batch)
-                    #
-                    # gen_inputs = [poses_batch, mask_batch]
-                    # if configs[0].action_cond:
-                    #     action_label = np.ones((poses_batch.shape[0], 1), dtype=np.float32) * act_idx
-                    #     gen_inputs.append(action_label)
-                    #
-                    # gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
-                    #
-                    # print(np.mean(np.square(poses_batch[:, :, :pred_len, ...] - gen_output[:, :, :pred_len, ...])),
-                    #       np.mean(np.square(poses_batch[:, :,  pred_len:, ...] - gen_output[:, :,  pred_len:, ...])))
-                    #
-                    # if configs[0].normalize_data:
-                    #     gen_output = data_input.unnormalize_poses(gen_output)
-                    #     poses_batch = data_input.unnormalize_poses(poses_batch)
+                    if configs[0].normalize_data:
+                        poses_batch = data_input.normalize_poses(poses_batch)
 
+                    gen_inputs = [poses_batch, mask_batch]
+                    if configs[0].action_cond:
+                        action_label = np.ones((poses_batch.shape[0], 1), dtype=np.float32) * act_idx
+                        gen_inputs.append(action_label)
 
-                    # expmap_mg = np.zeros((batch_size, 33, seq_len, 3))
-                    # expmap_mg[:, configs[0].used_joints, :, :] = gen_output
-                    # expmap_mg = np.transpose(expmap_mg, (0, 2, 1, 3))
-                    # eul_mg = em2eul(expmap_mg)
-                    #
-                    # expmap_pb = np.zeros((batch_size, 33, seq_len, 3))
-                    # expmap_pb[:, configs[0].used_joints, :, :] = poses_batch
-                    # expmap_pb = np.transpose(expmap_pb, (0, 2, 1, 3))
-                    # eul_pb = em2eul(expmap_pb)
+                    gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
+
+                    # print(np.mean(np.abs(poses_batch[:, :, :pred_len, ...] - gen_output[:, :, :pred_len, ...])),
+                    #       np.mean(np.abs(poses_batch[:, :,  pred_len:, ...] - gen_output[:, :,  pred_len:, ...])))
+
+                    if configs[0].normalize_data:
+                        gen_output = data_input.unnormalize_poses(gen_output)
+                        poses_batch = data_input.unnormalize_poses(poses_batch)
+
+                    # print(np.mean(np.abs(poses_batch[:, :, :pred_len, ...] - gen_output[:, :, :pred_len, ...])),
+                    #       np.mean(np.abs(poses_batch[:, :,  pred_len:, ...] - gen_output[:, :,  pred_len:, ...])))
+
+                    expmap_mg = angle_trans(gen_output)
+                    expmap_mg = np.transpose(expmap_mg, (0, 2, 1, 3))
+                    eul_mg = em2eul(expmap_mg)
+                    expmap_pb = angle_trans(poses_batch)
+                    expmap_pb = np.transpose(expmap_pb, (0, 2, 1, 3))
+                    eul_pb = em2eul(expmap_pb)
 
                     eul_gt = np.reshape(eul_gt, (pred_len, 99))
                     eul_hmp = np.reshape(eul_hmp, (pred_len, 99))
-                    # eul_mg = np.reshape(eul_mg, (pred_len * 2, 99))
-                    # eul_pb = np.reshape(eul_pb, (pred_len * 2, 99))
+                    eul_mg = np.reshape(eul_mg, (pred_len * 2, int(eul_mg.shape[2]) * 3))
+                    eul_pb = np.reshape(eul_pb, (pred_len * 2, int(eul_pb.shape[2]) * 3))
 
+                    eul_hmp[:, 0:6] = 0
+                    idx_to_use = np.where(np.std(eul_hmp, 0) > 1e-4)[0]
 
-                #     eul_hmp[:, 0:6] = 0
-                #     idx_to_use = np.where(np.std(eul_hmp, 0) > 1e-4)[0]
+                    mean_errors_hmp[i, :] = euc_error(eul_gt[:, idx_to_use], eul_hmp[:, idx_to_use])
+                    # print(np.sum(np.abs(eul_gt[:, idx_to_use] - eul_pb[pred_len:, idx_to_use])))
+                    mean_errors_mg[i, :] = euc_error(eul_pb[pred_len:, :], eul_mg[pred_len:, :])
+
+                rec_mean_mean_error = np.array(sample_file['mean_{0}_error'.format(action)], dtype=np.float32)
+                rec_mean_mean_error = rec_mean_mean_error[range(0, np.int(rec_mean_mean_error.shape[0]), 5)]
+                mean_mean_errors_hmp = np.mean(mean_errors_hmp, 0)
+                mean_mean_errors_mg = np.mean(mean_errors_mg, 0)
+
+                print(action)
+                err_strs = [(Fore.BLUE if np.mean(np.abs(err1 - err2)) < 1e-4 else Fore.YELLOW) + str(np.mean(err2))
+                            for err1, err2 in zip(rec_mean_mean_error, mean_mean_errors_hmp)]
+
+                err_strs += [(Fore.GREEN if np.mean((err1 > err2).astype('float32')) > 0.5 else Fore.RED) + str(np.mean(err2))
+                             for err1, err2 in zip(mean_mean_errors_hmp, mean_mean_errors_mg)]
+
+                # rec_mean_mean_error = np.mean(rec_mean_mean_error)
+                # mean_mean_errors_hmp = np.mean(mean_mean_errors_hmp)
+                # mean_mean_errors_mg = np.mean(mean_mean_errors_mg)
                 #
-                #     mean_errors_hmp[i, :] = euc_error(eul_gt[:, idx_to_use], eul_hmp[:, idx_to_use])
-                #     # print(np.sum(np.abs(eul_gt[:, idx_to_use] - eul_pb[pred_len:, idx_to_use])))
-                #     mean_errors_mg[i, :] = euc_error(eul_pb[pred_len:, idx_to_use], eul_mg[pred_len:, idx_to_use])
-                #
-                # rec_mean_mean_error = np.array(sample_file['mean_{0}_error'.format(action)], dtype=np.float32)
-                # rec_mean_mean_error = rec_mean_mean_error[range(0, np.int(rec_mean_mean_error.shape[0]), 5)]
-                # mean_mean_errors_hmp = np.mean(mean_errors_hmp, 0)
-                # mean_mean_errors_mg = np.mean(mean_errors_mg, 0)
-                #
-                # print(action)
-                # err_strs = [(Fore.BLUE if np.mean(np.abs(err1 - err2)) < 1e-4 else Fore.YELLOW) + str(np.mean(err2))
-                #             for err1, err2 in zip(rec_mean_mean_error, mean_mean_errors_hmp)]
-                #
-                # err_strs += [(Fore.GREEN if np.mean((err1 > err2).astype('float32')) > 0.5 else Fore.RED) + str(np.mean(err2))
-                #              for err1, err2 in zip(mean_mean_errors_hmp, mean_mean_errors_mg)]
-                #
-                # # rec_mean_mean_error = np.mean(rec_mean_mean_error)
-                # # mean_mean_errors_hmp = np.mean(mean_mean_errors_hmp)
-                # # mean_mean_errors_mg = np.mean(mean_mean_errors_mg)
-                # #
-                # # err_strs = [(Fore.BLUE if np.mean(np.abs(rec_mean_mean_error - mean_mean_errors_hmp)) < 1e-4 else Fore.YELLOW) + str(mean_mean_errors_hmp)]
-                # # err_strs += [(Fore.GREEN if np.mean((rec_mean_mean_error > mean_mean_errors_mg).astype('float32')) > 0.5 else Fore.RED) + str(mean_mean_errors_mg)]
-                #
-                # for err_str in err_strs:
-                #     print(err_str)
-                #
-                # print(Style.RESET_ALL)
+                # err_strs = [(Fore.BLUE if np.mean(np.abs(rec_mean_mean_error - mean_mean_errors_hmp)) < 1e-4 else Fore.YELLOW) + str(mean_mean_errors_hmp)]
+                # err_strs += [(Fore.GREEN if np.mean((rec_mean_mean_error > mean_mean_errors_mg).astype('float32')) > 0.5 else Fore.RED) + str(mean_mean_errors_mg)]
+
+                for err_str in err_strs:
+                    print(err_str)
+
+                print(Style.RESET_ALL)
 
 
 

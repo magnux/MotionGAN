@@ -216,8 +216,8 @@ def seq_to_angles_transformer(body_members):
                 child_bone = coords_list[child_idx] - coords_list[joint_idx]
                 angle = quaternion_between(parent_bone, child_bone)
                 angle = quaternion_to_expmap(angle)
-                angle = expmap_to_rotmat(angle)
-                angle = rotmat_to_euler(angle)
+                # angle = expmap_to_rotmat(angle)
+                # angle = rotmat_to_euler(angle)
                 angles.append(angle)
 
             for child_idx in body_graph[joint_idx]:

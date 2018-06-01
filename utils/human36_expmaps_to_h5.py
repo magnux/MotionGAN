@@ -21,7 +21,7 @@ def read_pose(x):
 
 
 if __name__ == "__main__":
-    found_files = [file for file in glob('extracted_expmaps/S*/*.txt')]
+    found_files = sorted([file for file in glob('extracted_expmaps/S*/*.txt')])
     print('Processing {} files...'.format(len(found_files)))
 
     prog = re.compile('(S\d+)/([^_]+)_(\d).txt')
@@ -38,6 +38,7 @@ if __name__ == "__main__":
 
         subarray = np.array(subject + 1)
         actarray = np.array(action + 1)
+        sactarray = np.array(subaction)
 
         posearray = []
         lines = open(found_file).readlines()
@@ -59,6 +60,10 @@ if __name__ == "__main__":
         h5file.create_dataset(
             datapath + 'Action', np.shape(actarray),
             dtype='int32', data=actarray
+        )
+        h5file.create_dataset(
+            datapath + 'Subaction', np.shape(sactarray),
+            dtype='int32', data=sactarray
         )
         h5file.create_dataset(
             datapath + 'Pose', np.shape(posearray),

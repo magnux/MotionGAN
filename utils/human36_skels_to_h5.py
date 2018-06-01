@@ -23,22 +23,50 @@ def read_pose(x):
 
 
 if __name__ == "__main__":
-    found_files = [file for file in glob('extracted/S*/MyPoseFeatures/D3_Positions/*.cdf')]
+    prog = re.compile('(S\d+)/MyPoseFeatures/D3_Positions/([^ ]+)[ ]*(\d)*.cdf')
+
+    # First renaming files that need a 0
+    found_files = sorted([file for file in glob('extracted/S*/MyPoseFeatures/D3_Positions/*.cdf')])
+    for f, found_file in enumerate(tqdm(found_files)):
+        confpars = prog.findall(found_file)[0]
+        if confpars[2] == '':
+            os.rename(found_file, found_file[:-4] + ' 0.cdf')
+
+    # Then renaming files to 1, 2
+    found_files = sorted([file for file in glob('extracted/S*/MyPoseFeatures/D3_Positions/*.cdf')])
+    prev_subject = ''
+    prev_action = ''
+    for f, found_file in enumerate(tqdm(found_files)):
+        confpars = prog.findall(found_file)[0]
+        if confpars[0] == prev_subject and confpars[1] == prev_action:
+            subaction = 2
+        else:
+            subaction = 1
+        os.rename(found_file, found_file[:-5] + str(subaction) + '.cdf.tmp')
+        prev_subject = confpars[0]
+        prev_action = confpars[1]
+
+    found_files = sorted([file for file in glob('extracted/S*/MyPoseFeatures/D3_Positions/*.cdf.tmp')])
+    for f, found_file in enumerate(tqdm(found_files)):
+        os.rename(found_file, found_file[:-4])
+
+    found_files = sorted([file for file in glob('extracted/S*/MyPoseFeatures/D3_Positions/*.cdf')])
     print('Processing {} files...'.format(len(found_files)))
 
-    prog = re.compile('(S\d+)/MyPoseFeatures/D3_Positions/([^.]+).cdf')
     h5file = h5.File(dataset + "v1.h5", "w")
     max_len = 0
     for f, found_file in enumerate(tqdm(found_files)):
         confpars = prog.findall(found_file)[0]
         subject = [i for i, x in enumerate(subjects) if x == confpars[0]][0]
         action = [i for i, x in enumerate(actions) if x in confpars[1]][0]
+        subaction = int(confpars[2])
 
         # print(found_file)
         # print(subject, action)
 
         subarray = np.array(subject + 1)
         actarray = np.array(action + 1)
+        sactarray = np.array(subaction)
 
         pose3dcdf = pycdf.CDF(found_file)
 
@@ -56,6 +84,10 @@ if __name__ == "__main__":
         h5file.create_dataset(
             datapath + 'Action', np.shape(actarray),
             dtype='int32', data=actarray
+        )
+        h5file.create_dataset(
+            datapath + 'Subaction', np.shape(sactarray),
+            dtype='int32', data=sactarray
         )
         h5file.create_dataset(
             datapath + 'Pose', np.shape(posearray),

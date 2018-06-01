@@ -224,7 +224,7 @@ def expmap_to_rotmat(r):
     tile_eye = tf.constant(np.tile(np.reshape(np.eye(3), [1 for _ in base_shape] + [3, 3]), base_shape + [1, 1]), dtype=tf.float32)
     theta = tf.expand_dims(theta, axis=-1)
 
-    R = tile_eye + tf.sin(theta) * r0x + (1.0 - tf.cos(theta)) * K.batch_dot(r0x, tf.transpose(r0x, trans_dims), axes=[-1, -2])
+    R = tile_eye + tf.sin(theta) * r0x + (1.0 - tf.cos(theta)) * tf.matmul(r0x, r0x)
     return R
 
 

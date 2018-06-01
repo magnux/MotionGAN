@@ -119,7 +119,7 @@ def quaternion_between(u, v):
 def quaternion_to_expmap(q):
     """
     Converts a quaternion to an exponential map
-    Tensorflow port and tensorization of code in:
+    Tensorization of code in:
     https://github.com/una-dinosauria/human-motion-prediction/blob/master/src/data_utils.py
     Args:
         q: (..., 4) quaternion Tensor
@@ -149,7 +149,7 @@ def quaternion_to_expmap(q):
 def rotmat_to_quaternion(R):
     """
     Converts a rotation matrix to a quaternion
-    Tensorflow port and tensorization of code in:
+    Tensorization of code in:
     https://github.com/una-dinosauria/human-motion-prediction/blob/master/src/data_utils.py
     Args:
       R: (..., 3, 3) rotation matrix Tensor
@@ -177,7 +177,7 @@ def rotmat_to_quaternion(R):
 def expmap_to_rotmat(r):
     """
     Converts an exponential map angle to a rotation matrix
-    Tensorflow port and tensorization of code in:
+    Tensorization of code in:
     https://github.com/una-dinosauria/human-motion-prediction/blob/master/src/data_utils.py
     Args:
       r: (..., 3) exponential map Tensor
@@ -277,7 +277,7 @@ def quaternion_to_rotmat(q):
 def rotmat_to_euler(R):
     """
     Converts a rotation matrix to Euler angles
-    Tensorflow port and tensorization of code in:
+    Tensorization of code in:
     https://github.com/una-dinosauria/human-motion-prediction/blob/master/src/data_utils.py
     Args:
       R: a (..., 3, 3) rotation matrix Tensor

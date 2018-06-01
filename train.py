@@ -25,6 +25,7 @@ flags.DEFINE_string("config_file", None, "Model config file")
 FLAGS = flags.FLAGS
 
 if __name__ == "__main__":
+    _reset_rand_seed()
     if not tf.gfile.Exists('./save'):
         tf.gfile.MkDir('./save')
 
@@ -32,7 +33,6 @@ if __name__ == "__main__":
     config = get_config(FLAGS)
 
     data_input = DataInput(config)
-    _reset_rand_seed()  # Creating data_input object might introduce some randomness
     train_batches = data_input.train_epoch_size
     train_generator = data_input.batch_generator(True)
     val_batches = data_input.val_epoch_size

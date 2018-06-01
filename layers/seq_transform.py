@@ -253,8 +253,6 @@ def seq_to_angles_out(x, body_members, hip_coords, bone_len, fixed_angles):
             base_shape[-2] = 1
             base_shape[-1] = 1
             bone_idcs = {idx_tup: i for i, idx_tup in enumerate([idx_tup for idx_tup in zip(members_from, members_to)])}
-            trans_dims = range(len(base_shape))
-            trans_dims[-1], trans_dims[-2] = trans_dims[-2], trans_dims[-1]
 
             def _get_coords_for_joint(joint_idx, parent_idx, child_angle_idx, coords):
                 if parent_idx is None:  # joint_idx should be 0
@@ -268,8 +266,7 @@ def seq_to_angles_out(x, body_members, hip_coords, bone_len, fixed_angles):
                     parent_bone = parent_bone / parent_bone_norm
 
                 for child_idx in body_graph[joint_idx]:
-                    child_bone = K.batch_dot(tf.transpose(rotmat_list[child_angle_idx], trans_dims), parent_bone,
-                                             axes=[-1, -2])
+                    child_bone = tf.matmul(rotmat_list[child_angle_idx], parent_bone)
                     child_bone_idx = bone_idcs[(joint_idx, child_idx)]
                     child_bone = child_bone * K.reshape(bone_len_list[child_bone_idx], (child_bone.shape[0], 1, 1, 1))
                     coords[child_idx] = child_bone + coords[joint_idx]

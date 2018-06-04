@@ -377,8 +377,8 @@ if __name__ == "__main__":
                     encoder_inputs = np.array(sample_file['expmap/encoder_inputs/{1}_{0}'.format(i, action)], dtype=np.float32)
                     decoder_inputs = np.array(sample_file['expmap/decoder_inputs/{1}_{0}'.format(i, action)], dtype=np.float32)
                     decoder_outputs = np.array(sample_file['expmap/decoder_outputs/{1}_{0}'.format(i, action)], dtype=np.float32)
-                    input_seeds_sact = np.array(sample_file['expmap/input_seeds_sact/{1}_{0}'.format(i, action)])
-                    input_seeds_idx = np.array(sample_file['expmap/input_seeds_idx/{1}_{0}'.format(i, action)])
+                    input_seeds_sact = np.int32(sample_file['expmap/input_seeds_sact/{1}_{0}'.format(i, action)])
+                    input_seeds_idx = np.int32(sample_file['expmap/input_seeds_idx/{1}_{0}'.format(i, action)])
 
                     # print(input_seeds_sact, input_seeds_idx)
 

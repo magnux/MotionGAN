@@ -226,6 +226,8 @@ def seq_to_angles_transformer(body_members):
             return angles
 
         angles = _get_angle_for_joint(0, None, [])
+        fixed_angles = len(body_graph[0])
+        angles = angles[fixed_angles:]
         return np.stack(angles, axis=1)
 
     return _get_angles

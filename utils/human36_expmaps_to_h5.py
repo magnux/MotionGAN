@@ -29,8 +29,8 @@ if __name__ == "__main__":
     max_len = 0
     for f, found_file in enumerate(tqdm(found_files)):
         confpars = prog.findall(found_file)[0]
-        subject = [i for i, x in enumerate(subjects) if x == confpars[0]][0]
-        action = [i for i, x in enumerate(actions) if x in confpars[1]][0]
+        subject = [i for i, x in enumerate(subjects) if x == confpars[0]][-1]
+        action = [i for i, x in enumerate(actions) if x in confpars[1]][-1]
         subaction = int(confpars[2])
 
         # print(found_file)

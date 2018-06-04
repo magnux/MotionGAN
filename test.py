@@ -379,19 +379,17 @@ if __name__ == "__main__":
                     decoder_outputs = np.array(sample_file['expmap/decoder_outputs/{1}_{0}'.format(i, action)], dtype=np.float32)
                     input_seeds_sact = np.int32(sample_file['expmap/input_seeds_sact/{1}_{0}'.format(i, action)])
                     input_seeds_idx = np.int32(sample_file['expmap/input_seeds_idx/{1}_{0}'.format(i, action)])
+                    input_seeds_seqlen = np.int32(sample_file['expmap/input_seeds_seqlen/{1}_{0}'.format(i, action)])
 
                     # print(input_seeds_sact, input_seeds_idx)
 
                     expmap_gt = np.array(sample_file['expmap/gt/{1}_{0}'.format(i, action)], dtype=np.float32)
                     expmap_gt = subsample(expmap_gt)
                     expmap_gt = expmap_gt[:pred_len, ...]
-                    eul_gt = em2eul(np.reshape(expmap_gt, (pred_len, 33, 3)))
-
 
                     expmap_hmp = np.array(sample_file['expmap/preds/{1}_{0}'.format(i, action)], dtype=np.float32)
                     expmap_hmp = subsample(expmap_hmp)
                     expmap_hmp = expmap_hmp[:pred_len, ...]
-                    eul_hmp = em2eul(np.reshape(expmap_hmp, (pred_len, 33, 3)))
 
                     poses_batch = None
                     if 'expmaps' in configs[0].data_set:
@@ -402,15 +400,15 @@ if __name__ == "__main__":
                         poses_batch = poses_batch[:, configs[0].used_joints, :, :]
                     else:
                         for key in data_input.val_keys:
-                            if (np.int32(data_input.h5file[key + '/Action']) - 1 == act_idx and
-                                np.int32(data_input.h5file[key + '/Subaction']) == input_seeds_sact):
+                            if np.int32(data_input.h5file[key + '/Action']) - 1 == act_idx:
                                 pose = np.array(data_input.h5file[key + '/Pose'], dtype=np.float32)
                                 pose, plen = data_input.process_pose(pose)
-                                pose = pose[:, input_seeds_idx:input_seeds_idx+100, :]
-                                pose = pose[:, range(0, 100, 5), :]
-                                poses_batch = np.reshape(pose, [batch_size] + data_input.pshape)
-                                poses_batch = poses_batch[..., :3]
-                                break
+                                if plen == input_seeds_seqlen:
+                                    pose = pose[:, input_seeds_idx:input_seeds_idx+100, :]
+                                    pose = pose[:, range(0, 100, 5), :]
+                                    poses_batch = np.reshape(pose, [batch_size] + data_input.pshape)
+                                    poses_batch = poses_batch[..., :3]
+                                    break
 
                     mask_batch = np.ones((1, njoints, pred_len*2, 1), dtype=np.float32)
                     mask_batch[:, :, pred_len:, :] = 0.0
@@ -434,12 +432,19 @@ if __name__ == "__main__":
 
                     # print(np.mean(np.abs(poses_batch[:, :, :pred_len, ...] - gen_output[:, :, :pred_len, ...])),
                     #       np.mean(np.abs(poses_batch[:, :,  pred_len:, ...] - gen_output[:, :,  pred_len:, ...])))
+                    if 'expmaps' in configs[0].data_set:
+                        expmap_mg = gen_output
+                        expmap_pb = poses_batch
+                    else:
+                        expmap_mg = angle_trans(gen_output)
+                        expmap_pb = angle_trans(poses_batch)
 
-                    expmap_mg = angle_trans(gen_output)
                     expmap_mg = np.transpose(expmap_mg, (0, 2, 1, 3))
-                    eul_mg = em2eul(expmap_mg)
-                    expmap_pb = angle_trans(poses_batch)
                     expmap_pb = np.transpose(expmap_pb, (0, 2, 1, 3))
+
+                    eul_gt = em2eul(np.reshape(expmap_gt, (pred_len, 33, 3)))
+                    eul_hmp = em2eul(np.reshape(expmap_hmp, (pred_len, 33, 3)))
+                    eul_mg = em2eul(expmap_mg)
                     eul_pb = em2eul(expmap_pb)
 
                     eul_gt = np.reshape(eul_gt, (pred_len, 99))
@@ -450,7 +455,17 @@ if __name__ == "__main__":
                     eul_hmp[:, 0:6] = 0
                     idx_to_use = np.where(np.std(eul_hmp, 0) > 1e-4)[0]
 
-                    mean_errors_hmp[i, :] = euc_error(eul_gt[:, idx_to_use], eul_hmp[:, idx_to_use])
+                    eul_gt = eul_gt[:, idx_to_use]
+                    eul_hmp = eul_hmp[:, idx_to_use]
+                    if 'expmaps' in configs[0].data_set:
+                        eul_mg = eul_mg[:, idx_to_use]
+                        eul_pb = eul_pb[:, idx_to_use]
+
+                        gt_diff = np.sum(np.abs(eul_gt - eul_pb[pred_len:, :]))
+                        if gt_diff > 1e-4:
+                            print("WARNING: gt differs more than it should : ", gt_diff)
+
+                    mean_errors_hmp[i, :] = euc_error(eul_gt, eul_hmp)
                     # print(np.sum(np.abs(eul_gt[:, idx_to_use] - eul_pb[pred_len:, idx_to_use])))
                     mean_errors_mg[i, :] = euc_error(eul_pb[pred_len:, :], eul_mg[pred_len:, :])
 

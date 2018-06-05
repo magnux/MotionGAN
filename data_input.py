@@ -31,6 +31,7 @@ class DataInput(object):
 
         if "Human36" in self.data_set:
             self.used_joints = config.used_joints
+            self.full_njoints = config.full_njoints
 
         file_path = os.path.join(self.data_path, self.data_set + self.data_set_version + '.h5')
         self.h5file = h5.File(file_path, 'r')

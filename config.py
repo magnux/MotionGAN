@@ -81,7 +81,6 @@ def get_config(flags):
     elif config.data_set == 'Human36':
         config.num_actions = 15
         config.num_subjects = 7
-        # config.njoints = 32
         config.max_plen = (6343 // 2) + 1  # Data will be subsampled to 25hz
 
         config.body_members = {
@@ -94,16 +93,27 @@ def get_config(flags):
         }
         config.used_joints = [0, 1, 2, 3, 6, 7, 8, 12, 13, 14, 15, 17, 18, 19, 25, 26, 27]
         config.njoints = len(config.used_joints)
+        config.full_njoints = 32
         new_body_members = {}
         for key, value in config.body_members.items():
             new_body_members[key] = value.copy()
             new_body_members[key]['joints'] = [config.used_joints.index(j) for j in new_body_members[key]['joints']]
         config.body_members = new_body_members
 
+        config.full_body_members = {
+            'left_arm': {'joints': [13, 16, 17, 18, 19, 20, 21], 'side': 'left'},
+            'left_fingers': {'joints': [19, 22, 23], 'side': 'left'},
+            'right_arm': {'joints': [13, 24, 25, 26, 27, 28, 29], 'side': 'right'},
+            'right_fingers': {'joints': [27, 30, 31], 'side': 'right'},
+            'head': {'joints': [13, 14, 15], 'side': 'right'},
+            'torso': {'joints': [0, 11, 12, 13], 'side': 'right'},
+            'left_leg': {'joints': [0, 6, 7, 8, 9, 10], 'side': 'left'},
+            'right_leg': {'joints': [0, 1, 2, 3, 4, 5], 'side': 'right'},
+        }
+
     elif config.data_set == 'Human36_expmaps':
         config.num_actions = 15
         config.num_subjects = 7
-        # config.njoints = 33
         config.max_plen = (6343 // 2) + 1  # Data will be subsampled to 25hz
 
         config.body_members = {
@@ -118,6 +128,7 @@ def get_config(flags):
         }
         config.used_joints = [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 12, 13, 14, 15, 17, 18, 19, 20, 25, 26, 27, 28]
         config.njoints = len(config.used_joints)
+        config.full_njoints = 33
         new_body_members = {}
         for key, value in config.body_members.items():
             new_body_members[key] = value.copy()

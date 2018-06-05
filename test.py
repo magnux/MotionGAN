@@ -84,7 +84,7 @@ if __name__ == "__main__":
 
     njoints = configs[0].njoints
     seq_len = model_wraps[0].seq_len
-    body_members = configs[0].body_members
+    body_members = configs[0].body_members  # if not configs[0].data_set == 'Human36' else configs[0].full_body_members
     angle_trans = seq_to_angles_transformer(body_members)
 
     def get_inputs():
@@ -432,25 +432,30 @@ if __name__ == "__main__":
 
                     # print(np.mean(np.abs(poses_batch[:, :, :pred_len, ...] - gen_output[:, :, :pred_len, ...])),
                     #       np.mean(np.abs(poses_batch[:, :,  pred_len:, ...] - gen_output[:, :,  pred_len:, ...])))
+
                     if 'expmaps' in configs[0].data_set:
-                        expmap_mg = gen_output
-                        expmap_pb = poses_batch
+                        expmap_mg = np.zeros((batch_size, configs[0].full_njoints, pred_len * 2, 3))
+                        expmap_mg[:, configs[0].used_joints, :, :] = gen_output
+                        expmap_pb = np.zeros((batch_size, configs[0].full_njoints, pred_len * 2, 3))
+                        expmap_pb[:, configs[0].used_joints, :, :] = poses_batch
                     else:
                         expmap_mg = angle_trans(gen_output)
                         expmap_pb = angle_trans(poses_batch)
 
-                    expmap_mg = np.transpose(expmap_mg, (0, 2, 1, 3))
-                    expmap_pb = np.transpose(expmap_pb, (0, 2, 1, 3))
+                    expmap_gt = np.reshape(expmap_gt, (pred_len, 33, 3))
+                    expmap_hmp = np.reshape(expmap_hmp, (pred_len, 33, 3))
+                    expmap_mg = np.squeeze(np.transpose(expmap_mg, (0, 2, 1, 3)), axis=0)
+                    expmap_pb = np.squeeze(np.transpose(expmap_pb, (0, 2, 1, 3)), axis=0)
 
-                    eul_gt = em2eul(np.reshape(expmap_gt, (pred_len, 33, 3)))
-                    eul_hmp = em2eul(np.reshape(expmap_hmp, (pred_len, 33, 3)))
+                    eul_gt = em2eul(expmap_gt)
+                    eul_hmp = em2eul(expmap_hmp)
                     eul_mg = em2eul(expmap_mg)
                     eul_pb = em2eul(expmap_pb)
 
                     eul_gt = np.reshape(eul_gt, (pred_len, 99))
                     eul_hmp = np.reshape(eul_hmp, (pred_len, 99))
-                    eul_mg = np.reshape(eul_mg, (pred_len * 2, int(eul_mg.shape[2]) * 3))
-                    eul_pb = np.reshape(eul_pb, (pred_len * 2, int(eul_pb.shape[2]) * 3))
+                    eul_mg = np.reshape(eul_mg, (pred_len * 2, int(eul_mg.shape[1]) * 3))
+                    eul_pb = np.reshape(eul_pb, (pred_len * 2, int(eul_pb.shape[1]) * 3))
 
                     eul_hmp[:, 0:6] = 0
                     idx_to_use = np.where(np.std(eul_hmp, 0) > 1e-4)[0]
@@ -466,7 +471,6 @@ if __name__ == "__main__":
                             print("WARNING: gt differs more than it should : ", gt_diff)
 
                     mean_errors_hmp[i, :] = euc_error(eul_gt, eul_hmp)
-                    # print(np.sum(np.abs(eul_gt[:, idx_to_use] - eul_pb[pred_len:, idx_to_use])))
                     mean_errors_mg[i, :] = euc_error(eul_pb[pred_len:, :], eul_mg[pred_len:, :])
 
                 rec_mean_mean_error = np.array(sample_file['mean_{0}_error'.format(action)], dtype=np.float32)

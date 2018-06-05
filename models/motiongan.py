@@ -9,7 +9,7 @@ from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, Conv2D, \
     Dense, Activation, Lambda, Add, Concatenate, Permute, Reshape, Flatten, \
     Conv1D, Multiply, Embedding, LeakyReLU, ZeroPadding2D, Cropping2D
-from tensorflow.contrib.keras.api.keras.optimizers import Adam
+from tensorflow.contrib.keras.api.keras.optimizers import SGD
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 from tensorflow.contrib.keras.api.keras.initializers import Constant
 from layers.normalization import InstanceNormalization
@@ -117,7 +117,7 @@ class _MotionGAN(object):
 
         # Custom train functions
         with K.name_scope('discriminator/functions/train'):
-            disc_optimizer = Adam(lr=config.learning_rate)
+            disc_optimizer = SGD(lr=config.learning_rate, momentum=0.9, nesterov=True)
             disc_training_updates = disc_optimizer.get_updates(disc_loss, self.disc_model.trainable_weights)
             self.disc_train_f = K.function(self.disc_inputs + self.gen_inputs + self.place_holders,
                                            self.wgan_losses.values() + self.disc_losses.values(),
@@ -130,7 +130,7 @@ class _MotionGAN(object):
         self.disc_model = self._pseudo_build_model(self.disc_model, disc_optimizer)
 
         with K.name_scope('generator/functions/train'):
-            gen_optimizer = Adam(lr=config.learning_rate)
+            gen_optimizer = SGD(lr=config.learning_rate, momentum=0.9, nesterov=True)
             gen_training_updates = gen_optimizer.get_updates(gen_loss, self.gen_model.trainable_weights)
             self.gen_train_f = K.function(self.gen_inputs + self.place_holders, self.gen_losses.values(), gen_training_updates)
 

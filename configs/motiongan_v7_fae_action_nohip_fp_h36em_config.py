@@ -17,7 +17,7 @@
     'action_cond': True,
 
     # How fast should we learn?
-    'learning_rate': 1.0e-3,
+    'learning_rate': 1.0e-5,
     # It's the batch size
     'batch_size': 128,
     # Multiplies length of epoch, useful for tiny datasets

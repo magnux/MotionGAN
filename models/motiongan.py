@@ -732,7 +732,7 @@ class MotionGANV5(_MotionGAN):
 
             def resnet_disc(x):
                 with scope.name_scope('resnet'):
-                    n_hidden = 16
+                    n_hidden = 32
                     block_factors = [1, 2, 4]
                     block_strides = [2, 2, 2]
 
@@ -751,9 +751,9 @@ class MotionGANV5(_MotionGAN):
 
             def dmnn_disc(x):
                 with scope.name_scope('dmnn'):
-                    blocks = [{'size': 16, 'bneck_f': 2, 'strides': 2},
-                              {'size': 32, 'bneck_f': 2, 'strides': 2},
-                              {'size': 64, 'bneck_f': 2, 'strides': 2}]
+                    blocks = [{'size': 32,   'bneck_f': 2, 'strides': 2},
+                              {'size': 64,   'bneck_f': 2, 'strides': 2},
+                              {'size': 128,  'bneck_f': 2, 'strides': 2}]
                     n_reps = 2
 
                     x = CombMatrix(self.njoints, name=scope + 'comb_matrix')(x)
@@ -859,7 +859,7 @@ class MotionGANV7(_MotionGAN):
 
             def resnet_disc(x):
                 with scope.name_scope('resnet'):
-                    n_hidden = 16
+                    n_hidden = 32
                     block_factors = [1, 2, 4]
                     block_strides = [2, 2, 2]
 
@@ -878,9 +878,9 @@ class MotionGANV7(_MotionGAN):
 
             def dmnn_disc(x):
                 with scope.name_scope('dmnn'):
-                    blocks = [{'size': 16,   'bneck_f': 2, 'strides': 2},
-                              {'size': 32,   'bneck_f': 2, 'strides': 2},
-                              {'size': 64,   'bneck_f': 2, 'strides': 2}]
+                    blocks = [{'size': 32,   'bneck_f': 2, 'strides': 2},
+                              {'size': 64,   'bneck_f': 2, 'strides': 2},
+                              {'size': 128,  'bneck_f': 2, 'strides': 2}]
                     n_reps = 2
 
                     x = CombMatrix(self.njoints, name=scope+'comb_matrix')(x)

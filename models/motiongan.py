@@ -104,7 +104,7 @@ class _MotionGAN(object):
         self.fake_outputs = self.disc_model(self.gen_outputs)
 
         # Losses
-        self.wgan_losses, self.disc_losses, self.gen_losses = self._build_loss()
+        self.wgan_losses, self.disc_losses, self.gen_losses, self.gen_metrics = self._build_loss()
 
         with K.name_scope('loss/sum'):
             disc_loss = 0.0
@@ -132,7 +132,7 @@ class _MotionGAN(object):
         with K.name_scope('generator/functions/train'):
             gen_optimizer = Nadam(lr=config.learning_rate)
             gen_training_updates = gen_optimizer.get_updates(gen_loss, self.gen_model.trainable_weights)
-            self.gen_train_f = K.function(self.gen_inputs,  self.gen_losses.values(), gen_training_updates)
+            self.gen_train_f = K.function(self.gen_inputs,  self.gen_losses.values() + self.gen_metrics.values(), gen_training_updates)
 
         with K.name_scope('generator/functions/eval'):
             gen_f_outs = self.gen_losses.values()
@@ -191,6 +191,7 @@ class _MotionGAN(object):
             wgan_losses = OrderedDict()
             disc_losses = OrderedDict()
             gen_losses = OrderedDict()
+            gen_metrics = OrderedDict()
 
             # Grabbing tensors
             real_seq = _get_tensor(self.disc_inputs, 'real_seq')
@@ -238,6 +239,9 @@ class _MotionGAN(object):
                     loss_rec_angles = K.sum(K.mean(K.square((self.angles_input * self.angles_mask) -
                                                             (self.angles_output * self.angles_mask)), axis=-1), axis=(1, 2))
                     gen_losses['gen_loss_rec_angles'] = self.angles_scale * K.mean(loss_rec_angles)
+
+                loss_rec = K.sum(K.mean(K.square((real_seq * (1 - seq_mask)) - (gen_seq * (1 - seq_mask))), axis=-1), axis=(1, 2))
+                gen_metrics['gen_loss_rec_comp'] = self.rec_scale * K.mean(loss_rec)
 
             # Action label loss
             # with K.name_scope('action_loss'):
@@ -309,7 +313,7 @@ class _MotionGAN(object):
                         gen_loss_reg += reg_loss
                     gen_losses['gen_loss_reg'] = gen_loss_reg
 
-        return wgan_losses, disc_losses, gen_losses
+        return wgan_losses, disc_losses, gen_losses, gen_metrics
 
     def _pseudo_build_model(self, model, optimizer):
         # This function mimics compilation to enable saving the model

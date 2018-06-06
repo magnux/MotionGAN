@@ -135,7 +135,7 @@ class _MotionGAN(object):
             self.gen_train_f = K.function(self.gen_inputs,  self.gen_losses.values() + self.gen_metrics.values(), gen_training_updates)
 
         with K.name_scope('generator/functions/eval'):
-            gen_f_outs = self.gen_losses.values()
+            gen_f_outs = self.gen_losses.values() + self.gen_metrics.values()
             if self.use_pose_fae:
                 gen_f_outs.append(self.fae_z)
             # gen_f_outs.append(self.aux_out)

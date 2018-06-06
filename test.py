@@ -73,6 +73,7 @@ if __name__ == "__main__":
 
     # TODO: assert all configs are for the same dataset
     data_input = DataInput(configs[0])
+    _reset_rand_seed()
     val_batches = data_input.val_epoch_size
     val_generator = data_input.batch_generator(False)
 

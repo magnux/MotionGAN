@@ -33,6 +33,7 @@ if __name__ == "__main__":
     config = get_config(FLAGS)
 
     data_input = DataInput(config)
+    _reset_rand_seed()
     train_batches = data_input.train_epoch_size
     train_generator = data_input.batch_generator(True)
     val_batches = data_input.val_epoch_size

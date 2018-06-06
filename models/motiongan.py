@@ -165,14 +165,14 @@ class _MotionGAN(object):
 
     def gen_train(self, inputs):
         train_outs = self.gen_train_f(inputs)
-        keys = self.gen_losses.keys()
+        keys = self.gen_losses.keys() + self.gen_metrics.keys()
         keys = ['train/%s' % key for key in keys]
         losses_dict = OrderedDict(zip(keys, train_outs))
         return losses_dict
 
     def gen_eval(self, inputs):
         eval_outs = self.gen_eval_f(inputs)
-        keys = self.gen_losses.keys()
+        keys = self.gen_losses.keys() + self.gen_metrics.keys()
         keys = ['val/%s' % key for key in keys]
         if self.use_pose_fae:
             keys.append('fae_z')

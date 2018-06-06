@@ -9,7 +9,7 @@ from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, Conv2D, \
     Dense, Activation, Lambda, Add, Concatenate, Permute, Reshape, Flatten, \
     Conv1D, Multiply, Embedding, LeakyReLU, ZeroPadding2D, Cropping2D
-from tensorflow.contrib.keras.api.keras.optimizers import SGD
+from tensorflow.contrib.keras.api.keras.optimizers import Nadam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 from tensorflow.contrib.keras.api.keras.initializers import Constant
 from layers.normalization import InstanceNormalization
@@ -117,7 +117,7 @@ class _MotionGAN(object):
 
         # Custom train functions
         with K.name_scope('discriminator/functions/train'):
-            disc_optimizer = SGD(lr=config.learning_rate, momentum=0.9, nesterov=True)
+            disc_optimizer = Nadam(lr=config.learning_rate)
             disc_training_updates = disc_optimizer.get_updates(disc_loss, self.disc_model.trainable_weights)
             self.disc_train_f = K.function(self.disc_inputs + self.gen_inputs + self.place_holders,
                                            self.wgan_losses.values() + self.disc_losses.values(),
@@ -130,7 +130,7 @@ class _MotionGAN(object):
         self.disc_model = self._pseudo_build_model(self.disc_model, disc_optimizer)
 
         with K.name_scope('generator/functions/train'):
-            gen_optimizer = SGD(lr=config.learning_rate, momentum=0.9, nesterov=True)
+            gen_optimizer = Nadam(lr=config.learning_rate)
             gen_training_updates = gen_optimizer.get_updates(gen_loss, self.gen_model.trainable_weights)
             self.gen_train_f = K.function(self.gen_inputs + self.place_holders, self.gen_losses.values(), gen_training_updates)
 
@@ -1026,7 +1026,7 @@ class MotionGANV7(_MotionGAN):
 
             def resnet_disc(x):
                 with scope.name_scope('resnet'):
-                    n_hidden = 64
+                    n_hidden = 16
                     block_factors = [1, 2, 4]
                     block_strides = [2, 2, 2]
 
@@ -1045,9 +1045,9 @@ class MotionGANV7(_MotionGAN):
 
             def dmnn_disc(x):
                 with scope.name_scope('dmnn'):
-                    blocks = [{'size': 64,  'bneck_f': 4, 'strides': 2},
-                              {'size': 128, 'bneck_f': 4, 'strides': 2},
-                              {'size': 256, 'bneck_f': 4, 'strides': 2}]
+                    blocks = [{'size': 16,  'bneck_f': 4, 'strides': 2},
+                              {'size': 32,  'bneck_f': 4, 'strides': 2},
+                              {'size': 64,  'bneck_f': 4, 'strides': 2}]
                     n_reps = 2
 
                     x = CombMatrix(self.njoints, name=scope+'comb_matrix')(x)
@@ -1081,7 +1081,7 @@ class MotionGANV7(_MotionGAN):
     def generator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('generator'):
-            n_hidden = 32
+            n_hidden = 16
             u_blocks = 0
             min_space = min(int(x.shape[1]), int(x.shape[2]))
             while min_space > 2:

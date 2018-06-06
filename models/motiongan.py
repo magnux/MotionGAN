@@ -132,7 +132,9 @@ class _MotionGAN(object):
         with K.name_scope('generator/functions/train'):
             gen_optimizer = Nadam(lr=config.learning_rate)
             gen_training_updates = gen_optimizer.get_updates(gen_loss, self.gen_model.trainable_weights)
-            self.gen_train_f = K.function(self.gen_inputs,  self.gen_losses.values() + self.gen_metrics.values(), gen_training_updates)
+            self.gen_train_f = K.function(self.gen_inputs,
+                                          self.gen_losses.values() + self.gen_metrics.values(),
+                                          gen_training_updates)
 
         with K.name_scope('generator/functions/eval'):
             gen_f_outs = self.gen_losses.values() + self.gen_metrics.values()

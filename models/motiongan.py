@@ -914,7 +914,7 @@ class MotionGANV7(_MotionGAN):
     def generator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('generator'):
-            n_hidden = 16
+            n_hidden = 32
             u_blocks = 0
             emb_dim = int(x.shape[2])
             while emb_dim > 4:

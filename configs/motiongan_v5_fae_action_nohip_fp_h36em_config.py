@@ -3,7 +3,7 @@
     'data_set': 'Human36_expmaps',
     'data_set_version': 'v1',
     # Model version to train
-    'model_version': 'v7',
+    'model_version': 'v5',
     # Perform per joint normalization
     'normalize_per_joint': True,
 
@@ -26,4 +26,6 @@
     'pick_num': 20,
     # Size of the random crop (0 == deactivated)
     'crop_len': 100,
+    # Train on future prediction task only
+    'train_fp': True,
 }

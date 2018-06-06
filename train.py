@@ -106,11 +106,11 @@ if __name__ == "__main__":
                     disc_inputs = [poses_batch]
                     gen_inputs = [poses_batch, mask_batch]
                     labels = np.reshape(labs_batch[:, 2], (config.batch_size, 1))
-                    place_holders = [labels]
+                    # place_holders = [labels]
                     if config.action_cond:
                         gen_inputs.append(labels)
 
-                    losses = model_wrap.disc_train(disc_inputs + gen_inputs + place_holders)
+                    losses = model_wrap.disc_train(disc_inputs + gen_inputs)  # + place_holders)
 
                     if disc_batch == 0:
                         disc_losses = losses
@@ -131,11 +131,11 @@ if __name__ == "__main__":
 
                 gen_inputs = [poses_batch, mask_batch]
                 labels = np.reshape(labs_batch[:, 2], (config.batch_size, 1))
-                place_holders = [labels]
+                # place_holders = [labels]
                 if config.action_cond:
                     gen_inputs.append(labels)
 
-                gen_losses = model_wrap.gen_train(gen_inputs + place_holders)
+                gen_losses = model_wrap.gen_train(gen_inputs)  # + place_holders)
 
                 # Output to terminal, note output is averaged over the epoch
                 disc_loss_sum += disc_losses['train/disc_loss_wgan']
@@ -181,12 +181,12 @@ if __name__ == "__main__":
             disc_inputs = [poses_batch]
             gen_inputs = [poses_batch, mask_batch]
             labels = np.reshape(labs_batch[:, 2], (config.batch_size, 1))
-            place_holders = [labels]
+            # place_holders = [labels]
             if config.action_cond:
                 gen_inputs.append(labels)
 
-            disc_losses = model_wrap.disc_eval(disc_inputs + gen_inputs + place_holders)
-            gen_losses = model_wrap.gen_eval(gen_inputs + place_holders)
+            disc_losses = model_wrap.disc_eval(disc_inputs + gen_inputs)  # + place_holders)
+            gen_losses = model_wrap.gen_eval(gen_inputs)  # + place_holders)
             if config.use_pose_fae:
                 fae_z = gen_losses.pop('fae_z', None)
             # aux_out = gen_losses.pop('aux_out', None)

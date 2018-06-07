@@ -414,11 +414,11 @@ class _MotionGAN(object):
 
                     if not self.time_pres_emb:
                         x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
-
+            num_actions = self.num_actions
             if self.action_cond:
                 x_label = _get_tensor(input_tensors, 'true_label')
-                x_label = Embedding(self.num_actions, 4, name=scope+'emb_label')(x_label)
-                x_label = Reshape((1, 1, 4), name=scope+'res_label')(x_label)
+                x_label = Lambda(lambda arg: K.one_hot(arg, num_actions), name=scope+'emb_label')(x_label)
+                x_label = Reshape((1, 1, num_actions), name=scope+'res_label')(x_label)
                 x_label = Tile((x.shape[1], x.shape[2], 1), name=scope+'tile_label')(x_label)
                 x = Concatenate(axis=-1, name=scope+'cat_label')([x, x_label])
 

@@ -805,7 +805,7 @@ class MotionGANV5(_MotionGAN):
                 wave_output = wave_input
                 for i in range(n_blocks):
                     with scope.name_scope('block_%d' % i):
-                        n_filters = n_hidden * (i + 1)
+                        n_filters = n_hidden * (i + 2)
                         pi = _conv_block(wave_output, n_filters, 2, 3, (2, 1), Conv2D)
                         shortcut = Conv2D(n_filters, (2, 1), (2, 1), name=scope+'shortcut', **CONV2D_ARGS)(wave_output)
                         wave_output = Add(name=scope+'add')([shortcut, pi])

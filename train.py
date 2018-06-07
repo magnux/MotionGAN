@@ -76,7 +76,7 @@ if __name__ == "__main__":
             tensorboard.on_epoch_begin(config.epoch)
 
             if config.lr_decay:
-                learning_rate = config.learning_rate * (0.1 ** (config.epoch // (config.num_epochs // 3)))
+                learning_rate = config.learning_rate * (0.1 ** (config.epoch // (config.num_epochs // 4)))
                 # learning_rate = config.learning_rate * (1.0 - (config.epoch / config.num_epochs))
                 model_wrap.update_lr(learning_rate)
 

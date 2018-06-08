@@ -51,9 +51,14 @@ if __name__ == "__main__":
         print('GAN model:')
         print(model_wrap.gan_model.summary())
 
-    def save_models():
+    def save_models(val_err=np.inf):
         model_wrap.disc_model.save(config.save_path + '_disc_weights.hdf5')
         model_wrap.gen_model.save(config.save_path + '_gen_weights.hdf5')
+        if config.best_err >= val_err:
+            model_wrap.disc_model.save(config.save_path + '_best_disc_weights.hdf5')
+            model_wrap.gen_model.save(config.save_path + '_best_gen_weights.hdf5')
+            config.best_err = val_err
+            config.best_epoch = config.epoch
 
     if config.epoch > 0:
         model_wrap.disc_model = restore_keras_model(
@@ -76,7 +81,7 @@ if __name__ == "__main__":
             tensorboard.on_epoch_begin(config.epoch)
 
             if config.lr_decay:
-                learning_rate = config.learning_rate * (0.1 ** (config.epoch // (config.num_epochs // 4)))
+                learning_rate = config.learning_rate * (0.1 ** (config.epoch // (config.num_epochs // 3)))
                 # learning_rate = config.learning_rate * (1.0 - (config.epoch / config.num_epochs))
                 model_wrap.update_lr(learning_rate)
 
@@ -237,7 +242,7 @@ if __name__ == "__main__":
             config.epoch += 1
             config.batch = 0
 
-            save_models()
+            save_models(logs['val/gen_loss_rec_comp'])
             config.save()
 
     except KeyboardInterrupt:

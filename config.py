@@ -3,6 +3,7 @@ from __future__ import absolute_import, division, print_function
 import os
 import pickle
 import tensorflow as tf
+import numpy as np
 from collections import OrderedDict
 
 
@@ -49,6 +50,8 @@ def get_config(flags):
     config.batch = config.batch if hasattr(config, 'batch') else 0
     config.nan_restarts = config.nan_restarts if hasattr(config, 'nan_restarts') else 0
     config.only_val = config.only_val if hasattr(config, 'only_val') else False
+    config.best_err = np.inf
+    config.best_epoch = 0
 
     if config.data_set == 'NTURGBD':
         config.num_actions = 60

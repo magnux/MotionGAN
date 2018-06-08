@@ -465,7 +465,7 @@ class _MotionGAN(object):
     def _pose_encoder(self, seq):
         scope = Scoping.get_global_scope()
         with scope.name_scope('encoder'):
-            fae_dim = self.org_shape[1] * self.org_shape[3]
+            fae_dim = self.org_shape[1] * self.org_shape[3] * 4
 
             h = Permute((2, 1, 3), name=scope+'perm_in')(seq)
             h = Reshape((int(seq.shape[2]), int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
@@ -479,7 +479,7 @@ class _MotionGAN(object):
                     h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                                name=scope+'attention')([h, pi, tau])
 
-            z = Conv1D(fae_dim, 1, 1, name=scope+'z_mean', **CONV1D_ARGS)(h)
+            z = Conv1D(fae_dim, 1, 1, name=scope+'z_emb', **CONV1D_ARGS)(h)
             z_attention = Conv1D(fae_dim, 1, 1, activation='sigmoid', name=scope+'attention_mask', **CONV1D_ARGS)(h)
 
             # We are only expecting half of the latent features to be activated
@@ -490,7 +490,7 @@ class _MotionGAN(object):
     def _pose_decoder(self, gen_z):
         scope = Scoping.get_global_scope()
         with scope.name_scope('decoder'):
-            fae_dim = self.org_shape[1] * self.org_shape[3]
+            fae_dim = self.org_shape[1] * self.org_shape[3] * 4
 
             dec_h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(gen_z)
             for i in range(3):
@@ -713,7 +713,7 @@ class MotionGANV3(_MotionGAN):
                     x = Add(name=scope+'add')([x, pi])
 
             if self.use_pose_fae:
-                fae_dim = self.org_shape[1] * self.org_shape[3]
+                fae_dim = self.org_shape[1] * self.org_shape[3] * 4
                 x = Dense((self.seq_len * fae_dim), name=scope+'dense_out', activation='relu')(x)
                 x = Reshape((self.seq_len, fae_dim, 1), name=scope+'reshape_out')(x)
             else:
@@ -805,8 +805,8 @@ class MotionGANV5(_MotionGAN):
                 wave_output = wave_input
                 for i in range(n_blocks):
                     with scope.name_scope('block_%d' % i):
-                        n_filters = n_hidden * (i + 2)
-                        pi = _conv_block(wave_output, n_filters, 2, 3, (2, 1), Conv2D)
+                        n_filters = n_hidden * (i + 1)
+                        pi = _conv_block(wave_output, n_filters, 2, (9, 3), (2, 1), Conv2D)
                         shortcut = Conv2D(n_filters, (2, 1), (2, 1), name=scope+'shortcut', **CONV2D_ARGS)(wave_output)
                         wave_output = Add(name=scope+'add')([shortcut, pi])
 

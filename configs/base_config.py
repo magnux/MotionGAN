@@ -54,7 +54,7 @@
     # It's the batch size
     'batch_size': 256,
     # Final epoch
-    'num_epochs': 256,
+    'num_epochs': 192,
     # Multiplies length of epoch, useful for tiny datasets
     'epoch_factor': 1,
     # How fast should we learn?

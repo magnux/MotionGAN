@@ -920,6 +920,7 @@ class MotionGANV7(_MotionGAN):
             while emb_dim > 4:
                 emb_dim //= 2
                 u_blocks += 1
+            u_blocks = min(u_blocks, 4)
             u_blocks = u_blocks * 2
             block_factors = range(1, (u_blocks // 2) + 1) + range(u_blocks // 2, 0, -1)
             macro_blocks = 4

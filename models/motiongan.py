@@ -346,7 +346,17 @@ class _MotionGAN(object):
     def _proc_disc_outputs(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('discriminator'):
-            score_out = Dense(1, name=scope+'score_out')(x)
+            with scope.name_scope('score_net'):
+                n_hidden = 256
+                x = Dense(n_hidden, name=scope+'dense_in', activation='relu')(x)
+                for i in range(3):
+                    with scope.name_scope('block_%d' % i):
+                        pi = Dense(n_hidden, name=scope+'dense_0', activation='relu')(x)
+                        pi = Dense(n_hidden, name=scope+'dense_1', activation='relu')(pi)
+
+                        x = Add(name=scope+'add')([x, pi])
+
+                score_out = Dense(1, name=scope+'score_out')(x)
 
             output_tensors = [score_out]
 
@@ -723,65 +733,100 @@ class MotionGANV3(_MotionGAN):
         return x
 
 
+def resnet_disc(x):
+    scope = Scoping.get_global_scope()
+    with scope.name_scope('resnet'):
+        n_hidden = 32
+        block_factors = [1, 2, 4]
+        block_strides = [2, 2, 2]
+
+        x = Conv2D(n_hidden * block_factors[0], 3, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+        for i, factor in enumerate(block_factors):
+            with scope.name_scope('block_%d' % i):
+                n_filters = n_hidden * factor
+                shortcut = Conv2D(n_filters, block_strides[i], block_strides[i],
+                                  name=scope+'shortcut', **CONV2D_ARGS)(x)
+                pi = _conv_block(x, n_filters, 2, 3, block_strides[i])
+                x = Add(name=scope+'add')([shortcut, pi])
+
+        x = Activation('relu', name=scope+'relu_out')(x)
+        x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
+    return x
+
+
+def dmnn_disc(x):
+    scope = Scoping.get_global_scope()
+    with scope.name_scope('dmnn'):
+        x_shape = [int(dim) for dim in x.shape]
+        blocks = [{'size': 32, 'bneck_f': 2, 'strides': 2},
+                  {'size': 64, 'bneck_f': 2, 'strides': 2},
+                  {'size': 128, 'bneck_f': 2, 'strides': 2}]
+        n_reps = 2
+
+        x = CombMatrix(x_shape[1], name=scope+'comb_matrix')(x)
+
+        x = EDM(name=scope+'edms')(x)
+        x = Reshape((x_shape[1], x_shape[1], x_shape[2], 1), name=scope+'resh_in')(x)
+
+        x = Conv3D(blocks[0]['size'] // blocks[0]['size'], 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+        for i in range(len(blocks)):
+            for j in range(n_reps):
+                with scope.name_scope('block_%d_%d' % (i, j)):
+                    strides = blocks[i]['strides'] if j == 0 else 1
+                    if int(x.shape[-1]) != blocks[i]['size'] or strides > 1:
+                        shortcut = Conv3D(blocks[i]['size'], 1, strides,
+                                          name=scope+'shortcut', **CONV2D_ARGS)(x)
+                    else:
+                        shortcut = x
+
+                    x = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'], 3, strides, Conv3D, 1)
+                    x = Add(name=scope+'add')([shortcut, x])
+
+        x = Lambda(lambda args: K.mean(args, axis=(1, 2, 3)), name=scope+'mean_pool')(x)
+    return x
+
+
+def split_disc(x):
+    scope = Scoping.get_global_scope()
+    with scope.name_scope('split_resnet'):
+        x_shape = [int(dim) for dim in x.shape]
+        n_hidden = 32
+        time_steps = x_shape[2] // 2
+        time_steps_tmp = time_steps
+        n_blocks = 0
+        while time_steps_tmp > 1:
+            time_steps_tmp //= 2
+            n_blocks += 1
+
+        split_input = Input(batch_shape=(x_shape[0], x_shape[1], time_steps, x_shape[3]))
+
+        split_x = Conv2D(n_hidden, 3, 1, name=scope+'conv_in', **CONV2D_ARGS)(split_input)
+        for i in range(n_blocks):
+            with scope.name_scope('block_%d' % i):
+                n_filters = n_hidden * (i + 1)
+                shortcut = Conv2D(n_filters, 2, 2, name=scope+'shortcut', **CONV2D_ARGS)(split_x)
+                pi = _conv_block(split_x, n_filters, 2, 3, 2)
+                split_x = Add(name=scope+'add')([shortcut, pi])
+
+        split_x = Activation('relu', name=scope+'relu_out')(split_x)
+        split_x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(split_x)
+
+        split_res = Model(split_input, split_x, name='split_res_model')
+
+        x_head = Lambda(lambda arg: arg[:, :, :time_steps, :], name=scope+'head_slice')(x)
+        x_tail = Lambda(lambda arg: arg[:, :, time_steps:, :], name=scope+'tail_slice')(x)
+
+        x = Concatenate(axis=-1, name=scope+'features_cat')([split_res(x_head), split_res(x_tail)])
+    return x
+
+
 class MotionGANV5(_MotionGAN):
-    # DMNN + ResNet Discriminator, WaveNet style generator
+    # DMNN + ResNet + Split Discriminator, WaveNet style generator
 
     def discriminator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('discriminator'):
-
-            def resnet_disc(x):
-                with scope.name_scope('resnet'):
-                    n_hidden = 32
-                    block_factors = [1, 2, 4]
-                    block_strides = [2, 2, 2]
-
-                    x = Conv2D(n_hidden * block_factors[0], 3, 1, name=scope + 'conv_in', **CONV2D_ARGS)(x)
-                    for i, factor in enumerate(block_factors):
-                        with scope.name_scope('block_%d' % i):
-                            n_filters = n_hidden * factor
-                            shortcut = Conv2D(n_filters, block_strides[i], block_strides[i],
-                                              name=scope + 'shortcut', **CONV2D_ARGS)(x)
-                            pi = _conv_block(x, n_filters, 2, 3, block_strides[i])
-                            x = Add(name=scope + 'add')([shortcut, pi])
-
-                    x = Activation('relu', name=scope + 'relu_out')(x)
-                    x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope + 'mean_pool')(x)
-                return x
-
-            def dmnn_disc(x):
-                with scope.name_scope('dmnn'):
-                    blocks = [{'size': 32,   'bneck_f': 2, 'strides': 2},
-                              {'size': 64,   'bneck_f': 2, 'strides': 2},
-                              {'size': 128,  'bneck_f': 2, 'strides': 2}]
-                    n_reps = 2
-
-                    x = CombMatrix(self.njoints, name=scope + 'comb_matrix')(x)
-
-                    x = EDM(name=scope + 'edms')(x)
-                    x = Reshape((self.njoints, self.njoints, self.seq_len, 1), name=scope + 'resh_in')(x)
-
-                    x = Conv3D(blocks[0]['size'] // blocks[0]['size'], 1, 1, name=scope + 'conv_in', **CONV2D_ARGS)(x)
-                    for i in range(len(blocks)):
-                        for j in range(n_reps):
-                            with scope.name_scope('block_%d_%d' % (i, j)):
-                                strides = blocks[i]['strides'] if j == 0 else 1
-                                if int(x.shape[-1]) != blocks[i]['size'] or strides > 1:
-                                    with scope.name_scope('shortcut'):
-                                        shortcut = Activation('relu', name=scope + 'relu')(x)
-                                        shortcut = Conv3D(blocks[i]['size'], 1, strides,
-                                                          name=scope + 'conv', **CONV2D_ARGS)(shortcut)
-                                else:
-                                    shortcut = x
-
-                                x = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'], 3, strides, Conv3D, 1)
-                                x = Add(name=scope + 'add')([shortcut, x])
-
-                    x = Lambda(lambda args: K.mean(args, axis=(1, 2, 3)), name=scope + 'mean_pool')(x)
-                return x
-
-            x = Concatenate(axis=-1, name=scope + 'features_cat')([resnet_disc(x), dmnn_disc(x)])
-
+            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x), split_disc(x)])
         return x
 
     def generator(self, x):
@@ -806,7 +851,7 @@ class MotionGANV5(_MotionGAN):
                 for i in range(n_blocks):
                     with scope.name_scope('block_%d' % i):
                         n_filters = n_hidden * (i + 1)
-                        pi = _conv_block(wave_output, n_filters, 2, (9, 3), (2, 1), Conv2D)
+                        pi = _conv_block(wave_output, n_filters, 2, (3, 9), (2, 1), Conv2D)
                         shortcut = Conv2D(n_filters, (2, 1), (2, 1), name=scope+'shortcut', **CONV2D_ARGS)(wave_output)
                         wave_output = Add(name=scope+'add')([shortcut, pi])
 
@@ -851,64 +896,12 @@ class MotionGANV5(_MotionGAN):
 
 
 class MotionGANV7(_MotionGAN):
-    # DMNN + ResNet Discriminator, ResNet + UNet Generator 4 STACK
+    # DMNN + ResNet + Split Discriminator, ResNet + UNet Generator 4 STACK
 
     def discriminator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('discriminator'):
-
-            def resnet_disc(x):
-                with scope.name_scope('resnet'):
-                    n_hidden = 32
-                    block_factors = [1, 2, 4]
-                    block_strides = [2, 2, 2]
-
-                    x = Conv2D(n_hidden * block_factors[0], 3, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
-                    for i, factor in enumerate(block_factors):
-                        with scope.name_scope('block_%d' % i):
-                            n_filters = n_hidden * factor
-                            shortcut = Conv2D(n_filters, block_strides[i], block_strides[i],
-                                              name=scope+'shortcut', **CONV2D_ARGS)(x)
-                            pi = _conv_block(x, n_filters, 2, 3, block_strides[i])
-                            x = Add(name=scope+'add')([shortcut, pi])
-
-                    x = Activation('relu', name=scope+'relu_out')(x)
-                    x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
-                return x
-
-            def dmnn_disc(x):
-                with scope.name_scope('dmnn'):
-                    blocks = [{'size': 32,   'bneck_f': 2, 'strides': 2},
-                              {'size': 64,   'bneck_f': 2, 'strides': 2},
-                              {'size': 128,  'bneck_f': 2, 'strides': 2}]
-                    n_reps = 2
-
-                    x = CombMatrix(self.njoints, name=scope+'comb_matrix')(x)
-        
-                    x = EDM(name=scope+'edms')(x)
-                    x = Reshape((self.njoints, self.njoints, self.seq_len, 1), name=scope+'resh_in')(x)
-        
-                    x = Conv3D(blocks[0]['size'] // blocks[0]['size'], 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
-                    for i in range(len(blocks)):
-                        for j in range(n_reps):
-                            with scope.name_scope('block_%d_%d' % (i, j)):
-                                strides = blocks[i]['strides'] if j == 0 else 1
-                                if int(x.shape[-1]) != blocks[i]['size'] or strides > 1:
-                                    with scope.name_scope('shortcut'):
-                                        shortcut = Activation('relu', name=scope+'relu')(x)
-                                        shortcut = Conv3D(blocks[i]['size'], 1, strides,
-                                                          name=scope+'conv', **CONV2D_ARGS)(shortcut)
-                                else:
-                                    shortcut = x
-        
-                                x = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'], 3, strides, Conv3D, 1)
-                                x = Add(name=scope+'add')([shortcut, x])
-        
-                    x = Lambda(lambda args: K.mean(args, axis=(1, 2, 3)), name=scope+'mean_pool')(x)
-                return x
-
-            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
-
+            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x), split_disc(x)])
         return x
 
     def generator(self, x):

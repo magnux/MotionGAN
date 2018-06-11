@@ -66,6 +66,8 @@ class _MotionGAN(object):
         self.action_cond = config.action_cond
         self.action_scale_d = 10.0
         self.action_scale_g = 1.0
+        self.coherence_loss = config.coherence_loss
+        self.coherence_scale = 1.0
         self.shape_loss = config.shape_loss
         self.shape_scale = 1.0
         self.smoothing_loss = config.smoothing_loss
@@ -230,7 +232,7 @@ class _MotionGAN(object):
 
             # Reconstruction loss
             with K.name_scope('reconstruction_loss'):
-                loss_rec = K.sum(K.mean(K.square((real_seq * seq_mask) - (gen_seq * seq_mask)), axis=-1), axis=(1, 2))
+                loss_rec = K.sum(K.mean(K.square((real_seq - gen_seq) * seq_mask), axis=-1), axis=(1, 2))
                 gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
                 if self.use_diff:
@@ -242,7 +244,7 @@ class _MotionGAN(object):
                                                             (self.angles_output * self.angles_mask)), axis=-1), axis=(1, 2))
                     gen_losses['gen_loss_rec_angles'] = self.angles_scale * K.mean(loss_rec_angles)
 
-                loss_rec = K.sum(K.mean(K.square((real_seq * (1 - seq_mask)) - (gen_seq * (1 - seq_mask))), axis=-1), axis=(1, 2))
+                loss_rec = K.sum(K.mean(K.square((real_seq - gen_seq) * (1 - seq_mask)), axis=-1), axis=(1, 2))
                 gen_metrics['gen_loss_rec_comp'] = self.rec_scale * K.mean(loss_rec)
 
             # Action label loss
@@ -255,6 +257,15 @@ class _MotionGAN(object):
             #         _get_tensor(self.fake_outputs, 'label_out'), True))
             #     disc_losses['disc_loss_action'] = self.action_scale_d * (loss_class_real + loss_class_fake)
             #     gen_losses['gen_loss_action'] = self.action_scale_g * loss_class_fake
+
+            if self.coherence_loss:
+                with K.name_scope('coherence_loss'):
+                    exp_decay = 1.0 / np.exp(np.linspace(0.0, 2.0, self.seq_len // 2, dtype='float32'))
+                    exp_decay = np.reshape(exp_decay, (1, 1, self.seq_len // 2, 1))
+                    coherence_mask = np.concatenate([np.zeros((1, 1, self.seq_len // 2, 1)), exp_decay], axis=2)
+                    coherence_mask = K.constant(coherence_mask, dtype='float32')
+                    loss_coh = K.sum(K.mean(K.square((real_seq - gen_seq) * coherence_mask), axis=-1), axis=(1, 2))
+                    gen_losses['gen_loss_coh'] = self.coherence_scale * K.mean(loss_coh)
 
             if self.shape_loss:
                 with K.name_scope('shape_loss'):
@@ -294,7 +305,7 @@ class _MotionGAN(object):
                 with K.name_scope('smoothing_loss'):
                     Q = idct(np.eye(self.seq_len))[:self.smoothing_basis, :]
                     Q_inv = pinv(Q)
-                    Qs = K.constant(np.matmul(Q_inv, Q))
+                    Qs = K.constant(np.matmul(Q_inv, Q), dtype='float32')
                     gen_seq_s = K.permute_dimensions(gen_seq, (0, 1, 3, 2))
                     gen_seq_s = K.dot(gen_seq_s, Qs)
                     gen_seq_s = K.permute_dimensions(gen_seq_s, (0, 1, 3, 2))
@@ -394,18 +405,8 @@ class _MotionGAN(object):
             self.org_shape = [int(dim) for dim in x.shape]
 
             x = Multiply(name=scope+'mask_mult')([x, x_mask])
-
-            def _copy_last_known(arg):
-                seq_len = int(arg.shape[2])
-                lk_idx = (seq_len // 2) - 1
-                lk = arg[:, :, lk_idx, :]
-                lk = K.reshape(lk, (int(arg.shape[0]), int(arg.shape[1]), 1, 3))
-                lk = tf.tile(lk, (1, 1, seq_len // 2, 1))
-                return K.concatenate([arg[:, :, :seq_len // 2, :], lk], 2)
-            x = Lambda(_copy_last_known, name=scope+'copy_last_known')(x)
-
-            x_occ = Lambda(lambda arg: 1 - arg, name=scope+'mask_occ')(x_mask)
-            x = Concatenate(axis=-1, name=scope+'cat_occ')([x, x_occ])
+            # x_occ = Lambda(lambda arg: 1 - arg, name=scope+'mask_occ')(x_mask)
+            x = Concatenate(axis=-1, name=scope+'cat_occ')([x, x_mask])
 
             if self.use_pose_fae:
 
@@ -796,38 +797,38 @@ def dmnn_disc(x):
     return x
 
 
-def split_disc(x):
-    scope = Scoping.get_global_scope()
-    with scope.name_scope('split_resnet'):
-        x_shape = [int(dim) for dim in x.shape]
-        n_hidden = 32
-        time_steps = x_shape[2] // 2
-        time_steps_tmp = time_steps
-        n_blocks = 0
-        while time_steps_tmp > 1:
-            time_steps_tmp //= 2
-            n_blocks += 1
-
-        split_input = Input(batch_shape=(x_shape[0], x_shape[1], time_steps, x_shape[3]))
-
-        split_x = Conv2D(n_hidden, 3, 1, name=scope+'conv_in', **CONV2D_ARGS)(split_input)
-        for i in range(n_blocks):
-            with scope.name_scope('block_%d' % i):
-                n_filters = n_hidden * (i + 1)
-                shortcut = Conv2D(n_filters, 2, 2, name=scope+'shortcut', **CONV2D_ARGS)(split_x)
-                pi = _conv_block(split_x, n_filters, 2, 3, 2)
-                split_x = Add(name=scope+'add')([shortcut, pi])
-
-        split_x = Activation('relu', name=scope+'relu_out')(split_x)
-        split_x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(split_x)
-
-        split_res = Model(split_input, split_x, name='split_res_model')
-
-        x_head = Lambda(lambda arg: arg[:, :, :time_steps, :], name=scope+'head_slice')(x)
-        x_tail = Lambda(lambda arg: arg[:, :, time_steps:, :], name=scope+'tail_slice')(x)
-
-        x = Concatenate(axis=-1, name=scope+'features_cat')([split_res(x_head), split_res(x_tail)])
-    return x
+# def split_disc(x):
+#     scope = Scoping.get_global_scope()
+#     with scope.name_scope('split_resnet'):
+#         x_shape = [int(dim) for dim in x.shape]
+#         n_hidden = 32
+#         time_steps = x_shape[2] // 2
+#         time_steps_tmp = time_steps
+#         n_blocks = 0
+#         while time_steps_tmp > 1:
+#             time_steps_tmp //= 2
+#             n_blocks += 1
+#
+#         split_input = Input(batch_shape=(x_shape[0], x_shape[1], time_steps, x_shape[3]))
+#
+#         split_x = Conv2D(n_hidden, 3, 1, name=scope+'conv_in', **CONV2D_ARGS)(split_input)
+#         for i in range(n_blocks):
+#             with scope.name_scope('block_%d' % i):
+#                 n_filters = n_hidden * (i + 1)
+#                 shortcut = Conv2D(n_filters, 2, 2, name=scope+'shortcut', **CONV2D_ARGS)(split_x)
+#                 pi = _conv_block(split_x, n_filters, 2, 3, 2)
+#                 split_x = Add(name=scope+'add')([shortcut, pi])
+#
+#         split_x = Activation('relu', name=scope+'relu_out')(split_x)
+#         split_x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(split_x)
+#
+#         split_res = Model(split_input, split_x, name='split_res_model')
+#
+#         x_head = Lambda(lambda arg: arg[:, :, :time_steps, :], name=scope+'head_slice')(x)
+#         x_tail = Lambda(lambda arg: arg[:, :, time_steps:, :], name=scope+'tail_slice')(x)
+#
+#         x = Concatenate(axis=-1, name=scope+'features_cat')([split_res(x_head), split_res(x_tail)])
+#     return x
 
 
 class MotionGANV5(_MotionGAN):
@@ -836,7 +837,7 @@ class MotionGANV5(_MotionGAN):
     def discriminator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('discriminator'):
-            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x), split_disc(x)])
+            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
         return x
 
     def generator(self, x):
@@ -911,7 +912,7 @@ class MotionGANV7(_MotionGAN):
     def discriminator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('discriminator'):
-            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x), split_disc(x)])
+            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
         return x
 
     def generator(self, x):

@@ -22,6 +22,8 @@
     'loss_factor': 1.0,
     # Body shape conservation loss
     'shape_loss': False,
+    # Coherence on generated sequences loss
+    'coherence_loss': False,
     # Sequence smoothing loss
     'smoothing_loss': False,
     # Disable GAN loss on the generator

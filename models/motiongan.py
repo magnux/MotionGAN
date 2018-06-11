@@ -394,6 +394,16 @@ class _MotionGAN(object):
             self.org_shape = [int(dim) for dim in x.shape]
 
             x = Multiply(name=scope+'mask_mult')([x, x_mask])
+
+            def _copy_last_known(arg):
+                seq_len = int(arg.shape[2])
+                lk_idx = (seq_len // 2) - 1
+                lk = arg[:, :, lk_idx, :]
+                lk = K.reshape(lk, (int(arg.shape[0]), int(arg.shape[1]), 1, 3))
+                lk = tf.tile(lk, (1, 1, seq_len // 2, 1))
+                return K.concatenate([arg[:, :, :seq_len // 2, :], lk], 2)
+            x = Lambda(_copy_last_known, name=scope+'copy_last_known')(x)
+
             x_occ = Lambda(lambda arg: 1 - arg, name=scope+'mask_occ')(x_mask)
             x = Concatenate(axis=-1, name=scope+'cat_occ')([x, x_occ])
 

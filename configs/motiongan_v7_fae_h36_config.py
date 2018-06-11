@@ -21,9 +21,9 @@
     'coherence_loss': True,
 
     # How fast should we learn?
-    'learning_rate': 1.0e-4,
+    'learning_rate': 5e-6,
     # It's the batch size
-    'batch_size': 128,
+    'batch_size': 64,
     # Multiplies length of epoch, useful for tiny datasets
     'epoch_factor': 256,
     # Number of the random picks (0 == deactivated)

@@ -801,12 +801,13 @@ def split_disc(x):
 
     split_input = Input(batch_shape=(x_shape[0], x_shape[1], time_steps, x_shape[3]))
     split_x = Concatenate(axis=-1, name=scope+'split_features_cat')([resnet_disc(split_input), dmnn_disc(split_input)])
-    split_res = Model(split_input, split_x, name='split_disc_model')
+    split_mod = Model(split_input, split_x, name='split_disc_model')
 
     x_head = Lambda(lambda arg: arg[:, :, :time_steps, :], name=scope+'head_slice')(x)
+    x_mid = Lambda(lambda arg: arg[:, :, (time_steps // 2):(time_steps // 2)+time_steps, :], name=scope+'mid_slice')(x)
     x_tail = Lambda(lambda arg: arg[:, :, time_steps:, :], name=scope+'tail_slice')(x)
 
-    x = Concatenate(axis=-1, name=scope+'features_cat')([split_res(x_head), split_res(x_tail)])
+    x = Concatenate(axis=-1, name=scope+'features_cat')([split_mod(x_head), split_mod(x_mid),  split_mod(x_tail)])
     return x
 
 

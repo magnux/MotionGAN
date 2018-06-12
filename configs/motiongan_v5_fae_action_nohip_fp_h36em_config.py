@@ -16,7 +16,7 @@
     # Action label conditional model
     'action_cond': True,
     # Coherence on generated sequences loss
-    'coherence_loss': True,
+    'coherence_loss': False,
 
     # How fast should we learn?
     'learning_rate': 5e-6,

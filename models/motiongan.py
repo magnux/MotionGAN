@@ -260,7 +260,7 @@ class _MotionGAN(object):
 
             if self.coherence_loss:
                 with K.name_scope('coherence_loss'):
-                    exp_decay = 1.0 / np.exp(np.linspace(0.0, 2.0, self.seq_len // 2, dtype='float32'))
+                    exp_decay = 1.0 / np.exp(np.linspace(0.0, 5.0, self.seq_len // 2, dtype='float32'))
                     exp_decay = np.reshape(exp_decay, (1, 1, self.seq_len // 2, 1))
                     coherence_mask = np.concatenate([np.zeros((1, 1, self.seq_len // 2, 1)), exp_decay], axis=2)
                     coherence_mask = K.constant(coherence_mask, dtype='float32')

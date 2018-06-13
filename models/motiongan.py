@@ -198,10 +198,10 @@ class _MotionGAN(object):
 
             # WGAN Basic losses
             with K.name_scope('wgan_loss'):
-                loss_real = K.mean(_get_tensor(self.real_outputs, 'score_out'), axis=-1)
-                loss_fake = K.mean(_get_tensor(self.fake_outputs, 'score_out'), axis=-1)
-                wgan_losses['loss_real'] = K.mean(loss_real)
-                wgan_losses['loss_fake'] = K.mean(loss_fake)
+                loss_real = _get_tensor(self.real_outputs, 'score_out')
+                loss_fake = _get_tensor(self.fake_outputs, 'score_out')
+                wgan_losses['loss_real'] = K.mean(K.square(loss_real))
+                wgan_losses['loss_fake'] = K.mean(K.square(loss_fake))
 
                 # Interpolates for GP
                 alpha = K.random_uniform((self.batch_size, 1, 1, 1))
@@ -212,18 +212,18 @@ class _MotionGAN(object):
                 inter_score = _get_tensor(inter_outputs, 'score_out')
                 grad_mixed = K.gradients(inter_score, [interpolates])[0]
                 norm_grad_mixed = K.sqrt(K.sum(K.square(grad_mixed), axis=(1, 2, 3)) + K.epsilon())
-                grad_penalty = K.mean(K.square(norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
+                grad_penalty = K.expand_dims(K.square(norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
 
                 # WGAN-GP losses
-                disc_loss_wgan = loss_fake - loss_real + (self.lambda_grads * grad_penalty)
+                disc_loss_wgan = -K.square(loss_real - loss_fake) + (K.square(loss_real) * 0.5) + (self.lambda_grads * grad_penalty)
                 disc_losses['disc_loss_wgan'] = self.wgan_scale_d * K.mean(disc_loss_wgan)
 
-                gen_loss_wgan = -loss_fake
+                gen_loss_wgan = K.square(loss_real - loss_fake) + (K.square(loss_fake) * 0.5)
                 gen_losses['gen_loss_wgan'] = self.wgan_scale_g * K.mean(gen_loss_wgan)
 
             # Reconstruction loss
             with K.name_scope('reconstruction_loss'):
-                loss_rec = K.sum(K.mean(K.square((real_seq - gen_seq) * seq_mask), axis=-1), axis=(1, 2))
+                loss_rec = K.sum(K.mean(K.square(real_seq - gen_seq), axis=-1), axis=(1, 2))
                 gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
                 if self.use_diff:
@@ -358,7 +358,7 @@ class _MotionGAN(object):
 
                         x = Add(name=scope+'add')([x, pi])
 
-                score_out = Dense(1, name=scope+'score_out')(x)
+                score_out = Dense(n_hidden, name=scope+'score_out')(x)
 
             output_tensors = [score_out]
 
@@ -758,7 +758,8 @@ def resnet_disc(x):
                     x = Add(name=scope+'add')([shortcut, pi])
 
         x = Activation('relu', name=scope+'relu_out')(x)
-        x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
+        x = Lambda(lambda x: K.mean(x, axis=1), name=scope+'mean_pool')(x)
+        x = Flatten(name=scope+'flatten_out')(x)
     return x
 
 
@@ -790,25 +791,26 @@ def dmnn_disc(x):
                     x = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'], 3, strides, Conv3D, 1)
                     x = Add(name=scope+'add')([shortcut, x])
 
-        x = Lambda(lambda args: K.mean(args, axis=(1, 2, 3)), name=scope+'mean_pool')(x)
+        x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name=scope+'mean_pool')(x)
+        x = Flatten(name=scope + 'flatten_out')(x)
     return x
 
 
-def split_disc(x):
-    scope = Scoping.get_global_scope()
-    x_shape = [int(dim) for dim in x.shape]
-    time_steps = x_shape[2] // 2
-
-    split_input = Input(batch_shape=(x_shape[0], x_shape[1], time_steps, x_shape[3]))
-    split_x = Concatenate(axis=-1, name=scope+'split_features_cat')([resnet_disc(split_input), dmnn_disc(split_input)])
-    split_mod = Model(split_input, split_x, name='split_disc_model')
-
-    x_head = Lambda(lambda arg: arg[:, :, :time_steps, :], name=scope+'head_slice')(x)
-    x_mid = Lambda(lambda arg: arg[:, :, (time_steps // 2):(time_steps // 2)+time_steps, :], name=scope+'mid_slice')(x)
-    x_tail = Lambda(lambda arg: arg[:, :, time_steps:, :], name=scope+'tail_slice')(x)
-
-    x = Concatenate(axis=-1, name=scope+'features_cat')([split_mod(x_head), split_mod(x_mid),  split_mod(x_tail)])
-    return x
+# def split_disc(x):
+#     scope = Scoping.get_global_scope()
+#     x_shape = [int(dim) for dim in x.shape]
+#     time_steps = x_shape[2] // 2
+#
+#     split_input = Input(batch_shape=(x_shape[0], x_shape[1], time_steps, x_shape[3]))
+#     split_x = Concatenate(axis=-1, name=scope+'split_features_cat')([resnet_disc(split_input), dmnn_disc(split_input)])
+#     split_mod = Model(split_input, split_x, name='split_disc_model')
+#
+#     x_head = Lambda(lambda arg: arg[:, :, :time_steps, :], name=scope+'head_slice')(x)
+#     x_mid = Lambda(lambda arg: arg[:, :, (time_steps // 2):(time_steps // 2)+time_steps, :], name=scope+'mid_slice')(x)
+#     x_tail = Lambda(lambda arg: arg[:, :, time_steps:, :], name=scope+'tail_slice')(x)
+#
+#     x = Concatenate(axis=-1, name=scope+'features_cat')([split_mod(x_head), split_mod(x_mid),  split_mod(x_tail)])
+#     return x
 
 
 class MotionGANV5(_MotionGAN):
@@ -817,7 +819,7 @@ class MotionGANV5(_MotionGAN):
     def discriminator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('discriminator'):
-            x = split_disc(x)
+            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
         return x
 
     def generator(self, x):
@@ -892,7 +894,7 @@ class MotionGANV7(_MotionGAN):
     def discriminator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('discriminator'):
-            x = split_disc(x)
+            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
         return x
 
     def generator(self, x):

@@ -51,8 +51,9 @@ class _MotionGAN(object):
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
+        self.no_gan_loss = config.no_gan_loss
         self.wgan_scale_d = 10.0 * config.loss_factor
-        self.wgan_scale_g = 2.0 * config.loss_factor * (0.0 if config.no_gan_loss else 1.0)
+        self.wgan_scale_g = 2.0 * config.loss_factor * (0.0 if self.no_gan_loss else 1.0)
         self.rec_scale = 1.0   # if 'expmaps' not in self.data_set else 10.0
         self.action_cond = config.action_cond
         self.action_scale_d = 10.0
@@ -191,6 +192,7 @@ class _MotionGAN(object):
             # Grabbing tensors
             real_seq = _get_tensor(self.disc_inputs, 'real_seq')
             seq_mask = _get_tensor(self.gen_inputs, 'seq_mask')
+            seq_mask = seq_mask if not self.no_gan_loss else K.ones_like(seq_mask)
             gen_seq = self.gen_outputs[0]
 
             no_zero_frames = K.cast(K.greater_equal(K.abs(K.sum(real_seq, axis=(1, 3))), K.epsilon()), 'float32')
@@ -235,7 +237,7 @@ class _MotionGAN(object):
                                                             (self.angles_output * self.angles_mask)), axis=-1), axis=(1, 2))
                     gen_losses['gen_loss_rec_angles'] = self.angles_scale * K.mean(loss_rec_angles)
 
-                loss_rec = K.sum(K.mean(K.square((real_seq - gen_seq) * (1 - seq_mask)), axis=-1), axis=(1, 2))
+                loss_rec = K.sum(K.mean(K.square((real_seq - gen_seq) * (1 - _get_tensor(self.gen_inputs, 'seq_mask'))), axis=-1), axis=(1, 2))
                 gen_metrics['gen_loss_rec_comp'] = self.rec_scale * K.mean(loss_rec)
 
             # Action label loss

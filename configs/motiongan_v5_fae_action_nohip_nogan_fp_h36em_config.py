@@ -15,8 +15,8 @@
     'remove_hip': True,
     # Action label conditional model
     'action_cond': True,
-    # Coherence on generated sequences loss
-    'coherence_loss': True,
+    # Disable GAN loss on the generator
+    'no_gan_loss': True,
 
     # How fast should we learn?
     'learning_rate': 1e-5,

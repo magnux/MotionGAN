@@ -200,8 +200,8 @@ class _MotionGAN(object):
             with K.name_scope('wgan_loss'):
                 loss_real = _get_tensor(self.real_outputs, 'score_out')
                 loss_fake = _get_tensor(self.fake_outputs, 'score_out')
-                wgan_losses['loss_real'] = K.mean(K.square(loss_real))
-                wgan_losses['loss_fake'] = K.mean(K.square(loss_fake))
+                wgan_losses['loss_real'] = K.mean(K.abs(loss_real))
+                wgan_losses['loss_fake'] = K.mean(K.abs(loss_fake))
 
                 # Interpolates for GP
                 alpha = K.random_uniform((self.batch_size, 1, 1, 1))
@@ -215,15 +215,15 @@ class _MotionGAN(object):
                 grad_penalty = K.expand_dims(K.square(norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
 
                 # WGAN-GP losses
-                disc_loss_wgan = -K.square(loss_real - loss_fake) + (K.square(loss_real) * 0.5) + (self.lambda_grads * grad_penalty)
+                disc_loss_wgan = -K.abs(loss_real - loss_fake) + (K.square(loss_real) * 0.1) + (self.lambda_grads * grad_penalty)
                 disc_losses['disc_loss_wgan'] = self.wgan_scale_d * K.mean(disc_loss_wgan)
 
-                gen_loss_wgan = K.square(loss_real - loss_fake) + (K.square(loss_fake) * 0.5)
+                gen_loss_wgan = K.abs(loss_real - loss_fake) + (K.square(loss_fake) * 0.1)
                 gen_losses['gen_loss_wgan'] = self.wgan_scale_g * K.mean(gen_loss_wgan)
 
             # Reconstruction loss
             with K.name_scope('reconstruction_loss'):
-                loss_rec = K.sum(K.mean(K.square(real_seq - gen_seq), axis=-1), axis=(1, 2))
+                loss_rec = K.sum(K.mean(K.square((real_seq - gen_seq) * seq_mask), axis=-1), axis=(1, 2))
                 gen_losses['gen_loss_rec'] = self.rec_scale * K.mean(loss_rec)
 
                 if self.use_diff:
@@ -251,7 +251,7 @@ class _MotionGAN(object):
 
             if self.coherence_loss:
                 with K.name_scope('coherence_loss'):
-                    exp_decay = 1.0 / np.exp(np.linspace(0.0, 5.0, self.seq_len // 2, dtype='float32'))
+                    exp_decay = 1.0 / np.exp(np.linspace(0.0, 2.0, self.seq_len // 2, dtype='float32'))
                     exp_decay = np.reshape(exp_decay, (1, 1, self.seq_len // 2, 1))
                     coherence_mask = np.concatenate([np.zeros((1, 1, self.seq_len // 2, 1)), exp_decay], axis=2)
                     coherence_mask = K.constant(coherence_mask, dtype='float32')
@@ -739,8 +739,8 @@ def resnet_disc(x):
     scope = Scoping.get_global_scope()
     with scope.name_scope('resnet'):
         n_hidden = 16
-        block_factors = [1, 2, 4]
-        block_strides = [2, 2, 2]
+        block_factors = [1, 2, 4, 8]
+        block_strides = [2, 2, 2, 2]
         n_reps = 2
 
         x = Conv2D(n_hidden * block_factors[0], 3, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
@@ -758,7 +758,6 @@ def resnet_disc(x):
                     x = Add(name=scope+'add')([shortcut, pi])
 
         x = Activation('relu', name=scope+'relu_out')(x)
-        x = Lambda(lambda x: K.mean(x, axis=1), name=scope+'mean_pool')(x)
         x = Flatten(name=scope+'flatten_out')(x)
     return x
 
@@ -769,7 +768,8 @@ def dmnn_disc(x):
         x_shape = [int(dim) for dim in x.shape]
         blocks = [{'size': 16, 'bneck_f': 2, 'strides': 2},
                   {'size': 32, 'bneck_f': 2, 'strides': 2},
-                  {'size': 64, 'bneck_f': 2, 'strides': 2}]
+                  {'size': 64, 'bneck_f': 2, 'strides': 2},
+                  {'size': 128, 'bneck_f': 2, 'strides': 2}]
         n_reps = 2
 
         x = CombMatrix(x_shape[1], name=scope+'comb_matrix')(x)
@@ -791,7 +791,7 @@ def dmnn_disc(x):
                     x = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'], 3, strides, Conv3D, 1)
                     x = Add(name=scope+'add')([shortcut, x])
 
-        x = Lambda(lambda args: K.mean(args, axis=(1, 2)), name=scope+'mean_pool')(x)
+        x = Activation('relu', name=scope + 'relu_out')(x)
         x = Flatten(name=scope + 'flatten_out')(x)
     return x
 
@@ -843,7 +843,7 @@ class MotionGANV5(_MotionGAN):
                 wave_output = wave_input
                 for i in range(n_blocks):
                     with scope.name_scope('block_%d' % i):
-                        n_filters = n_hidden * (i + 1)
+                        n_filters = n_hidden * (i + 2)
                         pi = _conv_block(wave_output, n_filters, 2, (3, 9), (2, 1), Conv2D)
                         shortcut = Conv2D(n_filters, (2, 1), (2, 1), name=scope+'shortcut', **CONV2D_ARGS)(wave_output)
                         wave_output = Add(name=scope+'add')([shortcut, pi])
@@ -900,7 +900,7 @@ class MotionGANV7(_MotionGAN):
     def generator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('generator'):
-            n_hidden = 16
+            n_hidden = 32
             u_blocks = 0
             emb_dim = int(x.shape[2])
             while emb_dim > 4:

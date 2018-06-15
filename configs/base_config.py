@@ -48,6 +48,8 @@
     'use_angles': False,
     # Augment data on training
     'augment_data': False,
+    # Copy last known frame in the input
+    'last_known': False,
 
     ## DMNN Model Options
     'motiongan_save_path': None,

@@ -75,6 +75,7 @@ class _MotionGAN(object):
         self.diff_scale = 100.0
         self.use_angles = config.use_angles
         self.angles_scale = 0.5
+        self.last_known = config.last_known
 
         self.stats = {}
 
@@ -398,8 +399,18 @@ class _MotionGAN(object):
             self.org_shape = [int(dim) for dim in x.shape]
 
             x = Multiply(name=scope+'mask_mult')([x, x_mask])
-            # x_occ = Lambda(lambda arg: 1 - arg, name=scope+'mask_occ')(x_mask)
+
+            if self.last_known:
+                known_size = self.org_shape[2] // 2
+                x = Lambda(lambda arg: arg[:, :, :known_size, :], name=scope + 'slice_unk')(x)
+                x_last = Lambda(lambda arg: arg[:, :, -1, :], name=scope+'last_known')(x)
+                x_last = Reshape((self.org_shape[1], 1, self.org_shape[3]), name=scope+'res_last_known')(x_last)
+                x_last = Tile((1, known_size, 1), name=scope+'tl_last_known')(x_last)
+                x = Concatenate(axis=2, name=scope+'cat_last_known')([x, x_last])
+
+            # x_mask = Lambda(lambda arg: 1 - arg, name=scope+'mask_occ')(x_mask)
             x = Concatenate(axis=-1, name=scope+'cat_occ')([x, x_mask])
+
 
             # if self.use_pose_fae:
             #

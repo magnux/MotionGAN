@@ -17,6 +17,8 @@
     'action_cond': True,
     # Coherence on generated sequences loss
     'coherence_loss': True,
+    # Copy last known frame in the input
+    'last_known': True,
 
     # How fast should we learn?
     'learning_rate': 1e-5,

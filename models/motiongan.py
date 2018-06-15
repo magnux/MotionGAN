@@ -66,7 +66,7 @@ class _MotionGAN(object):
         self.smoothing_scale = 20.0
         self.smoothing_basis = 5
         self.time_pres_emb = config.time_pres_emb
-        self.use_pose_fae = config.use_pose_fae
+        # self.use_pose_fae = config.use_pose_fae
         self.translate_start = config.translate_start
         self.rotate_start = config.rotate_start
         self.rescale_coords = config.rescale_coords
@@ -132,8 +132,8 @@ class _MotionGAN(object):
 
         with K.name_scope('generator/functions/eval'):
             gen_f_outs = self.gen_losses.values() + self.gen_metrics.values()
-            if self.use_pose_fae:
-                gen_f_outs.append(self.fae_z)
+            # if self.use_pose_fae:
+            #     gen_f_outs.append(self.fae_z)
             # gen_f_outs.append(self.aux_out)
             gen_f_outs += self.gen_outputs
             self.gen_eval_f = K.function(self.gen_inputs,  gen_f_outs)
@@ -170,8 +170,8 @@ class _MotionGAN(object):
         eval_outs = self.gen_eval_f(inputs)
         keys = self.gen_losses.keys() + self.gen_metrics.keys()
         keys = ['val/%s' % key for key in keys]
-        if self.use_pose_fae:
-            keys.append('fae_z')
+        # if self.use_pose_fae:
+        #     keys.append('fae_z')
         # keys.append('aux_out')
         keys.append('gen_outputs')
         losses_dict = OrderedDict(zip(keys, eval_outs))
@@ -401,33 +401,34 @@ class _MotionGAN(object):
             # x_occ = Lambda(lambda arg: 1 - arg, name=scope+'mask_occ')(x_mask)
             x = Concatenate(axis=-1, name=scope+'cat_occ')([x, x_mask])
 
-            if self.use_pose_fae:
+            # if self.use_pose_fae:
+            #
+            #     self.fae_z = self._pose_encoder(x)
+            #     x = Reshape((int(self.fae_z.shape[1]), int(self.fae_z.shape[2]), 1), name=scope+'gen_reshape_in')(self.fae_z)
+            #
+            #     self.nblocks = 4
+            #
+            # else:
+            #     with scope.name_scope('seq_fex'):
+            #         n_hidden = 32 if self.time_pres_emb else 128
+            #         strides = (2, 1) if self.time_pres_emb else 2
+            #         i = 0
+            #         while (x.shape[1] > 1 and self.time_pres_emb) or (i < 3):
+            #             with scope.name_scope('block_%d' % i):
+            #                 num_block = n_hidden * (((i + 1) // 2) + 1)
+            #                 shortcut = Conv2D(num_block, 1, strides,
+            #                                   name=scope+'shortcut', **CONV2D_ARGS)(x)
+            #                 with scope.name_scope('branch_0'): # scope for backward compat
+            #                     pi = _conv_block(x, num_block, 8, 3, strides)
+            #                 x = Add(name=scope+'add')([shortcut, pi])
+            #                 x = Activation('relu', name=scope+'relu_out')(x)
+            #                 i += 1
+            #
+            #         self.nblocks = i
+            #
+            #         if not self.time_pres_emb:
+            #             x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
 
-                self.fae_z = self._pose_encoder(x)
-                x = Reshape((int(self.fae_z.shape[1]), int(self.fae_z.shape[2]), 1), name=scope+'gen_reshape_in')(self.fae_z)
-
-                self.nblocks = 4
-
-            else:
-                with scope.name_scope('seq_fex'):
-                    n_hidden = 32 if self.time_pres_emb else 128
-                    strides = (2, 1) if self.time_pres_emb else 2
-                    i = 0
-                    while (x.shape[1] > 1 and self.time_pres_emb) or (i < 3):
-                        with scope.name_scope('block_%d' % i):
-                            num_block = n_hidden * (((i + 1) // 2) + 1)
-                            shortcut = Conv2D(num_block, 1, strides,
-                                              name=scope+'shortcut', **CONV2D_ARGS)(x)
-                            with scope.name_scope('branch_0'): # scope for backward compat
-                                pi = _conv_block(x, num_block, 8, 3, strides)
-                            x = Add(name=scope+'add')([shortcut, pi])
-                            x = Activation('relu', name=scope+'relu_out')(x)
-                            i += 1
-
-                    self.nblocks = i
-
-                    if not self.time_pres_emb:
-                        x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
             num_actions = self.num_actions
             if self.action_cond:
                 x_label = _get_tensor(input_tensors, 'true_label')
@@ -442,19 +443,19 @@ class _MotionGAN(object):
         scope = Scoping.get_global_scope()
         with scope.name_scope('generator'):
 
-            if self.use_pose_fae:
-                x = Conv2D(1, 3, 1, name=scope+'fae_merge', **CONV2D_ARGS)(x)
-                self.fae_gen_z = Reshape((int(x.shape[1]), int(x.shape[2])), name=scope+'fae_reshape')(x)
-
-                x = self._pose_decoder(self.fae_gen_z)
-
-            else:
-                x = Permute((3, 2, 1), name=scope+'joint_permute')(x)  # filters, time, joints
-                x = Conv2D(self.org_shape[1], 3, 1, name=scope+'joint_reshape', **CONV2D_ARGS)(x)
-                x = Permute((1, 3, 2), name=scope+'time_permute')(x)  # filters, joints, time
-                x = Conv2D(self.org_shape[2], 3, 1, name=scope+'time_reshape', **CONV2D_ARGS)(x)
-                x = Permute((2, 3, 1), name=scope+'coords_permute')(x)  # joints, time, filters
-                x = Conv2D(self.org_shape[3], 3, 1, name=scope+'coords_reshape', **CONV2D_ARGS)(x)
+            # if self.use_pose_fae:
+            #     x = Conv2D(1, 3, 1, name=scope+'fae_merge', **CONV2D_ARGS)(x)
+            #     self.fae_gen_z = Reshape((int(x.shape[1]), int(x.shape[2])), name=scope+'fae_reshape')(x)
+            #
+            #     x = self._pose_decoder(self.fae_gen_z)
+            #
+            # else:
+            #     x = Permute((3, 2, 1), name=scope+'joint_permute')(x)  # filters, time, joints
+            #     x = Conv2D(self.org_shape[1], 3, 1, name=scope+'joint_reshape', **CONV2D_ARGS)(x)
+            #     x = Permute((1, 3, 2), name=scope+'time_permute')(x)  # filters, joints, time
+            #     x = Conv2D(self.org_shape[2], 3, 1, name=scope+'time_reshape', **CONV2D_ARGS)(x)
+            #     x = Permute((2, 3, 1), name=scope+'coords_permute')(x)  # joints, time, filters
+            #     x = Conv2D(self.org_shape[3], 3, 1, name=scope+'coords_reshape', **CONV2D_ARGS)(x)
 
             if self.use_angles:
                 self.angles_output = x
@@ -479,7 +480,7 @@ class _MotionGAN(object):
     def _pose_encoder(self, seq):
         scope = Scoping.get_global_scope()
         with scope.name_scope('encoder'):
-            fae_dim = self.org_shape[1] * self.org_shape[3] * 4
+            fae_dim = self.org_shape[1] * self.org_shape[3]
 
             h = Permute((2, 1, 3), name=scope+'perm_in')(seq)
             h = Reshape((int(seq.shape[2]), int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
@@ -498,13 +499,17 @@ class _MotionGAN(object):
 
             # We are only expecting half of the latent features to be activated
             z = Multiply(name=scope+'z_attention')([z, z_attention])
+            z = Reshape((int(z.shape[1]), int(z.shape[2]), 1), name=scope+'res_out')(z)
 
         return z
 
     def _pose_decoder(self, gen_z):
         scope = Scoping.get_global_scope()
         with scope.name_scope('decoder'):
-            fae_dim = self.org_shape[1] * self.org_shape[3] * 4
+            gen_z = Conv2D(1, 3, 1, name=scope+'fae_merge', **CONV2D_ARGS)(gen_z)
+            gen_z = Reshape((int(gen_z.shape[1]), int(gen_z.shape[2])), name=scope+'fae_reshape')(gen_z)
+
+            fae_dim = self.org_shape[1] * self.org_shape[3]
 
             dec_h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(gen_z)
             for i in range(3):
@@ -727,7 +732,7 @@ class MotionGANV3(_MotionGAN):
                     x = Add(name=scope+'add')([x, pi])
 
             if self.use_pose_fae:
-                fae_dim = self.org_shape[1] * self.org_shape[3] * 4
+                fae_dim = self.org_shape[1] * self.org_shape[3]
                 x = Dense((self.seq_len * fae_dim), name=scope+'dense_out', activation='relu')(x)
                 x = Reshape((self.seq_len, fae_dim, 1), name=scope+'reshape_out')(x)
             else:
@@ -771,7 +776,7 @@ def dmnn_disc(x):
         blocks = [{'size': 16, 'bneck_f': 2, 'strides': 2},
                   {'size': 32, 'bneck_f': 2, 'strides': 2},
                   {'size': 64, 'bneck_f': 2, 'strides': 2},
-                  {'size': 128, 'bneck_f': 2, 'strides': 2}]
+                  {'size': 64, 'bneck_f': 2, 'strides': 2}]
         n_reps = 2
 
         x = CombMatrix(x_shape[1], name=scope+'comb_matrix')(x)
@@ -845,7 +850,7 @@ class MotionGANV5(_MotionGAN):
                 wave_output = wave_input
                 for i in range(n_blocks):
                     with scope.name_scope('block_%d' % i):
-                        n_filters = n_hidden * (i + 2)
+                        n_filters = n_hidden * (i + 1)
                         pi = _conv_block(wave_output, n_filters, 2, (3, 9), (2, 1), Conv2D)
                         shortcut = Conv2D(n_filters, (2, 1), (2, 1), name=scope+'shortcut', **CONV2D_ARGS)(wave_output)
                         wave_output = Add(name=scope+'add')([shortcut, pi])
@@ -911,16 +916,19 @@ class MotionGANV7(_MotionGAN):
             u_blocks = min(u_blocks, 4)
             u_blocks = u_blocks * 2
             block_factors = range(1, (u_blocks // 2) + 1) + range(u_blocks // 2, 0, -1)
-            macro_blocks = 4
+            macro_blocks = 2
 
-            if not (self.time_pres_emb or self.use_pose_fae):
-                x = Dense(4 * 4 * n_hidden * block_factors[0], name=scope+'dense_in')(x)
-                x = Reshape((4, 4, n_hidden * block_factors[0]), name=scope+'reshape_in')(x)
+            # if not (self.time_pres_emb or self.use_pose_fae):
+            #     x = Dense(4 * 4 * n_hidden * block_factors[0], name=scope+'dense_in')(x)
+            #     x = Reshape((4, 4, n_hidden * block_factors[0]), name=scope+'reshape_in')(x)
 
             u_skips = []
-            x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+            x_coords = Lambda(lambda arg: arg[..., :3], name=scope+'coords_slice')(x)
+            x_labs = Lambda(lambda arg: arg[..., 3:], name=scope+'labs_slice')(x)
             for k in range(macro_blocks):
                 with scope.name_scope('macro_block_%d' % k):
+                    x = self._pose_encoder(x)
+                    x = Conv2D(n_hidden, 1, 1, name=scope + 'conv_in', **CONV2D_ARGS)(x)
                     shortcut = x
                     for i, factor in enumerate(block_factors):
                         with scope.name_scope('block_%d' % i):
@@ -945,4 +953,10 @@ class MotionGANV7(_MotionGAN):
                                     x = _conv_block(x, n_filters, 2, 3, 1, conv_func)
 
                     x = Add(name=scope+'add_short')([shortcut, x])
+                    x = self._pose_decoder(x)
+                    x_coords = Add(name=scope+'add_coords')([x_coords, x])
+                    if k < macro_blocks -1:
+                        x = Concatenate(axis=-1, name=scope+'cat_labs')([x_coords, x_labs])
+                    else:
+                        x = x_coords
         return x

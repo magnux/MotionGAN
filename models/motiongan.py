@@ -431,11 +431,10 @@ class _MotionGAN(object):
 
             num_actions = self.num_actions
             if self.action_cond:
-                x_label = _get_tensor(input_tensors, 'true_label')
+                x_label = _get_tensor(self.gen_inputs, 'true_label')
                 x_label = Lambda(lambda arg: K.one_hot(arg, num_actions), name=scope+'emb_label')(x_label)
-                x_label = Reshape((1, 1, num_actions), name=scope+'res_label')(x_label)
-                x_label = Tile((x.shape[1], x.shape[2], 1), name=scope+'tile_label')(x_label)
-                x = Concatenate(axis=-1, name=scope+'cat_label')([x, x_label])
+                x_label = Reshape((1, num_actions), name=scope+'res_label')(x_label)
+                self.x_label = Tile((x.shape[2], 1), name=scope+'tile_label')(x_label)
 
         return x
 
@@ -480,10 +479,13 @@ class _MotionGAN(object):
     def _pose_encoder(self, seq):
         scope = Scoping.get_global_scope()
         with scope.name_scope('encoder'):
-            fae_dim = self.org_shape[1] * self.org_shape[3]
+            fae_dim = self.org_shape[1] * self.org_shape[3] * 2
 
             h = Permute((2, 1, 3), name=scope+'perm_in')(seq)
             h = Reshape((int(seq.shape[2]), int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
+
+            if self.action_cond:
+                h = Concatenate(axis=-1, name=scope+'cat_label')([h, self.x_label])
 
             h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(h)
             for i in range(3):
@@ -509,7 +511,7 @@ class _MotionGAN(object):
             gen_z = Conv2D(1, 3, 1, name=scope+'fae_merge', **CONV2D_ARGS)(gen_z)
             gen_z = Reshape((int(gen_z.shape[1]), int(gen_z.shape[2])), name=scope+'fae_reshape')(gen_z)
 
-            fae_dim = self.org_shape[1] * self.org_shape[3]
+            fae_dim = self.org_shape[1] * self.org_shape[3] * 2
 
             dec_h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(gen_z)
             for i in range(3):
@@ -758,7 +760,7 @@ def resnet_disc(x):
                     strides = block_strides[i] if j == 0 else 1
                     if int(x.shape[-1]) != n_filters or strides > 1:
                         shortcut = Conv2D(n_filters, strides, block_strides[i],
-                                          name=scope + 'shortcut', **CONV2D_ARGS)(x)
+                                          name=scope+'shortcut', **CONV2D_ARGS)(x)
                     else:
                         shortcut = x
                     pi = _conv_block(x, n_filters, 2, 3, strides)
@@ -798,8 +800,8 @@ def dmnn_disc(x):
                     x = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'], 3, strides, Conv3D, 1)
                     x = Add(name=scope+'add')([shortcut, x])
 
-        x = Activation('relu', name=scope + 'relu_out')(x)
-        x = Flatten(name=scope + 'flatten_out')(x)
+        x = Activation('relu', name=scope+'relu_out')(x)
+        x = Flatten(name=scope+'flatten_out')(x)
     return x
 
 
@@ -924,11 +926,11 @@ class MotionGANV7(_MotionGAN):
 
             u_skips = []
             x_coords = Lambda(lambda arg: arg[..., :3], name=scope+'coords_slice')(x)
-            x_labs = Lambda(lambda arg: arg[..., 3:], name=scope+'labs_slice')(x)
+            x_occ = Lambda(lambda arg: arg[..., 3:], name=scope+'occ_slice')(x)
             for k in range(macro_blocks):
                 with scope.name_scope('macro_block_%d' % k):
                     x = self._pose_encoder(x)
-                    x = Conv2D(n_hidden, 1, 1, name=scope + 'conv_in', **CONV2D_ARGS)(x)
+                    x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
                     shortcut = x
                     for i, factor in enumerate(block_factors):
                         with scope.name_scope('block_%d' % i):
@@ -956,7 +958,7 @@ class MotionGANV7(_MotionGAN):
                     x = self._pose_decoder(x)
                     x_coords = Add(name=scope+'add_coords')([x_coords, x])
                     if k < macro_blocks -1:
-                        x = Concatenate(axis=-1, name=scope+'cat_labs')([x_coords, x_labs])
+                        x = Concatenate(axis=-1, name=scope+'cat_occ')([x_coords, x_occ])
                     else:
                         x = x_coords
         return x

@@ -202,8 +202,8 @@ class _MotionGAN(object):
             with K.name_scope('wgan_loss'):
                 loss_real = _get_tensor(self.real_outputs, 'score_out')
                 loss_fake = _get_tensor(self.fake_outputs, 'score_out')
-                wgan_losses['loss_real'] = K.mean(K.abs(loss_real))
-                wgan_losses['loss_fake'] = K.mean(K.abs(loss_fake))
+                wgan_losses['loss_real'] = K.mean(loss_real)  # K.mean(K.abs(loss_real))
+                wgan_losses['loss_fake'] = K.mean(loss_fake)  # K.mean(K.abs(loss_fake))
 
                 # Interpolates for GP
                 alpha = K.random_uniform((self.batch_size, 1, 1, 1))
@@ -217,10 +217,10 @@ class _MotionGAN(object):
                 grad_penalty = K.expand_dims(K.square(norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
 
                 # WGAN-GP losses
-                disc_loss_wgan = -K.abs(loss_real - loss_fake) + (K.square(loss_real) * 0.1) + (self.lambda_grads * grad_penalty)
+                disc_loss_wgan = loss_fake - loss_real + (self.lambda_grads * grad_penalty)  # -K.abs(loss_real - loss_fake) + (K.square(loss_real) * 0.1) + (self.lambda_grads * grad_penalty)
                 disc_losses['disc_loss_wgan'] = self.wgan_scale_d * K.mean(disc_loss_wgan)
 
-                gen_loss_wgan = K.abs(loss_real - loss_fake) + (K.square(loss_fake) * 0.1)
+                gen_loss_wgan = -loss_fake  # K.abs(loss_real - loss_fake) + (K.square(loss_fake) * 0.1)
                 gen_losses['gen_loss_wgan'] = self.wgan_scale_g * K.mean(gen_loss_wgan)
 
             # Reconstruction loss
@@ -360,7 +360,7 @@ class _MotionGAN(object):
 
                         x = Add(name=scope+'add')([x, pi])
 
-                score_out = Dense(n_hidden, name=scope+'score_out')(x)
+                score_out = Dense(1, name=scope+'score_out')(x)
 
             output_tensors = [score_out]
 
@@ -916,7 +916,7 @@ class MotionGANV7(_MotionGAN):
             u_blocks = min(u_blocks, 4)
             u_blocks = u_blocks * 2
             block_factors = range(1, (u_blocks // 2) + 1) + range(u_blocks // 2, 0, -1)
-            macro_blocks = 2
+            macro_blocks = 4
 
             # if not (self.time_pres_emb or self.use_pose_fae):
             #     x = Dense(4 * 4 * n_hidden * block_factors[0], name=scope+'dense_in')(x)

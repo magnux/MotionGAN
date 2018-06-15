@@ -17,8 +17,6 @@
     'rotate_start': True,
     # Augment data on training
     'augment_data': True,
-    # Coherence on generated sequences loss
-    'coherence_loss': False,
 
     # How fast should we learn?
     'learning_rate': 1e-5,

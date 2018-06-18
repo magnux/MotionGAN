@@ -496,7 +496,10 @@ class _MotionGAN(object):
             h = Reshape((int(seq.shape[2]), int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
 
             if self.action_cond:
-                h = Concatenate(axis=-1, name=scope+'cat_label')([h, self.x_label])
+                x_label = self.x_label
+                if int(seq.shape[2]) != int(self.x_label.shape[1]):
+                    x_label = Lambda(lambda arg: arg[:, :int(seq.shape[2]), :], name=scope+'trim_label')(x_label)
+                h = Concatenate(axis=-1, name=scope+'cat_label')([h, x_label])
 
             h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(h)
             for i in range(3):

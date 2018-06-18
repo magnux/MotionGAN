@@ -892,7 +892,7 @@ class MotionGANV5(_MotionGAN):
                                               name=scope+'wave_stack_n')(xs[0])
                         x_step = Lambda(lambda arg: K.concatenate(arg, axis=2),
                                         name=scope+'wave_append_n')([x_step, x_step_n])
-                    pred_x = wave_gen(x_step)
+                    pred_x = wave_gen([x_step, _get_tensor(self.gen_inputs, 'true_label')])
                     xs.append(pred_x)
 
             x = Lambda(lambda arg: arg[:, :, :x_shape[1] // 2, :], name=scope+'slice_out')(x)

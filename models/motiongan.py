@@ -868,8 +868,6 @@ class MotionGANV5(_MotionGAN):
                         shortcut = Conv2D(n_filters, (2, 1), (2, 1), name=scope+'shortcut', **CONV2D_ARGS)(wave_output)
                         wave_output = Add(name=scope+'add')([shortcut, pi])
 
-                wave_output = Conv2D(1, 1, 1, name=scope+'merge_out', **CONV2D_ARGS)(wave_output)
-                wave_output = Reshape((x_shape[2], 1), name=scope+'squeeze_out')(wave_output)
                 wave_output = self._pose_decoder(wave_output)
                 wave_output = Add(name=scope+'add_coords')([wave_output, org_coords])
 

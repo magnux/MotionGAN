@@ -847,62 +847,58 @@ class MotionGANV5(_MotionGAN):
     def generator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('generator'):
-            x = self._pose_encoder(x)
             x_shape = [int(dim) for dim in x.shape]
             n_hidden = 16
-            time_steps = x_shape[1]
+            time_steps = x_shape[2]
             n_blocks = 0
             while time_steps > 1:
                 time_steps //= 2
                 n_blocks += 1
 
             with scope.name_scope('wave_gen'):
-                wave_input = Input(batch_shape=(x_shape[0], x_shape[1] // 2, x_shape[2], x_shape[3]))
+                wave_input = Input(batch_shape=(x_shape[0], x_shape[1], x_shape[2] // 2, x_shape[3]))
                 # print(time_steps, n_blocks)
 
-                wave_output = wave_input
+                org_coords = Lambda(lambda arg: arg[..., :3], name=scope+'coords_slice')(wave_input)
+                wave_output = self._pose_encoder(wave_input)
                 for i in range(n_blocks):
                     with scope.name_scope('block_%d' % i):
-                        n_filters = n_hidden * (i + 1)
+                        n_filters = n_hidden * (i + 2)
                         pi = _conv_block(wave_output, n_filters, 2, 3, (2, 1), Conv2D)
                         shortcut = Conv2D(n_filters, (2, 1), (2, 1), name=scope+'shortcut', **CONV2D_ARGS)(wave_output)
                         wave_output = Add(name=scope+'add')([shortcut, pi])
 
                 wave_output = Conv2D(1, 1, 1, name=scope+'merge_out', **CONV2D_ARGS)(wave_output)
                 wave_output = Reshape((x_shape[2], 1), name=scope+'squeeze_out')(wave_output)
+                wave_output = self._pose_decoder(wave_output)
+                wave_output = Add(name=scope+'add_coords')([wave_output, org_coords])
 
                 wave_gen = Model(wave_input, wave_output, name='wave_gen_model')
 
             # print(wave_gen.summary())
 
             xs = []
-            for i in range(x_shape[1] // 2):
+            for i in range(x_shape[2] // 2):
                 with scope.name_scope('wave_gen_call_%d' % i):
-                    x_step = Lambda(lambda arg: K.stop_gradient(arg[:, i:x_shape[1] // 2, ...]),
+                    x_step = Lambda(lambda arg: K.stop_gradient(arg[:, :, i:x_shape[1] // 2, :]),
                                     name=scope+'wave_in_slice')(x)
                     if i > 0:
                         if len(xs) > 1:
-                            x_step_n = Lambda(lambda arg: K.stack(arg, axis=1),
+                            x_step_n = Lambda(lambda arg: K.stack(arg, axis=2),
                                               name=scope+'wave_stack_n')(xs)
                         else:
-                            x_step_n = Lambda(lambda arg: K.expand_dims(arg, axis=1),
+                            x_step_n = Lambda(lambda arg: K.expand_dims(arg, axis=2),
                                               name=scope+'wave_stack_n')(xs[0])
-                        x_step = Lambda(lambda arg: K.concatenate(arg, axis=1),
+                        x_step = Lambda(lambda arg: K.concatenate(arg, axis=2),
                                         name=scope+'wave_append_n')([x_step, x_step_n])
                     pred_x = wave_gen(x_step)
-                    pred_x = Lambda(lambda args: K.concatenate([args[1], args[0][:, 0, :, 1:]], axis=-1),
-                                    name=scope+'cat_label_pred')([x_step, pred_x])
                     xs.append(pred_x)
 
-            x = Lambda(lambda arg: arg[:, :x_shape[1] // 2, :, :], name=scope+'slice_out')(x)
-            x = Reshape((x_shape[1] // 2, x_shape[2], x_shape[3]), name=scope+'res_slice_out')(x)
+            x = Lambda(lambda arg: arg[:, :, :x_shape[1] // 2, :], name=scope+'slice_out')(x)
+            x = Reshape((x_shape[1], x_shape[2] // 2, x_shape[3]), name=scope+'res_slice_out')(x)
             xs = Lambda(lambda arg: K.stack(arg, axis=1), name=scope+'stack_out')(xs)
-            xs = Reshape((x_shape[1] // 2, x_shape[2], x_shape[3]), name=scope+'res_stack_out')(xs)
-            x = Concatenate(axis=1, name=scope+'cat_out')([x, xs])
-            x = Lambda(lambda arg: arg[:, :, :, 0], name=scope+'trim_out')(x)
-            x = Reshape((x_shape[1], x_shape[2], 1), name=scope+'res_trim_out')(x)
-
-            x = self._pose_decoder(x)
+            xs = Reshape((x_shape[1], x_shape[2] // 2, x_shape[3]), name=scope+'res_stack_out')(xs)
+            x = Concatenate(axis=2, name=scope+'cat_out')([x, xs])
 
         return x
 

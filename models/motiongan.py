@@ -847,6 +847,7 @@ class MotionGANV5(_MotionGAN):
     def generator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('generator'):
+            x = self._pose_encoder(x)
             x_shape = [int(dim) for dim in x.shape]
             n_hidden = 16
             time_steps = x_shape[1]
@@ -854,8 +855,6 @@ class MotionGANV5(_MotionGAN):
             while time_steps > 1:
                 time_steps //= 2
                 n_blocks += 1
-
-            x = self._pose_encoder(x)
 
             with scope.name_scope('wave_gen'):
                 wave_input = Input(batch_shape=(x_shape[0], x_shape[1] // 2, x_shape[2], x_shape[3]))

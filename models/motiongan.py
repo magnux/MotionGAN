@@ -848,15 +848,14 @@ class MotionGANV5(_MotionGAN):
         scope = Scoping.get_global_scope()
         with scope.name_scope('generator'):
             x_shape = [int(dim) for dim in x.shape]
-            n_hidden = 32
+            n_hidden = 16
             time_steps = x_shape[1]
             n_blocks = 0
             while time_steps > 1:
                 time_steps //= 2
                 n_blocks += 1
 
-            if not self.use_pose_fae:
-                x = Permute((2, 1, 3), name=scope+'perm_in')(x)
+            x = self._pose_encoder(x)
 
             with scope.name_scope('wave_gen'):
                 wave_input = Input(batch_shape=(x_shape[0], x_shape[1] // 2, x_shape[2], x_shape[3]))
@@ -866,7 +865,7 @@ class MotionGANV5(_MotionGAN):
                 for i in range(n_blocks):
                     with scope.name_scope('block_%d' % i):
                         n_filters = n_hidden * (i + 1)
-                        pi = _conv_block(wave_output, n_filters, 2, (3, 9), (2, 1), Conv2D)
+                        pi = _conv_block(wave_output, n_filters, 2, 3, (2, 1), Conv2D)
                         shortcut = Conv2D(n_filters, (2, 1), (2, 1), name=scope+'shortcut', **CONV2D_ARGS)(wave_output)
                         wave_output = Add(name=scope+'add')([shortcut, pi])
 
@@ -904,8 +903,7 @@ class MotionGANV5(_MotionGAN):
             x = Lambda(lambda arg: arg[:, :, :, 0], name=scope+'trim_out')(x)
             x = Reshape((x_shape[1], x_shape[2], 1), name=scope+'res_trim_out')(x)
 
-            if not self.use_pose_fae:
-                x = Permute((2, 1, 3), name=scope+'perm_out')(x)
+            x = self._pose_decoder(x)
 
         return x
 

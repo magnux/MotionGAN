@@ -874,7 +874,7 @@ class MotionGANV5(_MotionGAN):
                 wave_output = self._pose_decoder(wave_output)
                 wave_output = Add(name=scope+'add_coords')([wave_output, org_coords])
 
-                wave_gen = Model(wave_input, wave_output, name='wave_gen_model')
+                wave_gen = Model([wave_input, _get_tensor(self.gen_inputs, 'true_label')], wave_output, name='wave_gen_model')
 
             # print(wave_gen.summary())
 

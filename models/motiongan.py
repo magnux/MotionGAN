@@ -881,7 +881,7 @@ class MotionGANV5(_MotionGAN):
             xs = []
             for i in range(x_shape[2] // 2):
                 with scope.name_scope('wave_gen_call_%d' % i):
-                    x_step = Lambda(lambda arg: K.stop_gradient(arg[:, :, i:x_shape[1] // 2, :]),
+                    x_step = Lambda(lambda arg: K.stop_gradient(arg[:, :, i:x_shape[2] // 2, :]),
                                     name=scope+'wave_in_slice')(x)
                     if i > 0:
                         if len(xs) > 1:

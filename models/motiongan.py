@@ -402,7 +402,7 @@ class _MotionGAN(object):
 
             if self.last_known:
                 known_size = self.org_shape[2] // 2
-                x = Lambda(lambda arg: arg[:, :, :known_size, :], name=scope + 'slice_unk')(x)
+                x = Lambda(lambda arg: arg[:, :, :known_size, :], name=scope+'slice_unk')(x)
                 x_last = Lambda(lambda arg: arg[:, :, -1, :], name=scope+'last_known')(x)
                 x_last = Reshape((self.org_shape[1], 1, self.org_shape[3]), name=scope+'res_last_known')(x_last)
                 x_last = Tile((1, known_size, 1), name=scope+'tl_last_known')(x_last)
@@ -490,7 +490,7 @@ class _MotionGAN(object):
     def _pose_encoder(self, seq):
         scope = Scoping.get_global_scope()
         with scope.name_scope('encoder'):
-            fae_dim = self.org_shape[1] * self.org_shape[3] * 2
+            fae_dim = self.org_shape[1] * self.org_shape[3]
 
             h = Permute((2, 1, 3), name=scope+'perm_in')(seq)
             h = Reshape((int(seq.shape[2]), int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
@@ -522,7 +522,7 @@ class _MotionGAN(object):
             gen_z = Conv2D(1, 3, 1, name=scope+'fae_merge', **CONV2D_ARGS)(gen_z)
             gen_z = Reshape((int(gen_z.shape[1]), int(gen_z.shape[2])), name=scope+'fae_reshape')(gen_z)
 
-            fae_dim = self.org_shape[1] * self.org_shape[3] * 2
+            fae_dim = self.org_shape[1] * self.org_shape[3]
 
             dec_h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(gen_z)
             for i in range(3):
@@ -759,8 +759,8 @@ def resnet_disc(x):
     scope = Scoping.get_global_scope()
     with scope.name_scope('resnet'):
         n_hidden = 16
-        block_factors = [1, 2, 4, 8]
-        block_strides = [2, 2, 2, 2]
+        block_factors = [1, 2]  #, 4, 8]
+        block_strides = [2, 2]  #, 2, 2]
         n_reps = 2
 
         x = Conv2D(n_hidden * block_factors[0], 3, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
@@ -778,7 +778,8 @@ def resnet_disc(x):
                     x = Add(name=scope+'add')([shortcut, pi])
 
         x = Activation('relu', name=scope+'relu_out')(x)
-        x = Flatten(name=scope+'flatten_out')(x)
+        # x = Flatten(name=scope+'flatten_out')(x)
+        x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
     return x
 
 
@@ -787,9 +788,9 @@ def dmnn_disc(x):
     with scope.name_scope('dmnn'):
         x_shape = [int(dim) for dim in x.shape]
         blocks = [{'size': 16, 'bneck_f': 2, 'strides': 2},
-                  {'size': 32, 'bneck_f': 2, 'strides': 2},
-                  {'size': 64, 'bneck_f': 2, 'strides': 2},
-                  {'size': 64, 'bneck_f': 2, 'strides': 2}]
+                  {'size': 32, 'bneck_f': 2, 'strides': 2}]  #,
+                  # {'size': 64, 'bneck_f': 2, 'strides': 2},
+                  # {'size': 64, 'bneck_f': 2, 'strides': 2}]
         n_reps = 2
 
         x = CombMatrix(x_shape[1], name=scope+'comb_matrix')(x)
@@ -812,7 +813,8 @@ def dmnn_disc(x):
                     x = Add(name=scope+'add')([shortcut, x])
 
         x = Activation('relu', name=scope+'relu_out')(x)
-        x = Flatten(name=scope+'flatten_out')(x)
+        # x = Flatten(name=scope+'flatten_out')(x)
+        x = Lambda(lambda x: K.mean(x, axis=(1, 2, 3)), name=scope+'mean_pool')(x)
     return x
 
 
@@ -920,7 +922,7 @@ class MotionGANV7(_MotionGAN):
     def generator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('generator'):
-            n_hidden = 32
+            n_hidden = 8
             u_blocks = 0
             emb_dim = int(x.shape[2])
             while emb_dim > 4:

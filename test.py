@@ -64,9 +64,9 @@ if __name__ == "__main__":
         assert config.epoch > 0, 'Nothing to test in an untrained model'
 
         model_wrap.disc_model = restore_keras_model(
-            model_wrap.disc_model, config.save_path + '_disc_weights.hdf5', False)
+            model_wrap.disc_model, config.save_path + '_best_disc_weights.hdf5', False)
         model_wrap.gen_model = restore_keras_model(
-            model_wrap.gen_model, config.save_path + '_gen_weights.hdf5', False)
+            model_wrap.gen_model, config.save_path + '_best_gen_weights.hdf5', False)
 
         configs.append(config)
         model_wraps.append(model_wrap)
@@ -385,10 +385,12 @@ if __name__ == "__main__":
                     # print(input_seeds_sact, input_seeds_idx)
 
                     expmap_gt = np.array(sample_file['expmap/gt/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    expmap_gt = expmap_gt[4:, ...]  # Our model predicts every 200ms, first frames are not compared
                     expmap_gt = subsample(expmap_gt)
                     expmap_gt = expmap_gt[:pred_len, ...]
 
                     expmap_hmp = np.array(sample_file['expmap/preds/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    expmap_hmp = expmap_hmp[4:, ...]
                     expmap_hmp = subsample(expmap_hmp)
                     expmap_hmp = expmap_hmp[:pred_len, ...]
 
@@ -423,6 +425,8 @@ if __name__ == "__main__":
                         gen_inputs.append(action_label)
 
                     gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
+                    # gen_output += np.tile(poses_batch[:, :, 9, np.newaxis, :], (1, 1, 20, 1))
+                    # gen_output /= 2.0
 
                     # print(np.mean(np.abs(poses_batch[:, :, :pred_len, ...] - gen_output[:, :, :pred_len, ...])),
                     #       np.mean(np.abs(poses_batch[:, :,  pred_len:, ...] - gen_output[:, :,  pred_len:, ...])))
@@ -467,15 +471,15 @@ if __name__ == "__main__":
                         eul_mg = eul_mg[:, idx_to_use]
                         eul_pb = eul_pb[:, idx_to_use]
 
-                        gt_diff = np.sum(np.abs(eul_gt - eul_pb[pred_len:, :]))
-                        if gt_diff > 1e-4:
-                            print("WARNING: gt differs more than it should : ", gt_diff)
+                        # gt_diff = np.sum(np.abs(eul_gt - eul_pb[pred_len:, :]))
+                        # if gt_diff > 1e-4:
+                        #     print("WARNING: gt differs more than it should : ", gt_diff)
 
                     mean_errors_hmp[i, :] = euc_error(eul_gt, eul_hmp)
                     mean_errors_mg[i, :] = euc_error(eul_pb[pred_len:, :], eul_mg[pred_len:, :])
 
                 rec_mean_mean_error = np.array(sample_file['mean_{0}_error'.format(action)], dtype=np.float32)
-                rec_mean_mean_error = rec_mean_mean_error[range(0, np.int(rec_mean_mean_error.shape[0]), 5)]
+                rec_mean_mean_error = rec_mean_mean_error[range(4, np.int(rec_mean_mean_error.shape[0]), 5)]
                 mean_mean_errors_hmp = np.mean(mean_errors_hmp, 0)
                 mean_mean_errors_mg = np.mean(mean_errors_mg, 0)
 

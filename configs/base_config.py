@@ -20,6 +20,8 @@
     'lambda_grads': 10,
     # General loss factor
     'loss_factor': 1.0,
+    # Latent conditioning factor size (0 == No latent factor)
+    'latent_cond_dim': 0,
     # Body shape conservation loss
     'shape_loss': False,
     # Coherence on generated sequences loss

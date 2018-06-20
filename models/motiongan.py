@@ -55,6 +55,9 @@ class _MotionGAN(object):
         self.wgan_scale_d = 10.0 * config.loss_factor
         self.wgan_scale_g = 2.0 * config.loss_factor * (0.0 if self.no_gan_loss else 1.0)
         self.rec_scale = 1.0   # if 'expmaps' not in self.data_set else 10.0
+        self.latent_cond_dim = config.latent_cond_dim
+        self.latent_scale_d = 10.0
+        self.latent_scale_g = 1.0
         self.action_cond = config.action_cond
         self.action_scale_d = 10.0
         self.action_scale_g = 1.0
@@ -80,10 +83,13 @@ class _MotionGAN(object):
         self.stats = {}
 
         # Discriminator
-        true_label = Input(batch_shape=(self.batch_size, 1), name='true_label', dtype='int32')
         real_seq = Input(batch_shape=(self.batch_size, self.njoints, self.seq_len, 3), name='real_seq', dtype='float32')
         self.disc_inputs = [real_seq]
-        # self.place_holders = [true_label]  # it is not an input because it is only used in the loss
+        true_label = Input(batch_shape=(self.batch_size, 1), name='true_label', dtype='int32')
+        self.place_holders = [true_label]  # it is not an input because it is only used in the loss
+        if self.latent_cond_dim > 0:
+            latent_cond = Input(batch_shape=(self.batch_size, self.latent_cond_dim), name='latent_cond', dtype='float32')
+            self.place_holders.append(latent_cond)
         x = self._proc_disc_inputs(self.disc_inputs)
         self.real_outputs = self._proc_disc_outputs(self.discriminator(x))
         self.disc_model = Model(self.disc_inputs, self.real_outputs, name=self.name + '_discriminator')
@@ -93,6 +99,8 @@ class _MotionGAN(object):
         self.gen_inputs = [real_seq, seq_mask]
         if self.action_cond:
             self.gen_inputs.append(true_label)
+        if self.latent_cond_dim > 0:
+            self.gen_inputs.append(latent_cond)
         x = self._proc_gen_inputs(self.gen_inputs)
         self.gen_outputs = self._proc_gen_outputs(self.generator(x))
         self.gen_model = Model(self.gen_inputs, self.gen_outputs, name=self.name + '_generator')
@@ -252,6 +260,15 @@ class _MotionGAN(object):
             #     disc_losses['disc_loss_action'] = self.action_scale_d * (loss_class_real + loss_class_fake)
             #     gen_losses['gen_loss_action'] = self.action_scale_g * loss_class_fake
 
+            if self.latent_cond_dim > 0:
+                with K.name_scope('latent_loss'):
+                    loss_latent_real = K.mean(K.square(
+                        _get_tensor(self.place_holders, 'latent_cond') - _get_tensor(self.real_outputs, 'latent_out')))
+                    loss_latent_fake = K.mean(K.square(
+                        _get_tensor(self.place_holders, 'latent_cond') - _get_tensor(self.fake_outputs, 'latent_out')))
+                    disc_losses['disc_loss_latent'] = self.latent_scale_d * (loss_latent_real + loss_latent_fake)
+                    gen_losses['gen_loss_latent'] = self.latent_scale_g * loss_latent_fake
+
             if self.coherence_loss:
                 with K.name_scope('coherence_loss'):
                     exp_decay = 1.0 / np.exp(np.linspace(0.0, 2.0, self.seq_len // 2, dtype='float32'))
@@ -351,22 +368,26 @@ class _MotionGAN(object):
     def _proc_disc_outputs(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('discriminator'):
-            with scope.name_scope('score_net'):
-                n_hidden = 256
-                x = Dense(n_hidden, name=scope+'dense_in', activation='relu')(x)
-                for i in range(3):
-                    with scope.name_scope('block_%d' % i):
-                        pi = Dense(n_hidden, name=scope+'dense_0', activation='relu')(x)
-                        pi = Dense(n_hidden, name=scope+'dense_1', activation='relu')(pi)
+            def _out_net(x_out, n_out, net_name, n_hidden=256, n_blocks=3):
+                with scope.name_scope(net_name+'_net'):
+                    x_out = Dense(n_hidden, name=scope+'dense_in', activation='relu')(x_out)
+                    for i in range(n_blocks):
+                        with scope.name_scope('block_%d' % i):
+                            pi = Dense(n_hidden, name=scope+'dense_0', activation='relu')(x_out)
+                            pi = Dense(n_hidden, name=scope+'dense_1', activation='relu')(pi)
 
-                        x = Add(name=scope+'add')([x, pi])
+                            x = Add(name=scope+'add')([x_out, pi])
 
-                score_out = Dense(1, name=scope+'score_out')(x)
+                    return Dense(n_out, name=scope+net_name+'_out')(x_out)
 
-            output_tensors = [score_out]
+            output_tensors = [_out_net(x, 1, 'score')]
 
             # label_out = Dense(self.num_actions, name=scope+'label_out')(x)
             # output_tensors.append(label_out)
+
+            if self.latent_cond_dim > 0:
+                with scope.name_scope('latent_net'):
+                    output_tensors.append(_out_net(x, self.latent_cond_dim, 'latent'))
 
         return output_tensors
 
@@ -447,6 +468,11 @@ class _MotionGAN(object):
                 x_label = Reshape((1, num_actions), name=scope+'res_label')(x_label)
                 self.x_label = Tile((x.shape[2], 1), name=scope+'tile_label')(x_label)
 
+            if self.latent_cond_dim > 0:
+                x_latent = _get_tensor(self.gen_inputs, 'latent_cond')
+                x_latent = Reshape((1, self.latent_cond_dim), name=scope+'res_latent')(x_latent)
+                self.x_latent = Tile((x.shape[2], 1), name=scope+'tile_latent')(x_latent)
+
         return x
 
     def _proc_gen_outputs(self, x):
@@ -497,6 +523,9 @@ class _MotionGAN(object):
 
             if self.action_cond:
                 h = Concatenate(axis=-1, name=scope+'cat_label')([h, self.x_label])
+
+            if self.latent_cond_dim:
+                h = Concatenate(axis=-1, name=scope+'cat_latent')([h, self.x_latent])
 
             h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(h)
             for i in range(3):
@@ -850,7 +879,7 @@ class MotionGANV5(_MotionGAN):
             x_coords = Lambda(lambda arg: arg[..., :3], name=scope+'coords_slice')(x)
             x = self._pose_encoder(x)
             x_shape = [int(dim) for dim in x.shape]
-            n_hidden = 16
+            n_hidden = 32
             time_steps = x_shape[1]
             n_blocks = 0
             while time_steps > 1:

@@ -111,11 +111,15 @@ if __name__ == "__main__":
                     disc_inputs = [poses_batch]
                     gen_inputs = [poses_batch, mask_batch]
                     labels = np.reshape(labs_batch[:, 2], (config.batch_size, 1))
-                    # place_holders = [labels]
+                    place_holders = [labels]
                     if config.action_cond:
                         gen_inputs.append(labels)
+                    if config.latent_cond_dim > 0:
+                        latent_noise = gen_latent_noise(config.batch_size, config.latent_cond_dim)
+                        place_holders.append(latent_noise)
+                        gen_inputs.append(latent_noise)
 
-                    losses = model_wrap.disc_train(disc_inputs + gen_inputs)  # + place_holders)
+                    losses = model_wrap.disc_train(disc_inputs + gen_inputs + place_holders)
 
                     if disc_batch == 0:
                         disc_losses = losses
@@ -136,9 +140,13 @@ if __name__ == "__main__":
 
                 gen_inputs = [poses_batch, mask_batch]
                 labels = np.reshape(labs_batch[:, 2], (config.batch_size, 1))
-                # place_holders = [labels]
+                place_holders = [labels]
                 if config.action_cond:
                     gen_inputs.append(labels)
+                if config.latent_cond_dim > 0:
+                    latent_noise = gen_latent_noise(config.batch_size, config.latent_cond_dim)
+                    place_holders.append(latent_noise)
+                    gen_inputs.append(latent_noise)
 
                 gen_losses = model_wrap.gen_train(gen_inputs)  # + place_holders)
 
@@ -186,9 +194,13 @@ if __name__ == "__main__":
             disc_inputs = [poses_batch]
             gen_inputs = [poses_batch, mask_batch]
             labels = np.reshape(labs_batch[:, 2], (config.batch_size, 1))
-            # place_holders = [labels]
+            place_holders = [labels]
             if config.action_cond:
                 gen_inputs.append(labels)
+            if config.latent_cond_dim > 0:
+                latent_noise = gen_latent_noise(config.batch_size, config.latent_cond_dim)
+                place_holders.append(latent_noise)
+                gen_inputs.append(latent_noise)
 
             disc_losses = model_wrap.disc_eval(disc_inputs + gen_inputs)  # + place_holders)
             gen_losses = model_wrap.gen_eval(gen_inputs)  # + place_holders)

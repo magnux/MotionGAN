@@ -16,7 +16,7 @@
     # Action label conditional model
     'action_cond': True,
     # Copy last known frame in the input
-    'last_known': True,
+    # 'last_known': True,
 
     # How fast should we learn?
     'learning_rate': 1e-5,

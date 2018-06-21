@@ -18,7 +18,7 @@
     # Disable GAN loss on the generator
     'no_gan_loss': True,
     # Copy last known frame in the input
-    'last_known': True,
+    # 'last_known': True,
 
     # How fast should we learn?
     'learning_rate': 1e-5,

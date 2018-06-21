@@ -8,7 +8,7 @@ from models.motiongan import get_model
 from models.dmnn import DMNNv1
 from utils.restore_keras_model import restore_keras_model
 from utils.viz import plot_seq_gif, plot_seq_pano
-from utils.seq_utils import MASK_MODES, gen_mask, linear_baseline, burke_baseline, post_process, seq_to_angles_transformer, get_angles_mask
+from utils.seq_utils import MASK_MODES, gen_mask, linear_baseline, burke_baseline, post_process, seq_to_angles_transformer, get_angles_mask, gen_latent_noise
 import h5py as h5
 from tqdm import trange
 from collections import OrderedDict
@@ -377,8 +377,6 @@ if __name__ == "__main__":
                 pred_len = seq_len // 2
                 mean_errors_hmp = np.zeros((8, pred_len))
                 mean_errors_mg = np.zeros((8, pred_len))
-                mean_motion_hmp = np.zeros((8, pred_len-1))
-                mean_motion_mg = np.zeros((8, pred_len-1))
                 for i in np.arange(8):
                     encoder_inputs = np.array(sample_file['expmap/encoder_inputs/{1}_{0}'.format(i, action)], dtype=np.float32)
                     decoder_inputs = np.array(sample_file['expmap/decoder_inputs/{1}_{0}'.format(i, action)], dtype=np.float32)
@@ -426,8 +424,12 @@ if __name__ == "__main__":
 
                     gen_inputs = [poses_batch, mask_batch]
                     if configs[0].action_cond:
-                        action_label = np.ones((poses_batch.shape[0], 1), dtype=np.float32) * act_idx
+                        action_label = np.ones((batch_size, 1), dtype=np.float32) * act_idx
                         gen_inputs.append(action_label)
+                    if configs[0].latent_cond_dim > 0:
+                        # latent_noise = gen_latent_noise(batch_size, configs[0].latent_cond_dim)
+                        latent_noise = np.ones((batch_size, configs[0].latent_cond_dim), dtype=np.float32) * 0.5
+                        gen_inputs.append(latent_noise)
 
                     gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
                     # gen_output = np.tile(poses_batch[:, :, 9, np.newaxis, :], (1, 1, 20, 1))
@@ -483,28 +485,17 @@ if __name__ == "__main__":
                     mean_errors_hmp[i, :] = euc_error(eul_gt, eul_hmp)
                     mean_errors_mg[i, :] = euc_error(eul_pb[pred_len:, :], eul_mg[pred_len:, :])
 
-                    mean_motion_hmp[i, :] = motion_error(eul_gt, eul_hmp)
-                    mean_motion_mg[i, :] = motion_error(eul_pb[pred_len:, :], eul_mg[pred_len:, :])
-
                 rec_mean_mean_error = np.array(sample_file['mean_{0}_error'.format(action)], dtype=np.float32)
                 rec_mean_mean_error = rec_mean_mean_error[range(4, np.int(rec_mean_mean_error.shape[0]), 5)]
                 mean_mean_errors_hmp = np.mean(mean_errors_hmp, 0)
                 mean_mean_errors_mg = np.mean(mean_errors_mg, 0)
 
-                mean_mean_motion_hmp = np.mean(mean_motion_hmp, 0)
-                mean_mean_motion_mg = np.mean(mean_motion_mg, 0)
-
                 print(action)
                 err_strs = [(Fore.BLUE if np.mean(np.abs(err1 - err2)) < 1e-4 else Fore.YELLOW) + str(np.mean(err2))
                             for err1, err2 in zip(rec_mean_mean_error, mean_mean_errors_hmp)]
-                err_strs += '\n'
 
                 err_strs += [(Fore.GREEN if np.mean((err1 > err2).astype('float32')) > 0.5 else Fore.RED) + str(np.mean(err2))
                              for err1, err2 in zip(mean_mean_errors_hmp, mean_mean_errors_mg)]
-                err_strs += '\n'
-
-                err_strs += [(Fore.GREEN if np.mean((err1 > err2).astype('float32')) > 0.5 else Fore.RED) + str(np.mean(err2))
-                                     for err1, err2 in zip(mean_mean_motion_hmp, mean_mean_motion_mg)]
 
                 for err_str in err_strs:
                     print(err_str)

@@ -519,20 +519,7 @@ class _MotionGAN(object):
             fae_dim = self.org_shape[1] * self.org_shape[3]
 
             h = Permute((2, 1, 3), name=scope+'perm_in')(seq)
-            h = Reshape((int(seq.shape[2]), int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in_0')(h)
-
-            h = Lambda(lambda arg: K.expand_dims(arg, axis=-1), name=scope+'exp_in')(h)
-
-            h = Conv2D(16, 1, 1, name=scope+'2d_conv_in', **CONV2D_ARGS)(h)
-            for i in range(3):
-                with scope.name_scope('2d_block_%d' % i):
-                    pi = Conv2D(16, (3, 9), 1, activation='relu', name=scope+'pi_0', **CONV2D_ARGS)(h)
-                    pi = Conv2D(16, (3, 9), 1, activation='relu', name=scope+'pi_1', **CONV2D_ARGS)(pi)
-                    h = Add(name=scope+'add')([h, pi])
-
-            h = Conv2D(1, 3, 1, name=scope+'2d_conv_out', **CONV2D_ARGS)(h)
-
-            h = Reshape((int(h.shape[1]), int(h.shape[2])), name=scope+'resh_in_1')(h)
+            h = Reshape((int(seq.shape[2]), int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
 
             if self.action_cond:
                 h = Concatenate(axis=-1, name=scope+'cat_label')([h, self.x_label])
@@ -908,8 +895,7 @@ class MotionGANV5(_MotionGAN):
                     with scope.name_scope('block_%d' % i):
                         n_filters = n_hidden * (i + 2)
                         pi = _conv_block(wave_output, n_filters, 2, 3, (2, 1), Conv2D)
-                        shortcut = Conv2D(n_filters, (2, 1), (2, 1), name=scope+'shortcut', **CONV2D_ARGS)(
-                            wave_output)
+                        shortcut = Conv2D(n_filters, (2, 1), (2, 1), name=scope+'shortcut', **CONV2D_ARGS)(wave_output)
                         wave_output = Add(name=scope+'add')([shortcut, pi])
 
                 wave_output = Conv2D(1, 1, 1, name=scope+'merge_out', **CONV2D_ARGS)(wave_output)

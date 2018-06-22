@@ -18,7 +18,7 @@
     # Coherence on generated sequences loss
     'coherence_loss': True,
     # Copy last known frame in the input
-    # 'last_known': True,
+    'last_known': True,
 
     # How fast should we learn?
     'learning_rate': 1e-5,
@@ -27,9 +27,9 @@
     # Multiplies length of epoch, useful for tiny datasets
     'epoch_factor': 256,
     # Number of the random picks (0 == deactivated)
-    'pick_num': 20,
+    'pick_num': 0,
     # Size of the random crop (0 == deactivated)
-    'crop_len': 100,
+    'crop_len': 50,
     # Train on future prediction task only
     'train_fp': True,
 }

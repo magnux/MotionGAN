@@ -388,20 +388,20 @@ if __name__ == "__main__":
                     # print(input_seeds_sact, input_seeds_idx)
 
                     expmap_gt = np.array(sample_file['expmap/gt/{1}_{0}'.format(i, action)], dtype=np.float32)
-                    expmap_gt = expmap_gt[4:, ...]  # Our model predicts every 200ms, first frames are not compared
-                    expmap_gt = subsample(expmap_gt)
+                    # expmap_gt = expmap_gt[4:, ...]  # Our model predicts every 200ms, first frames are not compared
+                    # expmap_gt = subsample(expmap_gt)
                     expmap_gt = expmap_gt[:pred_len, ...]
 
                     expmap_hmp = np.array(sample_file['expmap/preds/{1}_{0}'.format(i, action)], dtype=np.float32)
-                    expmap_hmp = expmap_hmp[4:, ...]
-                    expmap_hmp = subsample(expmap_hmp)
+                    # expmap_hmp = expmap_hmp[4:, ...]
+                    # expmap_hmp = subsample(expmap_hmp)
                     expmap_hmp = expmap_hmp[:pred_len, ...]
 
                     poses_batch = None
                     if 'expmaps' in configs[0].data_set:
                         poses_batch = np.concatenate([encoder_inputs, decoder_inputs[np.newaxis, 0, :], decoder_outputs], axis=0)
-                        poses_batch = subsample(poses_batch)
-                        poses_batch = poses_batch[10 - pred_len:10 + pred_len, :]
+                        # poses_batch = subsample(poses_batch)
+                        poses_batch = poses_batch[50 - pred_len:50 + pred_len, :]
                         poses_batch = np.transpose(np.reshape(poses_batch, (1, pred_len*2, 33, 3)), (0, 2, 1, 3))
                         poses_batch = poses_batch[:, configs[0].used_joints, :, :]
                     else:
@@ -486,7 +486,7 @@ if __name__ == "__main__":
                     mean_errors_mg[i, :] = euc_error(eul_pb[pred_len:, :], eul_mg[pred_len:, :])
 
                 rec_mean_mean_error = np.array(sample_file['mean_{0}_error'.format(action)], dtype=np.float32)
-                rec_mean_mean_error = rec_mean_mean_error[range(4, np.int(rec_mean_mean_error.shape[0]), 5)]
+                # rec_mean_mean_error = rec_mean_mean_error[range(4, np.int(rec_mean_mean_error.shape[0]), 5)]
                 mean_mean_errors_hmp = np.mean(mean_errors_hmp, 0)
                 mean_mean_errors_mg = np.mean(mean_errors_mg, 0)
 

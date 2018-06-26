@@ -578,8 +578,7 @@ class _MotionGAN(object):
             #
             # z = Lambda(sampling, output_shape=(fae_dim,), name=scope+'z')([z_mean, z_log_var])
 
-
-            h = CuDNNGRU(fae_dim, return_sequences=True, name=scope + 'encoder_in')(h)
+            h = CuDNNGRU(fae_dim, return_sequences=True, name=scope+'gru_in')(h)
             for i in range(2):
                 with scope.name_scope('block_%d' % i):
                     h = CuDNNGRU(fae_dim, return_sequences=True, name=scope+'gru')(h)
@@ -592,12 +591,12 @@ class _MotionGAN(object):
     def _pose_decoder(self, gen_z):
         scope = Scoping.get_global_scope()
         with scope.name_scope('decoder'):
-            gen_z = Conv2D(1, 3, 1, name=scope+'fae_merge', **CONV2D_ARGS)(gen_z)
-            gen_z = Reshape((int(gen_z.shape[1]), int(gen_z.shape[2])), name=scope+'fae_reshape')(gen_z)
+            dec_h = Conv2D(1, 3, 1, name=scope+'fae_merge', **CONV2D_ARGS)(gen_z)
+            dec_h = Reshape((int(gen_z.shape[1]), int(gen_z.shape[2])), name=scope+'fae_reshape')(dec_h)
 
             fae_dim = self.org_shape[1] * self.org_shape[3] * 2
 
-            # dec_h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(gen_z)
+            # dec_h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(dec_h)
             # for i in range(3):
             #     with scope.name_scope('block_%d' % i):
             #         pi = Conv1D(fae_dim, 1, 1, activation='relu', name=scope+'pi_0', **CONV1D_ARGS)(dec_h)
@@ -605,13 +604,15 @@ class _MotionGAN(object):
             #         tau = Conv1D(fae_dim, 1, 1, activation='sigmoid', name=scope+'tau_0', **CONV1D_ARGS)(dec_h)
             #         dec_h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
             #                        name=scope+'attention')([dec_h, pi, tau])
+            #
+            # dec_x = Conv1D(self.org_shape[1] * 3, 1, 1, name=scope+'conv_out', **CONV1D_ARGS)(dec_h)
 
-            dec_h = CuDNNGRU(fae_dim, return_sequences=True, name=scope+'encoder_in')(gen_z)
             for i in range(2):
                 with scope.name_scope('block_%d' % i):
                     dec_h = CuDNNGRU(fae_dim, return_sequences=True, name=scope+'gru')(dec_h)
 
-            dec_x = Conv1D(self.org_shape[1] * 3, 1, 1, name=scope+'conv_out', **CONV1D_ARGS)(dec_h)
+            dec_x = CuDNNGRU(self.org_shape[1] * 3, return_sequences=True, name=scope+'gru_out')(dec_h)
+
             dec_x = Reshape((int(gen_z.shape[1]), self.org_shape[1], 3), name=scope+'resh_out')(dec_x)
             dec_x = Permute((2, 1, 3), name=scope+'perm_out')(dec_x)
 

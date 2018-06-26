@@ -52,8 +52,8 @@ class _MotionGAN(object):
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
         self.no_gan_loss = config.no_gan_loss
-        self.wgan_scale_d = 10.0 * config.loss_factor
-        self.wgan_scale_g = 10.0 * config.loss_factor * (0.0 if self.no_gan_loss else 1.0)
+        self.wgan_scale_d = 1.0 * config.loss_factor
+        self.wgan_scale_g = 1.0 * config.loss_factor * (0.0 if self.no_gan_loss else 1.0)
         self.rec_scale = 1.0   # if 'expmaps' not in self.data_set else 10.0
         self.latent_cond_dim = config.latent_cond_dim
         self.latent_scale_d = 10.0

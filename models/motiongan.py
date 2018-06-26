@@ -18,6 +18,7 @@ from layers.seq_transform import remove_hip_in, remove_hip_out, translate_start_
     seq_to_diff_in, seq_to_diff_out, seq_to_angles_in, seq_to_angles_out
 from collections import OrderedDict
 from utils.scoping import Scoping
+from layers.cudnn_recurrent import CuDNNGRU
 
 CONV1D_ARGS = {'padding': 'same', 'kernel_regularizer': l2(5e-4)}
 CONV2D_ARGS = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}
@@ -250,14 +251,14 @@ class _MotionGAN(object):
                 loss_rec = K.sum(K.mean(K.square((real_seq - gen_seq) * (1 - _get_tensor(self.gen_inputs, 'seq_mask'))), axis=-1), axis=(1, 2))
                 gen_metrics['gen_loss_rec_comp'] = self.rec_scale * K.mean(loss_rec)
 
-            with K.name_scope('kl_loss'):
-                kl_loss_sum = 0
-                for z_mean, z_log_var in self.z_params:
-                    kl_loss = 1 + z_log_var - K.square(z_mean) - K.exp(z_log_var)
-                    kl_loss = K.sum(kl_loss, axis=-1)
-                    kl_loss *= -0.5
-                    kl_loss_sum += kl_loss
-                gen_metrics['gen_loss_kl'] = K.mean(kl_loss_sum)
+            # with K.name_scope('kl_loss'):
+            #     kl_loss_sum = 0
+            #     for z_mean, z_log_var in self.z_params:
+            #         kl_loss = 1 + z_log_var - K.square(z_mean) - K.exp(z_log_var)
+            #         kl_loss = K.sum(kl_loss, axis=-1)
+            #         kl_loss *= -0.5
+            #         kl_loss_sum += kl_loss
+            #     gen_metrics['gen_loss_kl'] = K.mean(kl_loss_sum)
 
             # Action label loss
             # with K.name_scope('action_loss'):
@@ -530,7 +531,7 @@ class _MotionGAN(object):
     def _pose_encoder(self, seq):
         scope = Scoping.get_global_scope()
         with scope.name_scope('encoder'):
-            fae_dim = self.org_shape[1] * self.org_shape[3] * 2
+            fae_dim = self.org_shape[1] * self.org_shape[3]
 
             h = Permute((2, 1, 3), name=scope+'perm_in')(seq)
             h = Reshape((int(seq.shape[2]), int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
@@ -541,42 +542,50 @@ class _MotionGAN(object):
             if self.latent_cond_dim:
                 h = Concatenate(axis=-1, name=scope+'cat_latent')([h, self.x_latent])
 
-            h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(h)
-            for i in range(3):
+            # h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(h)
+            # for i in range(3):
+            #     with scope.name_scope('block_%d' % i):
+            #         pi = Conv1D(fae_dim, 1, 1, activation='relu', name=scope+'pi_0', **CONV1D_ARGS)(h)
+            #         pi = Conv1D(fae_dim, 1, 1, activation='relu', name=scope+'pi_1', **CONV1D_ARGS)(pi)
+            #         tau = Conv1D(fae_dim, 1, 1, activation='sigmoid', name=scope+'tau_0', **CONV1D_ARGS)(h)
+            #         h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
+            #                    name=scope+'attention')([h, pi, tau])
+            #
+            # z_mean = Conv1D(fae_dim, 1, 1, name=scope+'z_mean', **CONV1D_ARGS)(h)
+            # z_log_var = Conv1D(fae_dim, 1, 1, name=scope+'z_log_var', **CONV1D_ARGS)(h)
+            #
+            # self.z_params.append((z_mean, z_log_var))
+            #
+            # # We are only expecting half of the latent features to be activated
+            # # z = Multiply(name=scope + 'z_attention')([z, z_attention])
+            #
+            # # reparameterization trick
+            # # instead of sampling from Q(z|X), sample eps = N(0,I)
+            # # z = z_mean + sqrt(var)*eps
+            # def sampling(args):
+            #     """Reparameterization trick by sampling fr an isotropic unit Gaussian.
+            #     # Arguments:
+            #         args (tensor): mean and log of variance of Q(z|X)
+            #     # Returns:
+            #         z (tensor): sampled latent vector
+            #     """
+            #
+            #     z_mean, z_log_var = args
+            #     # by default, random_normal has mean=0 and std=1.0
+            #     epsilon = K.random_normal(shape=[int(dim) for dim in z_mean.shape])
+            #
+            #     return z_mean + K.exp(0.5 * z_log_var) * epsilon
+            #
+            # z = Lambda(sampling, output_shape=(fae_dim,), name=scope+'z')([z_mean, z_log_var])
+
+
+            h = CuDNNGRU(fae_dim, return_sequences=True, name=scope + 'encoder_in')(h)
+            for i in range(2):
                 with scope.name_scope('block_%d' % i):
-                    pi = Conv1D(fae_dim, 1, 1, activation='relu', name=scope+'pi_0', **CONV1D_ARGS)(h)
-                    pi = Conv1D(fae_dim, 1, 1, activation='relu', name=scope+'pi_1', **CONV1D_ARGS)(pi)
-                    tau = Conv1D(fae_dim, 1, 1, activation='sigmoid', name=scope+'tau_0', **CONV1D_ARGS)(h)
-                    h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
-                               name=scope+'attention')([h, pi, tau])
+                    h = CuDNNGRU(fae_dim, return_sequences=True, name=scope+'gru')(h)
 
-            z_mean = Conv1D(fae_dim, 1, 1, name=scope+'z_mean', **CONV1D_ARGS)(h)
-            z_log_var = Conv1D(fae_dim, 1, 1, name=scope+'z_log_var', **CONV1D_ARGS)(h)
-
-            self.z_params.append((z_mean, z_log_var))
-
-            # We are only expecting half of the latent features to be activated
-            # z = Multiply(name=scope + 'z_attention')([z, z_attention])
-
-            # reparameterization trick
-            # instead of sampling from Q(z|X), sample eps = N(0,I)
-            # z = z_mean + sqrt(var)*eps
-            def sampling(args):
-                """Reparameterization trick by sampling fr an isotropic unit Gaussian.
-                # Arguments:
-                    args (tensor): mean and log of variance of Q(z|X)
-                # Returns:
-                    z (tensor): sampled latent vector
-                """
-
-                z_mean, z_log_var = args
-                # by default, random_normal has mean=0 and std=1.0
-                epsilon = K.random_normal(shape=[int(dim) for dim in z_mean.shape])
-
-                return z_mean + K.exp(0.5 * z_log_var) * epsilon
-
-            z = Lambda(sampling, output_shape=(fae_dim,), name=scope+'z')([z_mean, z_log_var])
-            z = Reshape((int(z.shape[1]), int(z.shape[2]), 1), name=scope+'res_out')(z)
+            z = h
+            z = Reshape((int(z.shape[1]), int(z.shape[2]), 1), name=scope + 'res_out')(z)
 
         return z
 
@@ -586,16 +595,21 @@ class _MotionGAN(object):
             gen_z = Conv2D(1, 3, 1, name=scope+'fae_merge', **CONV2D_ARGS)(gen_z)
             gen_z = Reshape((int(gen_z.shape[1]), int(gen_z.shape[2])), name=scope+'fae_reshape')(gen_z)
 
-            fae_dim = self.org_shape[1] * self.org_shape[3] * 2
+            fae_dim = self.org_shape[1] * self.org_shape[3]
 
-            dec_h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(gen_z)
-            for i in range(3):
+            # dec_h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(gen_z)
+            # for i in range(3):
+            #     with scope.name_scope('block_%d' % i):
+            #         pi = Conv1D(fae_dim, 1, 1, activation='relu', name=scope+'pi_0', **CONV1D_ARGS)(dec_h)
+            #         pi = Conv1D(fae_dim, 1, 1, activation='relu', name=scope+'pi_1', **CONV1D_ARGS)(pi)
+            #         tau = Conv1D(fae_dim, 1, 1, activation='sigmoid', name=scope+'tau_0', **CONV1D_ARGS)(dec_h)
+            #         dec_h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
+            #                        name=scope+'attention')([dec_h, pi, tau])
+
+            dec_h = CuDNNGRU(fae_dim, return_sequences=True, name=scope+'encoder_in')(gen_z)
+            for i in range(2):
                 with scope.name_scope('block_%d' % i):
-                    pi = Conv1D(fae_dim, 1, 1, activation='relu', name=scope+'pi_0', **CONV1D_ARGS)(dec_h)
-                    pi = Conv1D(fae_dim, 1, 1, activation='relu', name=scope+'pi_1', **CONV1D_ARGS)(pi)
-                    tau = Conv1D(fae_dim, 1, 1, activation='sigmoid', name=scope+'tau_0', **CONV1D_ARGS)(dec_h)
-                    dec_h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
-                                   name=scope+'attention')([dec_h, pi, tau])
+                    dec_h = CuDNNGRU(fae_dim, return_sequences=True, name=scope+'gru')(dec_h)
 
             dec_x = Conv1D(self.org_shape[1] * 3, 1, 1, name=scope+'conv_out', **CONV1D_ARGS)(dec_h)
             dec_x = Reshape((int(gen_z.shape[1]), self.org_shape[1], 3), name=scope+'resh_out')(dec_x)

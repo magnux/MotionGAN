@@ -842,6 +842,7 @@ def resnet_disc(x):
                         pi = _conv_block(x, n_filters, 2, 3, strides)
                     with scope.name_scope('tau'):
                         tau = _conv_block(x, n_filters, 8, 3, strides)
+                        tau = Activation('sigmoid', name=scope+'sigmoid')(tau)
                     x = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                                name=scope+'attention')([shortcut, pi, tau])
 
@@ -881,6 +882,7 @@ def dmnn_disc(x):
                         pi = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'], 3, strides, Conv3D, 1)
                     with scope.name_scope('tau'):
                         tau = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'] * 4, 3, strides, Conv3D, 1)
+                        tau = Activation('sigmoid', name=scope+'sigmoid')(tau)
                     x = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                                name=scope + 'attention')([shortcut, pi, tau])
 
@@ -940,6 +942,7 @@ class MotionGANV5(_MotionGAN):
                             pi = _conv_block(wave_output, n_filters, 2, 3, (2, 1), Conv2D)
                         with scope.name_scope('tau'):
                             tau = _conv_block(wave_output, n_filters, 2, 3, (2, 1), Conv2D)
+                            tau = Activation('sigmoid', name=scope+'sigmoid')(tau)
                         wave_output = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                                              name=scope+'attention')([shortcut, pi, tau])
 
@@ -1007,6 +1010,7 @@ class MotionGANV7(_MotionGAN):
                     x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
                     with scope.name_scope('tau'):
                         tau = _conv_block(x, n_hidden, 2, 3, 1)
+                        tau = Activation('sigmoid', name=scope+'sigmoid')(tau)
                     pi = x
                     for i, factor in enumerate(block_factors):
                         with scope.name_scope('block_%d' % i):

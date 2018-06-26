@@ -531,7 +531,7 @@ class _MotionGAN(object):
     def _pose_encoder(self, seq):
         scope = Scoping.get_global_scope()
         with scope.name_scope('encoder'):
-            fae_dim = self.org_shape[1] * self.org_shape[3]
+            fae_dim = self.org_shape[1] * self.org_shape[3] * 2
 
             h = Permute((2, 1, 3), name=scope+'perm_in')(seq)
             h = Reshape((int(seq.shape[2]), int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
@@ -595,7 +595,7 @@ class _MotionGAN(object):
             gen_z = Conv2D(1, 3, 1, name=scope+'fae_merge', **CONV2D_ARGS)(gen_z)
             gen_z = Reshape((int(gen_z.shape[1]), int(gen_z.shape[2])), name=scope+'fae_reshape')(gen_z)
 
-            fae_dim = self.org_shape[1] * self.org_shape[3]
+            fae_dim = self.org_shape[1] * self.org_shape[3] * 2
 
             # dec_h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(gen_z)
             # for i in range(3):

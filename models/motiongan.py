@@ -81,6 +81,7 @@ class _MotionGAN(object):
         self.last_known = config.last_known
 
         self.stats = {}
+        self.z_params = []
 
         # Discriminator
         real_seq = Input(batch_shape=(self.batch_size, self.njoints, self.seq_len, 3), name='real_seq', dtype='float32')
@@ -248,6 +249,15 @@ class _MotionGAN(object):
 
                 loss_rec = K.sum(K.mean(K.square((real_seq - gen_seq) * (1 - _get_tensor(self.gen_inputs, 'seq_mask'))), axis=-1), axis=(1, 2))
                 gen_metrics['gen_loss_rec_comp'] = self.rec_scale * K.mean(loss_rec)
+
+            with K.name_scope('kl_loss'):
+                kl_loss_sum = 0
+                for z_mean, z_log_var in self.z_params:
+                    kl_loss = 1 + z_log_var - K.square(z_mean) - K.exp(z_log_var)
+                    kl_loss = K.sum(kl_loss, axis=-1)
+                    kl_loss *= -0.5
+                    kl_loss_sum += kl_loss
+                gen_metrics['gen_loss_kl'] = K.mean(kl_loss_sum)
 
             # Action label loss
             # with K.name_scope('action_loss'):
@@ -473,11 +483,15 @@ class _MotionGAN(object):
                 x_latent = Reshape((1, self.latent_cond_dim), name=scope+'res_latent')(x_latent)
                 self.x_latent = Tile((x.shape[2], 1), name=scope+'tile_latent')(x_latent)
 
+            x = self._pose_encoder(x)
+
         return x
 
     def _proc_gen_outputs(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('generator'):
+
+            x = self._pose_decoder(x)
 
             # if self.use_pose_fae:
             #     x = Conv2D(1, 3, 1, name=scope+'fae_merge', **CONV2D_ARGS)(x)
@@ -536,11 +550,32 @@ class _MotionGAN(object):
                     h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
                                name=scope+'attention')([h, pi, tau])
 
-            z = Conv1D(fae_dim, 1, 1, name=scope+'z_emb', **CONV1D_ARGS)(h)
-            z_attention = Conv1D(fae_dim, 1, 1, activation='sigmoid', name=scope+'attention_mask', **CONV1D_ARGS)(h)
+            z_mean = Conv1D(fae_dim, 1, 1, name=scope+'z_mean', **CONV1D_ARGS)(h)
+            z_log_var = Conv1D(fae_dim, 1, 1, name=scope+'z_log_var', **CONV1D_ARGS)(h)
+
+            self.z_params.append((z_mean, z_log_var))
 
             # We are only expecting half of the latent features to be activated
-            z = Multiply(name=scope+'z_attention')([z, z_attention])
+            # z = Multiply(name=scope + 'z_attention')([z, z_attention])
+
+            # reparameterization trick
+            # instead of sampling from Q(z|X), sample eps = N(0,I)
+            # z = z_mean + sqrt(var)*eps
+            def sampling(args):
+                """Reparameterization trick by sampling fr an isotropic unit Gaussian.
+                # Arguments:
+                    args (tensor): mean and log of variance of Q(z|X)
+                # Returns:
+                    z (tensor): sampled latent vector
+                """
+
+                z_mean, z_log_var = args
+                # by default, random_normal has mean=0 and std=1.0
+                epsilon = K.random_normal(shape=[int(dim) for dim in z_mean.shape])
+
+                return z_mean + K.exp(0.5 * z_log_var) * epsilon
+
+            z = Lambda(sampling, output_shape=(fae_dim,), name=scope+'z')([z_mean, z_log_var])
             z = Reshape((int(z.shape[1]), int(z.shape[2]), 1), name=scope+'res_out')(z)
 
         return z
@@ -870,17 +905,12 @@ class MotionGANV5(_MotionGAN):
     def discriminator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('discriminator'):
-            if 'expmaps' in self.data_set:
-                x = dmnn_disc(x)
-            else:
-                x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
+            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
         return x
 
     def generator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('generator'):
-            x_coords = Lambda(lambda arg: arg[..., :3], name=scope+'coords_slice')(x)
-            x = self._pose_encoder(x)
             x_shape = [int(dim) for dim in x.shape]
             n_hidden = 32
             time_steps = x_shape[1]
@@ -932,8 +962,6 @@ class MotionGANV5(_MotionGAN):
             x = Concatenate(axis=1, name=scope+'cat_out')([x, xs])
             x = Lambda(lambda arg: arg[:, :, :, 0], name=scope+'trim_out')(x)
             x = Reshape((x_shape[1], x_shape[2], 1), name=scope+'res_trim_out')(x)
-            x = self._pose_decoder(x)
-            x = Add(name=scope+'add_coords')([x_coords, x])
 
         return x
 
@@ -944,10 +972,7 @@ class MotionGANV7(_MotionGAN):
     def discriminator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('discriminator'):
-            if 'expmaps' in self.data_set:
-                x = dmnn_disc(x)
-            else:
-                x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
+            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
         return x
 
     def generator(self, x):
@@ -964,16 +989,9 @@ class MotionGANV7(_MotionGAN):
             block_factors = range(1, (u_blocks // 2) + 1) + range(u_blocks // 2, 0, -1)
             macro_blocks = 4
 
-            # if not (self.time_pres_emb or self.use_pose_fae):
-            #     x = Dense(4 * 4 * n_hidden * block_factors[0], name=scope+'dense_in')(x)
-            #     x = Reshape((4, 4, n_hidden * block_factors[0]), name=scope+'reshape_in')(x)
-
             u_skips = []
-            x_coords = Lambda(lambda arg: arg[..., :3], name=scope+'coords_slice')(x)
-            x_occ = Lambda(lambda arg: arg[..., 3:], name=scope+'occ_slice')(x)
             for k in range(macro_blocks):
                 with scope.name_scope('macro_block_%d' % k):
-                    x = self._pose_encoder(x)
                     x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
                     shortcut = x
                     for i, factor in enumerate(block_factors):
@@ -999,10 +1017,4 @@ class MotionGANV7(_MotionGAN):
                                     x = _conv_block(x, n_filters, 2, 3, 1, conv_func)
 
                     x = Add(name=scope+'add_short')([shortcut, x])
-                    x = self._pose_decoder(x)
-                    x_coords = Add(name=scope+'add_coords')([x_coords, x])
-                    if k < macro_blocks -1:
-                        x = Concatenate(axis=-1, name=scope+'cat_occ')([x_coords, x_occ])
-                    else:
-                        x = x_coords
         return x

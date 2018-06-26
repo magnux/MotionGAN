@@ -543,11 +543,13 @@ class _MotionGAN(object):
                 h = Concatenate(axis=-1, name=scope+'cat_latent')([h, self.x_latent])
 
             h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(h)
-            for i in range(5):
+            for i in range(3):
                 with scope.name_scope('block_%d' % i):
                     pi = Conv1D(fae_dim // 2, 1, 1, activation='relu', name=scope+'pi_0', **CONV1D_ARGS)(h)
                     pi = Conv1D(fae_dim, 1, 1, activation='relu', name=scope+'pi_1', **CONV1D_ARGS)(pi)
-                    h = Add(name=scope+'add')([h, pi])
+                    tau = Conv1D(fae_dim, 1, 1, activation='sigmoid', name=scope + 'tau_0', **CONV1D_ARGS)(h)
+                    h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
+                               name=scope + 'attention')([h, pi, tau])
 
             z = Conv1D(fae_dim, 1, 1, name=scope+'z', **CONV1D_ARGS)(h)
             z_attention = Conv1D(fae_dim, 1, 1, name=scope+'z_attention', **CONV1D_ARGS)(h)
@@ -587,11 +589,13 @@ class _MotionGAN(object):
             fae_dim = self.org_shape[1] * self.org_shape[3] * 2
 
             dec_h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(dec_h)
-            for i in range(5):
+            for i in range(3):
                 with scope.name_scope('block_%d' % i):
                     pi = Conv1D(fae_dim // 2, 1, 1, activation='relu', name=scope+'pi_0', **CONV1D_ARGS)(dec_h)
                     pi = Conv1D(fae_dim, 1, 1, activation='relu', name=scope+'pi_1', **CONV1D_ARGS)(pi)
-                    dec_h = Add(name=scope+'add')([dec_h, pi])
+                    tau = Conv1D(fae_dim, 1, 1, activation='sigmoid', name=scope + 'tau_0', **CONV1D_ARGS)(dec_h)
+                    dec_h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
+                                   name=scope + 'attention')([dec_h, pi, tau])
 
             dec_x = Conv1D(self.org_shape[1] * 3, 1, 1, name=scope+'conv_out', **CONV1D_ARGS)(dec_h)
             dec_x = Reshape((int(gen_z.shape[1]), self.org_shape[1], 3), name=scope+'resh_out')(dec_x)
@@ -834,8 +838,13 @@ def resnet_disc(x):
                                           name=scope+'shortcut', **CONV2D_ARGS)(x)
                     else:
                         shortcut = x
-                    pi = _conv_block(x, n_filters, 2, 3, strides)
-                    x = Add(name=scope+'add')([shortcut, pi])
+                    with scope.name_scope('pi'):
+                        pi = _conv_block(x, n_filters, 2, 3, strides)
+                    with scope.name_scope('tau'):
+                        tau = _conv_block(x, n_filters, 8, 3, strides)
+                    x = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
+                               name=scope+'attention')([shortcut, pi, tau])
+
 
         x = Activation('relu', name=scope+'relu_out')(x)
         x = Flatten(name=scope+'flatten_out')(x)
@@ -868,9 +877,12 @@ def dmnn_disc(x):
                                           name=scope+'shortcut', **CONV2D_ARGS)(x)
                     else:
                         shortcut = x
-
-                    x = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'], 3, strides, Conv3D, 1)
-                    x = Add(name=scope+'add')([shortcut, x])
+                    with scope.name_scope('pi'):
+                        pi = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'], 3, strides, Conv3D, 1)
+                    with scope.name_scope('tau'):
+                        tau = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'] * 4, 3, strides, Conv3D, 1)
+                    x = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
+                               name=scope + 'attention')([shortcut, pi, tau])
 
         x = Activation('relu', name=scope+'relu_out')(x)
         x = Flatten(name=scope+'flatten_out')(x)
@@ -923,9 +935,13 @@ class MotionGANV5(_MotionGAN):
                 for i in range(n_blocks):
                     with scope.name_scope('block_%d' % i):
                         n_filters = n_hidden * (i + 2)
-                        pi = _conv_block(wave_output, n_filters, 2, 3, (2, 1), Conv2D)
                         shortcut = Conv2D(n_filters, (2, 1), (2, 1), name=scope+'shortcut', **CONV2D_ARGS)(wave_output)
-                        wave_output = Add(name=scope+'add')([shortcut, pi])
+                        with scope.name_scope('pi'):
+                            pi = _conv_block(wave_output, n_filters, 2, 3, (2, 1), Conv2D)
+                        with scope.name_scope('tau'):
+                            tau = _conv_block(wave_output, n_filters, 2, 3, (2, 1), Conv2D)
+                        wave_output = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
+                                             name=scope+'attention')([shortcut, pi, tau])
 
                 wave_output = Conv2D(1, 1, 1, name=scope+'merge_out', **CONV2D_ARGS)(wave_output)
                 wave_output = Reshape((x_shape[2], 1), name=scope+'squeeze_out')(wave_output)
@@ -989,28 +1005,31 @@ class MotionGANV7(_MotionGAN):
             for k in range(macro_blocks):
                 with scope.name_scope('macro_block_%d' % k):
                     x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
-                    shortcut = x
+                    with scope.name_scope('tau'):
+                        tau = _conv_block(x, n_hidden, 2, 3, 1)
+                    pi = x
                     for i, factor in enumerate(block_factors):
                         with scope.name_scope('block_%d' % i):
                             n_filters = n_hidden * factor
                             if i < (u_blocks // 2):
                                 conv_func = Conv2D
-                                u_skips.append(x)
+                                u_skips.append(pi)
                             else:
                                 conv_func = Conv2DTranspose
 
                             with scope.name_scope('pi'):
-                                x = _conv_block(x, n_filters, 2, 3, (1, 2), conv_func)
+                                pi = _conv_block(pi, n_filters, 2, 3, (1, 2), conv_func)
 
                             if (u_blocks // 2) <= i < u_blocks:
-                                skip_x = u_skips.pop()
-                                if skip_x.shape[1] != x.shape[1] or skip_x.shape[2] != x.shape[2]:
-                                    x = Cropping2D(((0, int(x.shape[1] - skip_x.shape[1])),
-                                                    (0, int(x.shape[2] - skip_x.shape[2]))),
-                                                     name=scope+'crop_x')(x)
-                                x = Concatenate(name=scope+'cat_skip')([skip_x, x])
+                                skip_pi = u_skips.pop()
+                                if skip_pi.shape[1] != pi.shape[1] or skip_pi.shape[2] != pi.shape[2]:
+                                    pi = Cropping2D(((0, int(pi.shape[1] - skip_pi.shape[1])),
+                                                    (0, int(pi.shape[2] - skip_pi.shape[2]))),
+                                                     name=scope+'crop_pi')(pi)
+                                pi = Concatenate(name=scope+'cat_skip')([skip_pi, pi])
                                 with scope.name_scope('skip_pi'):
-                                    x = _conv_block(x, n_filters, 2, 3, 1, conv_func)
+                                    pi = _conv_block(pi, n_filters, 2, 3, 1, conv_func)
 
-                    x = Add(name=scope+'add_short')([shortcut, x])
+                    x = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
+                               name=scope+'attention')([x, pi, tau])
         return x

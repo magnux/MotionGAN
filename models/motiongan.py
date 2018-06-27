@@ -1,5 +1,6 @@
 from __future__ import absolute_import, division, print_function
 import numpy as np
+import tensorflow as tf
 import tensorflow.contrib.keras.api.keras.backend as K
 from scipy.fftpack import idct
 from scipy.linalg import pinv
@@ -545,11 +546,11 @@ class _MotionGAN(object):
             h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(h)
             for i in range(3):
                 with scope.name_scope('block_%d' % i):
-                    pi = Conv1D(fae_dim // 2, 1, 1, activation='relu', name=scope+'pi_0', **CONV1D_ARGS)(h)
-                    pi = Conv1D(fae_dim, 1, 1, activation='relu', name=scope+'pi_1', **CONV1D_ARGS)(pi)
-                    tau = Conv1D(fae_dim, 1, 1, activation='sigmoid', name=scope + 'tau_0', **CONV1D_ARGS)(h)
-                    h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
-                               name=scope + 'attention')([h, pi, tau])
+                    pi = Activation('relu', name=scope+'relu_0')(h)
+                    pi = Conv1D(fae_dim // 2, 1, 1, name=scope+'pi_0', **CONV1D_ARGS)(pi)
+                    pi = Activation('relu', name=scope+'relu_1')(pi)
+                    pi = Conv1D(fae_dim, 1, 1, name=scope+'pi_1', **CONV1D_ARGS)(pi)
+                    h = Add(name=scope+'add')([h, pi])
 
             z = Conv1D(fae_dim, 1, 1, name=scope+'z', **CONV1D_ARGS)(h)
             z_attention = Conv1D(fae_dim, 1, 1, name=scope+'z_attention', **CONV1D_ARGS)(h)
@@ -576,7 +577,7 @@ class _MotionGAN(object):
             #     return z_mean + K.exp(0.5 * z_log_var) * epsilon
             #
             # z = Lambda(sampling, output_shape=(fae_dim,), name=scope+'z')([z_mean, z_log_var])
-            z = Reshape((int(z.shape[1]), int(z.shape[2]), 1), name=scope + 'res_out')(z)
+            z = Reshape((int(z.shape[1]), int(z.shape[2]), 1), name=scope+'res_out')(z)
 
         return z
 
@@ -591,11 +592,11 @@ class _MotionGAN(object):
             dec_h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(dec_h)
             for i in range(3):
                 with scope.name_scope('block_%d' % i):
-                    pi = Conv1D(fae_dim // 2, 1, 1, activation='relu', name=scope+'pi_0', **CONV1D_ARGS)(dec_h)
+                    pi = Activation('relu', name=scope+'relu_0')(dec_h)
+                    pi = Conv1D(fae_dim // 2, 1, 1, activation='relu', name=scope+'pi_0', **CONV1D_ARGS)(pi)
+                    pi = Activation('relu', name=scope+'relu_1')(pi)
                     pi = Conv1D(fae_dim, 1, 1, activation='relu', name=scope+'pi_1', **CONV1D_ARGS)(pi)
-                    tau = Conv1D(fae_dim, 1, 1, activation='sigmoid', name=scope + 'tau_0', **CONV1D_ARGS)(dec_h)
-                    dec_h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
-                                   name=scope + 'attention')([dec_h, pi, tau])
+                    dec_h = Add(name=scope+'add')([dec_h, pi])
 
             dec_x = Conv1D(self.org_shape[1] * 3, 1, 1, name=scope+'conv_out', **CONV1D_ARGS)(dec_h)
             dec_x = Reshape((int(gen_z.shape[1]), self.org_shape[1], 3), name=scope+'resh_out')(dec_x)
@@ -840,11 +841,7 @@ def resnet_disc(x):
                         shortcut = x
                     with scope.name_scope('pi'):
                         pi = _conv_block(x, n_filters, 2, 3, strides)
-                    with scope.name_scope('tau'):
-                        tau = _conv_block(x, n_filters, 8, 3, strides)
-                        tau = Activation('sigmoid', name=scope+'sigmoid')(tau)
-                    x = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
-                               name=scope+'attention')([shortcut, pi, tau])
+                    x = Add(name=scope+'add')([shortcut, pi])
 
 
         x = Activation('relu', name=scope+'relu_out')(x)
@@ -880,11 +877,7 @@ def dmnn_disc(x):
                         shortcut = x
                     with scope.name_scope('pi'):
                         pi = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'], 3, strides, Conv3D, 1)
-                    with scope.name_scope('tau'):
-                        tau = _conv_block(x, blocks[i]['size'], blocks[i]['bneck_f'] * 4, 3, strides, Conv3D, 1)
-                        tau = Activation('sigmoid', name=scope+'sigmoid')(tau)
-                    x = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
-                               name=scope + 'attention')([shortcut, pi, tau])
+                    x = Add(name=scope+'add')([shortcut, pi])
 
         x = Activation('relu', name=scope+'relu_out')(x)
         x = Flatten(name=scope+'flatten_out')(x)
@@ -940,11 +933,7 @@ class MotionGANV5(_MotionGAN):
                         shortcut = Conv2D(n_filters, (2, 1), (2, 1), name=scope+'shortcut', **CONV2D_ARGS)(wave_output)
                         with scope.name_scope('pi'):
                             pi = _conv_block(wave_output, n_filters, 2, 3, (2, 1), Conv2D)
-                        with scope.name_scope('tau'):
-                            tau = _conv_block(wave_output, n_filters, 2, 3, (2, 1), Conv2D)
-                            tau = Activation('sigmoid', name=scope+'sigmoid')(tau)
-                        wave_output = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
-                                             name=scope+'attention')([shortcut, pi, tau])
+                        wave_output = Add(name=scope+'add')([shortcut, pi])
 
                 wave_output = Conv2D(1, 1, 1, name=scope+'merge_out', **CONV2D_ARGS)(wave_output)
                 wave_output = Reshape((x_shape[2], 1), name=scope+'squeeze_out')(wave_output)
@@ -1008,9 +997,6 @@ class MotionGANV7(_MotionGAN):
             for k in range(macro_blocks):
                 with scope.name_scope('macro_block_%d' % k):
                     x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
-                    with scope.name_scope('tau'):
-                        tau = _conv_block(x, n_hidden, 2, 3, 1)
-                        tau = Activation('sigmoid', name=scope+'sigmoid')(tau)
                     pi = x
                     for i, factor in enumerate(block_factors):
                         with scope.name_scope('block_%d' % i):
@@ -1034,6 +1020,65 @@ class MotionGANV7(_MotionGAN):
                                 with scope.name_scope('skip_pi'):
                                     pi = _conv_block(pi, n_filters, 2, 3, 1, conv_func)
 
-                    x = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
-                               name=scope+'attention')([x, pi, tau])
+                    x = Add(name=scope+'add')([x, pi])
+        return x
+
+
+class MotionGANV8(_MotionGAN):
+    # DMNN + ResNet + Split Discriminator, ResNet + UNet Generator 4 STACK
+
+    def discriminator(self, x):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('discriminator'):
+            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
+        return x
+
+    def generator(self, x):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('generator'):
+            x = Reshape((int(x.shape[1]), int(x.shape[2])), name=scope+'res_in')(x)
+
+            def _get_pos_matrix(max_len, d_emb):
+                pos_enc = np.array([
+                    [pos / np.power(10000, 2 * (j // 2) / d_emb) for j in range(d_emb)]
+                    if pos != 0 else np.zeros(d_emb)
+                    for pos in range(max_len)
+                ])
+                pos_enc[1:, 0::2] = np.sin(pos_enc[1:, 0::2])  # dim 2i
+                pos_enc[1:, 1::2] = np.cos(pos_enc[1:, 1::2])  # dim 2i+1
+
+                return pos_enc
+
+            pos_matrix = _get_pos_matrix(int(x.shape[1]), 4)
+            x = Lambda(lambda arg: K.concatenate([arg, pos_matrix], axis=-1), name=scope+'cat_pos')(x)
+
+            def _multiheaded_attention(kv_source, q_source, num_heads=8):
+                with scope.name_scope('multiheaded_attention'):
+                    keys = Dense(num_heads * kv_source.shape[2], name=scope+'keys')(kv_source)
+                    keys = Reshape((kv_source.shape[1], num_heads, kv_source.shape[2]), name=scope+'rs_keys')(keys)
+                    keys = Permute((2, 1, 3), name=scope+'perm_keys')(keys)
+
+                    values = Dense(num_heads * kv_source.shape[2], name=scope+'values')(kv_source)
+                    values = Reshape((kv_source.shape[1], num_heads, kv_source.shape[2]), name=scope+'rs_values')(values)
+                    values = Permute((2, 1, 3), name=scope+'perm_values')(values)
+
+                    queries = Dense(num_heads * q_source.shape[2], name=scope+'queries')(q_source)
+                    queries = Reshape((q_source.shape[1], num_heads, q_source.shape[2]), name=scope+'rs_queries')(queries)
+                    queries = Permute((2, 1, 3), name=scope+'perm_queries')(queries)
+                    print(keys.shape, queries.shape, values.shape)
+
+                    weights = Lambda(lambda args: K.softmax(tf.matmul(args[0], args[1], transpose_b=True)),
+                                     name=scope+'qk')([queries, keys])
+                    print(weights.shape)
+
+                    new_values = Lambda(lambda args: tf.matmul(args[0], args[1]), name=scope+'new_values')([weights, values])
+                    print(new_values.shape)
+
+                    new_values = Permute((2, 3, 1), name=scope+'perm_queries')(new_values)
+                    new_values = Dense(1, name=scope+'merge_heads')(new_values)
+                    new_values = Reshape((new_values.shape[1], new_values.shape[2]), name=scope + 'merge_heads')(new_values)
+
+
+
+            x = Reshape((int(x.shape[1]), int(x.shape[2]), 1), name=scope+'res_out')(x)
         return x

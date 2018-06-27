@@ -19,7 +19,6 @@ from layers.seq_transform import remove_hip_in, remove_hip_out, translate_start_
     seq_to_diff_in, seq_to_diff_out, seq_to_angles_in, seq_to_angles_out
 from collections import OrderedDict
 from utils.scoping import Scoping
-from layers.cudnn_recurrent import CuDNNGRU
 
 CONV1D_ARGS = {'padding': 'same', 'kernel_regularizer': l2(5e-4)}
 CONV2D_ARGS = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regularizer': l2(5e-4)}

@@ -593,9 +593,9 @@ class _MotionGAN(object):
             for i in range(3):
                 with scope.name_scope('block_%d' % i):
                     pi = Activation('relu', name=scope+'relu_0')(dec_h)
-                    pi = Conv1D(fae_dim // 2, 1, 1, activation='relu', name=scope+'pi_0', **CONV1D_ARGS)(pi)
+                    pi = Conv1D(fae_dim // 2, 1, 1, name=scope+'pi_0', **CONV1D_ARGS)(pi)
                     pi = Activation('relu', name=scope+'relu_1')(pi)
-                    pi = Conv1D(fae_dim, 1, 1, activation='relu', name=scope+'pi_1', **CONV1D_ARGS)(pi)
+                    pi = Conv1D(fae_dim, 1, 1, name=scope+'pi_1', **CONV1D_ARGS)(pi)
                     dec_h = Add(name=scope+'add')([dec_h, pi])
 
             dec_x = Conv1D(self.org_shape[1] * 3, 1, 1, name=scope+'conv_out', **CONV1D_ARGS)(dec_h)

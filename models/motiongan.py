@@ -1036,7 +1036,12 @@ class MotionGANV8(_MotionGAN):
     def generator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('generator'):
-            x = Reshape((int(x.shape[1]), int(x.shape[2])), name=scope+'res_in')(x)
+
+            x = Permute((2, 1, 3), name=scope+'perm_in')(x)
+            x = Reshape((int(x.shape[1]), int(x.shape[2] * x.shape[3])), name=scope+'resh_in')(x)
+
+            if self.action_cond:
+                x = Concatenate(axis=-1, name=scope+'cat_label')([x, self.x_label])
 
             def _multiheaded_attention(kv_source, q_source, num_heads=8):
                 with scope.name_scope('multiheaded_attention'):
@@ -1077,18 +1082,20 @@ class MotionGANV8(_MotionGAN):
                             pi = Dense(n_hidden, name=scope+'pi_1')(pi)
                     return Add(name=scope+'add')([values, pi])
 
-            def _apply_gates(prev_mem, inputs):
+            def _apply_gates(prev_mem, prev_h, inputs):
                 with scope.name_scope('gates'):
 
-                    prev_h = Activation('tanh', name=scope + 'prev_h_tanh')(prev_mem)
                     cat_mem = Concatenate(axis=-1, name=scope+'cat_in')([prev_h, inputs])
                     input_gate = Dense(prev_mem.shape[1], activation='sigmoid', name=scope+'in_gate')(cat_mem)
                     forget_gate = Dense(prev_mem.shape[1], activation='sigmoid', name=scope+'forget_gate')(cat_mem)
-                    mem_update = Dense(prev_mem.shape[1], activation='tanh', name=scope + 'forget_gate')(cat_mem)
+                    mem_update = Dense(prev_mem.shape[1], activation='tanh', kernel_initializer='orthogonal',
+                                       name=scope+'mem_update')(cat_mem)
 
                     new_mem = Lambda(lambda args: (args[0]*args[1]) + (args[2] * args[3]),
                                      name=scope+'new_mem')([forget_gate, prev_mem, input_gate, mem_update])
-                    return new_mem
+                    new_h = Activation('tanh', name=scope+'h_tanh')(new_mem)
+
+                    return new_mem, new_h
 
             x_shape = [int(dim) for dim in x.shape]
             n_stages = 4
@@ -1096,12 +1103,13 @@ class MotionGANV8(_MotionGAN):
             for i in range(n_stages):
                 stage_input = Input(batch_shape=(x_shape[0], x_shape[2]))
                 stage_prev_mem = Input(batch_shape=(x_shape[0], x_shape[2]))
+                stage_prev_h = Input(batch_shape=(x_shape[0], x_shape[2]))
 
                 stage_mem = _multiheaded_attention(stage_prev_mem, stage_input)
                 stage_mem = _mlp(stage_mem)
-                stage_output = _apply_gates(stage_prev_mem, stage_mem)
+                stage_output = _apply_gates(stage_prev_mem, stage_prev_h, stage_mem)
 
-                stage = Model([stage_prev_mem, stage_input], stage_output, name=scope+'stage_%d'%i)
+                stage = Model([stage_prev_mem, stage_prev_h, stage_input], stage_output, name=scope+'stage_%d'%i)
                 stage_models.append(stage)
 
             outputs = [[None, ] * x_shape[1]] * n_stages
@@ -1111,14 +1119,19 @@ class MotionGANV8(_MotionGAN):
                         if i == 0:
                             inputs = Lambda(lambda arg: arg[:, j, :])(x)
                         else:
-                            inputs = outputs[i-1][j]
-                            inputs = Activation('tanh', name=scope+'prev_h_tanh')(inputs)
+                            inputs = outputs[i-1][j][1]
                         if j == 0:
                             prev_mem = Input((x_shape[0], x_shape[2]), tensor=K.zeros((x_shape[0], x_shape[2]), 'float32'), name=scope+'init_mem')
                         else:
-                            prev_mem = outputs[i][j-1]
+                            prev_mem = outputs[i][j-1][0]
+                            prev_h = outputs[i][j-1][1]
 
-                        outputs[i][j] = stage_models[i]([prev_mem, inputs])
+                        outputs[i][j] = stage_models[i]([prev_mem, prev_h, inputs])
 
-            x = Reshape((int(x.shape[1]), int(x.shape[2]), 1), name=scope+'res_out')(x)
+            x = Lambda(lambda arg: K.stack(arg, axis=1), name=scope+'stack_out')([outputs])
+
+            x = Conv1D(self.org_shape[1] * 3, 1, 1, name=scope+'conv_out', **CONV1D_ARGS)(x)
+            x = Reshape((x_shape[1], self.org_shape[1], 3), name=scope+'resh_out')(x)
+            x = Permute((2, 1, 3), name=scope+'perm_out')(x)
+
         return x

@@ -2,20 +2,11 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import numpy as np
 import tensorflow as tf
 
-from tensorflow.python.framework import tensor_shape
-from tensorflow.python.keras._impl.keras import activations
 from tensorflow.python.keras._impl.keras import backend as K
-from tensorflow.python.keras._impl.keras import constraints
-from tensorflow.python.keras._impl.keras import initializers
-from tensorflow.python.keras._impl.keras import regularizers
-from tensorflow.python.keras._impl.keras.engine import InputSpec
 from tensorflow.python.keras._impl.keras.engine import Layer
-from tensorflow.python.keras._impl.keras.utils.generic_utils import has_arg
 from tensorflow.python.keras._impl.keras.layers.recurrent import RNN
-from tensorflow.python.platform import tf_logging as logging
 
 class RelationalMemoryCell(Layer):
     """Constructs a `RelationalMemory` Cell.
@@ -44,10 +35,10 @@ class RelationalMemoryCell(Layer):
         self.head_size = head_size
         self.num_heads = num_heads  # Denoted as H.
         self.mem_size = self.head_size * self.num_heads
+        self.key_size = key_size if key_size else self.head_size
         self.value_size = self.head_size  # Denoted as V.
-        self.qkv_size = 2 * key_size + self.value_size
+        self.qkv_size = 2 * self.key_size + self.value_size
         self.total_size = self.qkv_size * self.num_heads  # Denote as F.
-        self.num_gates = 2 * self._calculate_gate_size()
 
         self.forget_bias = forget_bias
         self.input_bias = input_bias
@@ -57,13 +48,14 @@ class RelationalMemoryCell(Layer):
                 'gate_style must be one of [\'unit\', \'memory\', None]. Got: '
                 '{}.'.format(gate_style))
         self.gate_style = gate_style
+        self.num_gates = 2 * self._calculate_gate_size()
 
         if attention_mlp_layers < 1:
             raise ValueError('attention_mlp_layers must be >= 1. Got: {}.'.format(
                 attention_mlp_layers))
         self.attention_mlp_layers = attention_mlp_layers
 
-        self.key_size = key_size if key_size else self.head_size
+        self.state_size = self.mem_slots * self.mem_size
 
 
     def build(self, input_shape):
@@ -100,13 +92,13 @@ class RelationalMemoryCell(Layer):
             initializer='glorot_uniform')
 
         self.kernel_in = self.add_weight(
-            shape=(self.input_dim, self.mem_size),
+            shape=(input_dim, self.mem_size),
             name='kernel_in',
             initializer='glorot_uniform')
 
         self.bias_in = self.add_weight(
             shape=(self.mem_size,),
-            name='bias_gi',
+            name='bias_in',
             initializer='glorot_uniform')
 
         self.mlp_kernels = []
@@ -155,7 +147,7 @@ class RelationalMemoryCell(Layer):
         next_memory += forget_gate * memory
         next_memory = K.batch_flatten(next_memory)
 
-        return next_memory, next_memory
+        return next_memory, (next_memory,)
 
     def _attend_over_memory(self, memory):
         """Perform multiheaded attention over `memory`.
@@ -190,8 +182,10 @@ class RelationalMemoryCell(Layer):
         qkv = self._linear(memory, self.kernel_qkv, self.bias_qkv)
         qkv = self._layer_norm(qkv)
 
+        mem_slots = memory.get_shape().as_list()[1]  # Denoted as N.
+
         # [B, N, F] -> [B, N, H, F/H]
-        qkv_reshape = K.reshape(qkv, (batch_size, self.mem_slots, self.num_heads, self.qkv_size))
+        qkv_reshape = K.reshape(qkv, (batch_size, mem_slots, self.num_heads, self.qkv_size))
 
         # [B, N, H, F/H] -> [B, H, N, F/H]
         qkv_transpose = K.permute_dimensions(qkv_reshape, [0, 2, 1, 3])
@@ -207,7 +201,7 @@ class RelationalMemoryCell(Layer):
         output_transpose = K.permute_dimensions(output, [0, 2, 1, 3])
 
         # [B, N, H, V] -> [B, N, H * V]
-        new_memory = K.batch_flatten(output_transpose)
+        new_memory = K.reshape(output_transpose, (batch_size, mem_slots, self.mem_size))
 
         return new_memory
 
@@ -311,7 +305,7 @@ class RelationalMemoryRNN(RNN):
             initial_state = initial_state[:, :, :mem_size]
 
         initial_state = tf.reshape(initial_state, (batch_size, self.units))
-        return initial_state
+        return [initial_state]
 
     @property
     def mem_slots(self):

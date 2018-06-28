@@ -17,6 +17,7 @@ from layers.tile import Tile
 from layers.seq_transform import remove_hip_in, remove_hip_out, translate_start_in, translate_start_out, \
     rotate_start_in, rotate_start_out, rescale_body_in, rescale_body_out, \
     seq_to_diff_in, seq_to_diff_out, seq_to_angles_in, seq_to_angles_out
+from layers.relational_memory import RelationalMemoryRNN
 from collections import OrderedDict
 from utils.scoping import Scoping
 
@@ -1042,97 +1043,12 @@ class MotionGANV8(_MotionGAN):
 
             x = Reshape((int(x.shape[1]), int(x.shape[2])), name=scope+'resh_in')(x)
 
-            if self.action_cond:
-                x = Concatenate(axis=-1, name=scope+'cat_label')([x, self.x_label])
-
-            def _multiheaded_attention(kv_source, q_source, num_heads=8):
-                with scope.name_scope('multiheaded_attention'):
-                    keys = Dense(num_heads * int(kv_source.shape[1]), name=scope+'keys')(kv_source)
-                    keys = Reshape((num_heads, int(kv_source.shape[1])), name=scope+'rs_keys')(keys)
-
-                    values = Dense(num_heads * int(kv_source.shape[1]), name=scope+'values')(kv_source)
-                    values = Reshape((num_heads, int(kv_source.shape[1])), name=scope+'rs_values')(values)
-
-                    queries = Dense(num_heads * int(q_source.shape[1]), name=scope+'queries')(q_source)
-                    queries = Reshape((num_heads, int(q_source.shape[1])), name=scope+'rs_queries')(queries)
-
-                    weights = Lambda(lambda args: K.softmax(tf.matmul(args[0], args[1], transpose_b=True)),
-                                     name=scope+'qk')([queries, keys])
-
-                    new_values = Lambda(lambda args: tf.matmul(args[0], args[1]), name=scope+'new_values')([weights, values])
-
-                    new_values = Permute((2, 1), name=scope+'perm_heads')(new_values)
-                    new_values = Dense(1, name=scope+'merge_heads')(new_values)
-                    new_values = Flatten(name=scope+'flatten_out')(new_values)
-                    
-                    new_values = Add(name=scope+'values_skip')([new_values, kv_source])
-
-                    return new_values
-                
-            def _mlp(values, n_blocks=2):
-                with scope.name_scope('mlp'):
-                    n_hidden = int(values.shape[1])
-                    pi = Dense(n_hidden, name=scope+'dense_in')(values)
-                    for i in range(n_blocks):
-                        with scope.name_scope('block_%d' % i):
-                            pi = Activation('relu', name=scope+'relu_0')(pi)
-                            pi = Dense(n_hidden // 2, name=scope+'pi_0')(pi)
-                            pi = Activation('relu', name=scope+'relu_1')(pi)
-                            pi = Dense(n_hidden, name=scope+'pi_1')(pi)
-                    return Add(name=scope+'add')([values, pi])
-
-            def _apply_gates(prev_mem, prev_h, inputs):
-                with scope.name_scope('gates'):
-
-                    cat_mem = Concatenate(axis=-1, name=scope+'cat_in')([prev_h, inputs])
-                    input_gate = Dense(int(prev_mem.shape[1]), activation='sigmoid', name=scope+'in_gate')(cat_mem)
-                    forget_gate = Dense(int(prev_mem.shape[1]), activation='sigmoid', name=scope+'forget_gate')(cat_mem)
-                    mem_update = Dense(int(prev_mem.shape[1]), activation='tanh', kernel_initializer='orthogonal',
-                                       name=scope+'mem_update')(cat_mem)
-
-                    new_mem = Lambda(lambda args: (args[0]*args[1]) + (args[2] * args[3]),
-                                     name=scope+'new_mem')([forget_gate, prev_mem, input_gate, mem_update])
-                    new_h = Activation('tanh', name=scope+'h_tanh')(new_mem)
-
-                    return new_mem, new_h
-
             x_shape = [int(dim) for dim in x.shape]
             n_stages = 4
-            stage_models = []
-            init_mem = Input(batch_shape=(x_shape[0], x_shape[2]),
-                             tensor=K.zeros((x_shape[0], x_shape[2]), 'float32'),
-                             name='init_mem')
-            self.gen_inputs.append(init_mem)
             for i in range(n_stages):
-                stage_input = Input(batch_shape=(x_shape[0], x_shape[2]))
-                stage_prev_mem = Input(batch_shape=(x_shape[0], x_shape[2]))
-                stage_prev_h = Input(batch_shape=(x_shape[0], x_shape[2]))
+                x = RelationalMemoryRNN(4, 32, 4, return_sequences=True, name=scope+'rel_mem_%d'%i)(x)
+                x = Conv1D(128, 1, 1, name=scope+'conv_%d'%i, **CONV1D_ARGS)(x)
 
-                stage_mem = _multiheaded_attention(stage_prev_mem, stage_input)
-                stage_mem = _mlp(stage_mem)
-                stage_output = _apply_gates(stage_prev_mem, stage_prev_h, stage_mem)
-
-                stage = Model([stage_prev_mem, stage_prev_h, stage_input], stage_output, name=scope+'stage_%d'%i)
-                stage_models.append(stage)
-
-            outputs = [[None, ] * x_shape[1]] * n_stages
-            for i in range(n_stages):
-                with scope.name_scope('stage_call_%d'%i):
-                    for j in range(x_shape[1]):
-                        if i == 0:
-                            inputs = Lambda(lambda arg: arg[:, j, :])(x)
-                        else:
-                            inputs = outputs[i-1][j][1]
-                        if j == 0:
-                            prev_mem = init_mem
-                            prev_h = init_mem
-                        else:
-                            prev_mem = outputs[i][j-1][0]
-                            prev_h = outputs[i][j-1][1]
-
-                        outputs[i][j] = stage_models[i]([prev_mem, prev_h, inputs])
-
-            x = Lambda(lambda arg: K.stack(arg, axis=1), name=scope+'stack_out')([output[1] for output in outputs[-1]])
             x = Reshape((x_shape[1], x_shape[2], 1), name=scope+'resh_out')(x)
 
         return x

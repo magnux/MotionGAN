@@ -115,6 +115,36 @@ class RelationalMemoryCell(Layer):
             self.mlp_kernels.append(mlp_kernel)
             self.mlp_biases.append(mlp_bias)
 
+        self.offset_qkv = self.add_weight(
+            shape=(self.total_size,),
+            name='offset_qkv',
+            initializer='zeros')
+
+        self.scale_qkv = self.add_weight(
+            shape=(self.total_size,),
+            name='scale_qkv',
+            initializer='ones')
+
+        self.offset_mem_0 = self.add_weight(
+            shape=(self.mem_size,),
+            name='offset_mem_0',
+            initializer='zeros')
+
+        self.scale_mem_0 = self.add_weight(
+            shape=(self.mem_size,),
+            name='scale_mem_0',
+            initializer='ones')
+
+        self.offset_mem_1 = self.add_weight(
+            shape=(self.mem_size,),
+            name='offset_mem_1',
+            initializer='zeros')
+
+        self.scale_mem_1 = self.add_weight(
+            shape=(self.mem_size,),
+            name='scale_mem_1',
+            initializer='ones')
+
         self.built = True
 
     def _calculate_gate_size(self):
@@ -159,11 +189,11 @@ class RelationalMemoryCell(Layer):
 
         # Add a skip connection to the multiheaded attention's input.
         memory = memory + self._multihead_attention(memory)
-        memory = self._layer_norm(memory)
+        memory = self._layer_norm(memory, self.offset_mem_0, self.scale_mem_0)
 
         # Add a skip connection to the attention_mlp's input.
         memory = memory + self._attention_mlp(memory)
-        memory = self._layer_norm(memory)
+        memory = self._layer_norm(memory, self.offset_mem_1, self.scale_mem_1)
 
         return memory
 
@@ -180,7 +210,7 @@ class RelationalMemoryCell(Layer):
         batch_size = int(memory.shape[0])
 
         qkv = self._linear(memory, self.kernel_qkv, self.bias_qkv)
-        qkv = self._layer_norm(qkv)
+        qkv = self._layer_norm(qkv, self.offset_qkv, self.scale_qkv)
 
         mem_slots = memory.get_shape().as_list()[1]  # Denoted as N.
 
@@ -236,14 +266,26 @@ class RelationalMemoryCell(Layer):
 
         return input_gate, forget_gate
 
-    def _layer_norm(self, x):
+    def _layer_norm(self, x, offset, scale):
+        in_shape = x.shape
+        if len(in_shape) > 2:
+            x_shape = [int(dim) for dim in x.shape]
+            x = K.reshape(x, (x_shape[0] * x_shape[1], x_shape[2]))
         mean, var = tf.nn.moments(x, [1], keep_dims=True)
-        x = tf.nn.batch_normalization(x, mean, var, None, None, K.epsilon())
+        x = tf.nn.batch_normalization(x, mean, var, offset, scale, K.epsilon())
+        if len(in_shape) > 2:
+            x = K.reshape(x, x_shape)
         return x
 
     def _linear(self, x, kernel, bias):
+        in_shape = x.shape
+        if len(in_shape) > 2:
+            x_shape = [int(dim) for dim in x.shape]
+            x = K.reshape(x, (x_shape[0] * x_shape[1], x_shape[2]))
         x = K.dot(x, kernel)
         x = K.bias_add(x, bias)
+        if len(in_shape) > 2:
+            x = K.reshape(x, (x_shape[0], x_shape[1], int(kernel.shape[1])))
         return x
 
 

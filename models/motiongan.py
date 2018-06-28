@@ -1048,7 +1048,7 @@ class MotionGANV8(_MotionGAN):
             for i in range(n_stages):
                 with scope.name_scope('stage_%d'%i):
                     pi = RelationalMemoryRNN(4, x_shape[2] // 4, 4, return_sequences=True, name=scope+'rel_mem')(x)
-                    pi = Conv1D(x_shape[2], 1, 1, name=scope+'conv', **CONV1D_ARGS)(pi)
+                    x = Conv1D(x_shape[2], 1, 1, name=scope+'conv', **CONV1D_ARGS)(pi)
 
             x = Reshape((x_shape[1], x_shape[2], 1), name=scope+'resh_out')(x)
 

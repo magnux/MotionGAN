@@ -532,7 +532,7 @@ class _MotionGAN(object):
     def _pose_encoder(self, seq):
         scope = Scoping.get_global_scope()
         with scope.name_scope('encoder'):
-            fae_dim = self.org_shape[1] * self.org_shape[3] * 2
+            fae_dim = self.org_shape[1] * self.org_shape[3] * 4
 
             h = Permute((2, 1, 3), name=scope+'perm_in')(seq)
             h = Reshape((int(seq.shape[2]), int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
@@ -589,7 +589,7 @@ class _MotionGAN(object):
             dec_h = Conv2D(1, 3, 1, name=scope+'fae_merge', **CONV2D_ARGS)(gen_z)
             dec_h = Reshape((int(gen_z.shape[1]), int(gen_z.shape[2])), name=scope+'fae_reshape')(dec_h)
 
-            fae_dim = self.org_shape[1] * self.org_shape[3] * 2
+            fae_dim = self.org_shape[1] * self.org_shape[3] * 4
 
             dec_h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(dec_h)
             for i in range(3):
@@ -1044,7 +1044,7 @@ class MotionGANV8(_MotionGAN):
             x = Reshape((int(x.shape[1]), int(x.shape[2])), name=scope+'resh_in')(x)
 
             x_shape = [int(dim) for dim in x.shape]
-            n_stages = 4
+            n_stages = 2
             for i in range(n_stages):
                 with scope.name_scope('stage_%d'%i):
                     pi = RelationalMemoryRNN(4, x_shape[2] // 2, 4, return_sequences=True, name=scope+'pi_rel_mem')(x)

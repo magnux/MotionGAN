@@ -18,6 +18,7 @@ from layers.seq_transform import remove_hip_in, remove_hip_out, translate_start_
     rotate_start_in, rotate_start_out, rescale_body_in, rescale_body_out, \
     seq_to_diff_in, seq_to_diff_out, seq_to_angles_in, seq_to_angles_out
 from layers.relational_memory import RelationalMemoryRNN
+from layers.causal_conv import CausalConv1D
 from collections import OrderedDict
 from utils.scoping import Scoping
 
@@ -1049,6 +1050,36 @@ class MotionGANV8(_MotionGAN):
                 with scope.name_scope('stage_%d'%i):
                     pi = RelationalMemoryRNN(4, x_shape[2] // 2, 4, return_sequences=True, name=scope+'pi_rel_mem')(x)
                     pi = Conv1D(x_shape[2], 1, 1, name=scope+'pi_conv', **CONV1D_ARGS)(pi)
+                    x = Add(name=scope+'add')([x, pi])
+
+            x = Reshape((x_shape[1], x_shape[2], 1), name=scope+'resh_out')(x)
+
+        return x
+
+
+class MotionGANV9(_MotionGAN):
+    # DMNN + ResNet + Split Discriminator, CausalConv Generator
+
+    def discriminator(self, x):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('discriminator'):
+            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
+        return x
+
+    def generator(self, x):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('generator'):
+
+            x = Reshape((int(x.shape[1]), int(x.shape[2])), name=scope+'resh_in')(x)
+
+            x_shape = [int(dim) for dim in x.shape]
+            n_blocks = 8
+            for i in range(n_blocks):
+                with scope.name_scope('block_%d'%i):
+                    pi = Activation('relu', name=scope+'relu0')(x)
+                    pi = CausalConv1D(x_shape[2] // 2, 7, 1, name=scope+'pi_cconv0', **CONV1D_ARGS)(pi)
+                    pi = Activation('relu', name=scope+'relu1')(pi)
+                    pi = CausalConv1D(x_shape[2], 7, 1, name=scope+'pi_cconv1', **CONV1D_ARGS)(pi)
                     x = Add(name=scope+'add')([x, pi])
 
             x = Reshape((x_shape[1], x_shape[2], 1), name=scope+'resh_out')(x)

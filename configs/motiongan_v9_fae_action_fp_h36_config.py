@@ -3,7 +3,7 @@
     'data_set': 'Human36',
     'data_set_version': 'v1',
     # Model version to train
-    'model_version': 'v8',
+    'model_version': 'v9',
 
     # Use pose FAE
     'use_pose_fae': True,

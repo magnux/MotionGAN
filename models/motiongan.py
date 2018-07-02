@@ -1046,6 +1046,7 @@ class MotionGANV8(_MotionGAN):
 
             x_shape = [int(dim) for dim in x.shape]
             n_stages = 2
+            x = Conv1D(x_shape[2], 1, 1, name=scope + 'conv_in', **CONV1D_ARGS)(x)
             for i in range(n_stages):
                 with scope.name_scope('stage_%d'%i):
                     pi = RelationalMemoryRNN(4, x_shape[2] // 2, 4, return_sequences=True, name=scope+'pi_rel_mem')(x)
@@ -1074,10 +1075,11 @@ class MotionGANV9(_MotionGAN):
 
             x_shape = [int(dim) for dim in x.shape]
             n_blocks = 8
+            x = Conv1D(x_shape[2], 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(x)
             for i in range(n_blocks):
                 with scope.name_scope('block_%d'%i):
                     pi = Activation('relu', name=scope+'relu0')(x)
-                    pi = CausalConv1D(x_shape[2] // 2, 7, 1, name=scope+'pi_cconv0', **CONV1D_ARGS)(pi)
+                    pi = CausalConv1D(x_shape[2] // 4, 7, 1, name=scope+'pi_cconv0', **CONV1D_ARGS)(pi)
                     pi = Activation('relu', name=scope+'relu1')(pi)
                     pi = CausalConv1D(x_shape[2], 7, 1, name=scope+'pi_cconv1', **CONV1D_ARGS)(pi)
                     x = Add(name=scope+'add')([x, pi])

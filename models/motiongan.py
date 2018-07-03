@@ -989,9 +989,9 @@ class MotionGANV7(_MotionGAN):
         with scope.name_scope('generator'):
             n_hidden = 16
             u_blocks = 0
-            emb_dim = int(x.shape[2])
-            while emb_dim > 4:
-                emb_dim //= 2
+            min_dim = min(int(x.shape[1]), int(x.shape[2]))
+            while min_dim > 4:
+                min_dim //= 2
                 u_blocks += 1
             u_blocks = min(u_blocks, 4)
             u_blocks = u_blocks * 2
@@ -1013,7 +1013,7 @@ class MotionGANV7(_MotionGAN):
                                 conv_func = Conv2DTranspose
 
                             with scope.name_scope('pi'):
-                                pi = _conv_block(pi, n_filters, 2, 3, (1, 2), conv_func)
+                                pi = _conv_block(pi, n_filters, 2, 3, 2, conv_func)
 
                             if (u_blocks // 2) <= i < u_blocks:
                                 skip_pi = u_skips.pop()
@@ -1072,9 +1072,9 @@ class MotionGANV9(_MotionGAN):
         with scope.name_scope('generator'):
             n_hidden = 16
             u_blocks = 0
-            emb_dim = int(x.shape[2])
-            while emb_dim > 4:
-                emb_dim //= 2
+            min_dim = min(int(x.shape[1]), int(x.shape[2]))
+            while min_dim > 4:
+                min_dim //= 2
                 u_blocks += 1
             u_blocks = min(u_blocks, 4)
             u_blocks = u_blocks * 2
@@ -1096,7 +1096,7 @@ class MotionGANV9(_MotionGAN):
                                 conv_func = Conv2DTranspose
 
                             with scope.name_scope('pi'):
-                                pi = _conv_block(pi, n_filters, 2, 3, (1, 2), conv_func)
+                                pi = _conv_block(pi, n_filters, 2, 3, 2, conv_func)
 
                             if (u_blocks // 2) <= i < u_blocks:
                                 skip_pi = u_skips.pop()

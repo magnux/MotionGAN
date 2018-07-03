@@ -18,7 +18,7 @@ from layers.seq_transform import remove_hip_in, remove_hip_out, translate_start_
     rotate_start_in, rotate_start_out, rescale_body_in, rescale_body_out, \
     seq_to_diff_in, seq_to_diff_out, seq_to_angles_in, seq_to_angles_out
 from layers.relational_memory import RelationalMemoryRNN
-from layers.causal_conv import CausalConv1D
+from layers.causal_conv import CausalConv1D, CausalConv2D
 from collections import OrderedDict
 from utils.scoping import Scoping
 
@@ -1070,20 +1070,43 @@ class MotionGANV9(_MotionGAN):
     def generator(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('generator'):
+            n_hidden = 16
+            u_blocks = 0
+            emb_dim = int(x.shape[2])
+            while emb_dim > 4:
+                emb_dim //= 2
+                u_blocks += 1
+            u_blocks = min(u_blocks, 4)
+            u_blocks = u_blocks * 2
+            block_factors = range(1, (u_blocks // 2) + 1) + range(u_blocks // 2, 0, -1)
+            macro_blocks = 4
 
-            x = Reshape((int(x.shape[1]), int(x.shape[2])), name=scope+'resh_in')(x)
+            u_skips = []
+            for k in range(macro_blocks):
+                with scope.name_scope('macro_block_%d' % k):
+                    x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+                    pi = x
+                    for i, factor in enumerate(block_factors):
+                        with scope.name_scope('block_%d' % i):
+                            n_filters = n_hidden * factor
+                            if i < (u_blocks // 2):
+                                conv_func = CausalConv2D
+                                u_skips.append(pi)
+                            else:
+                                conv_func = Conv2DTranspose
 
-            x_shape = [int(dim) for dim in x.shape]
-            n_blocks = 8
-            x = Conv1D(x_shape[2], 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(x)
-            for i in range(n_blocks):
-                with scope.name_scope('block_%d'%i):
-                    pi = Activation('relu', name=scope+'relu0')(x)
-                    pi = CausalConv1D(x_shape[2] // 4, 7, 1, name=scope+'pi_cconv0', **CONV1D_ARGS)(pi)
-                    pi = Activation('relu', name=scope+'relu1')(pi)
-                    pi = CausalConv1D(x_shape[2], 7, 1, name=scope+'pi_cconv1', **CONV1D_ARGS)(pi)
+                            with scope.name_scope('pi'):
+                                pi = _conv_block(pi, n_filters, 2, 3, (1, 2), conv_func)
+
+                            if (u_blocks // 2) <= i < u_blocks:
+                                skip_pi = u_skips.pop()
+                                if skip_pi.shape[1] != pi.shape[1] or skip_pi.shape[2] != pi.shape[2]:
+                                    pi = Cropping2D(((0, int(pi.shape[1] - skip_pi.shape[1])),
+                                                    (0, int(pi.shape[2] - skip_pi.shape[2]))),
+                                                     name=scope+'crop_pi')(pi)
+                                pi = Concatenate(name=scope+'cat_skip')([skip_pi, pi])
+                                with scope.name_scope('skip_pi'):
+                                    pi = _conv_block(pi, n_filters, 2, 3, 1, conv_func)
+
                     x = Add(name=scope+'add')([x, pi])
-
-            x = Reshape((x_shape[1], x_shape[2], 1), name=scope+'resh_out')(x)
-
         return x

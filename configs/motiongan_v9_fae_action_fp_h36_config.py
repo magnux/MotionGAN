@@ -19,13 +19,11 @@
     'action_cond': True,
     # Augment data on training
     'augment_data': True,
-    # Coherence on generated sequences loss
-    # 'coherence_loss': True,
 
     # How fast should we learn?
     'learning_rate': 1e-5,
     # It's the batch size
-    'batch_size': 128,
+    'batch_size': 64,
     # Multiplies length of epoch, useful for tiny datasets
     'epoch_factor': 256,
     # Number of the random picks (0 == deactivated)

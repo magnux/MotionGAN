@@ -1106,7 +1106,7 @@ class MotionGANV9(_MotionGAN):
                                                      name=scope+'crop_pi')(pi)
                                 pi = Concatenate(name=scope+'cat_skip')([skip_pi, pi])
                                 with scope.name_scope('skip_pi'):
-                                    pi = _conv_block(pi, n_filters, 2, 3, 1, conv_func)
+                                    pi = _conv_block(pi, n_filters, 2, 3, 1, CausalConv2D)
 
                     x = Add(name=scope+'add')([x, pi])
         return x

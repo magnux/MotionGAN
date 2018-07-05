@@ -84,7 +84,8 @@ def get_config(flags):
     elif config.data_set == 'Human36':
         config.num_actions = 15
         config.num_subjects = 7
-        config.max_plen = (6343 // 2) + 1  # Data will be subsampled to 25hz
+        # config.max_plen = (6343 // 2) + 1  # Data will be subsampled to 25hz
+        config.max_plen = (6343 // 10) + 1  # Data will be subsampled to 5hz
 
         config.body_members = {
             'left_arm': {'joints': [13, 17, 18, 19], 'side': 'left'},
@@ -117,7 +118,8 @@ def get_config(flags):
     elif config.data_set == 'Human36_expmaps':
         config.num_actions = 15
         config.num_subjects = 7
-        config.max_plen = (6343 // 2) + 1  # Data will be subsampled to 25hz
+        # config.max_plen = (6343 // 2) + 1  # Data will be subsampled to 25hz
+        config.max_plen = (6343 // 10) + 1  # Data will be subsampled to 5hz
 
         config.body_members = {
             'left_arm': {'joints': [13, 16, 17, 18, 19, 20, 21], 'side': 'left'},

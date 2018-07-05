@@ -382,13 +382,13 @@ class _MotionGAN(object):
         with scope.name_scope('discriminator'):
             def _out_net(x_out, n_out, net_name, n_hidden=256, n_blocks=2):
                 with scope.name_scope(net_name+'_net'):
-                    x_out = Dense(n_hidden, name=scope+'dense_in', activation='relu')(x_out)
-                    for i in range(n_blocks):
-                        with scope.name_scope('block_%d' % i):
-                            pi = Dense(n_hidden, name=scope+'dense_0', activation='relu')(x_out)
-                            pi = Dense(n_hidden, name=scope+'dense_1', activation='relu')(pi)
-
-                            x_out = Add(name=scope+'add')([x_out, pi])
+                    # x_out = Dense(n_hidden, name=scope+'dense_in', activation='relu')(x_out)
+                    # for i in range(n_blocks):
+                    #     with scope.name_scope('block_%d' % i):
+                    #         pi = Dense(n_hidden, name=scope+'dense_0', activation='relu')(x_out)
+                    #         pi = Dense(n_hidden, name=scope+'dense_1', activation='relu')(pi)
+                    #
+                    #         x_out = Add(name=scope+'add')([x_out, pi])
 
                     return Dense(n_out, name=scope+net_name+'_out')(x_out)
 
@@ -493,7 +493,7 @@ class _MotionGAN(object):
     def _pose_encoder(self, seq):
         scope = Scoping.get_global_scope()
         with scope.name_scope('encoder'):
-            fae_dim = self.org_shape[1] * self.org_shape[3] * 4
+            fae_dim = self.org_shape[1] * self.org_shape[3] * 2
 
             h = Permute((2, 1, 3), name=scope+'perm_in')(seq)
             h = Reshape((int(seq.shape[2]), int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
@@ -544,7 +544,7 @@ class _MotionGAN(object):
             dec_h = Conv2D(1, 3, 1, name=scope+'fae_merge', **CONV2D_ARGS)(gen_z)
             dec_h = Reshape((int(gen_z.shape[1]), int(gen_z.shape[2])), name=scope+'fae_reshape')(dec_h)
 
-            fae_dim = self.org_shape[1] * self.org_shape[3] * 4
+            fae_dim = self.org_shape[1] * self.org_shape[3] * 2
 
             dec_h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(dec_h)
             for i in range(3):
@@ -769,7 +769,7 @@ class MotionGANV3(_MotionGAN):
                     x = Add(name=scope+'add')([x, pi])
 
             if self.use_pose_fae:
-                fae_dim = self.org_shape[1] * self.org_shape[3]
+                fae_dim = self.org_shape[1] * self.org_shape[3] * 2
                 x = Dense((self.seq_len * fae_dim), name=scope+'dense_out', activation='relu')(x)
                 x = Reshape((self.seq_len, fae_dim, 1), name=scope+'reshape_out')(x)
             else:
@@ -782,13 +782,14 @@ class MotionGANV3(_MotionGAN):
 def resnet_disc(x):
     scope = Scoping.get_global_scope()
     with scope.name_scope('resnet'):
-        n_hidden = 8
+        n_hidden = 32
         n_reps = 2
-        max_dim = max(int(x.shape[1]), int(x.shape[2]))
-        n_blocks = 0
-        while max_dim > 0:
-            max_dim //= 2
-            n_blocks += 1
+        # max_dim = max(int(x.shape[1]), int(x.shape[2]))
+        # n_blocks = 0
+        # while max_dim > 0:
+        #     max_dim //= 2
+        #     n_blocks += 1
+        n_blocks = 3
 
         x = Conv2D(n_hidden, 3, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
         for i in range(n_blocks):
@@ -807,8 +808,8 @@ def resnet_disc(x):
 
 
         x = Activation('relu', name=scope+'relu_out')(x)
-        x = Flatten(name=scope+'flatten_out')(x)
-        # x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
+        # x = Flatten(name=scope+'flatten_out')(x)
+        x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
     return x
 
 
@@ -816,13 +817,14 @@ def dmnn_disc(x):
     scope = Scoping.get_global_scope()
     with scope.name_scope('dmnn'):
         x_shape = [int(dim) for dim in x.shape]
-        n_hidden = 8
+        n_hidden = 32
         n_reps = 2
-        max_dim = max(int(x.shape[1]), int(x.shape[2]))
-        n_blocks = 0
-        while max_dim > 0:
-            max_dim //= 2
-            n_blocks += 1
+        # max_dim = max(int(x.shape[1]), int(x.shape[2]))
+        # n_blocks = 0
+        # while max_dim > 0:
+        #     max_dim //= 2
+        #     n_blocks += 1
+        n_blocks = 3
 
         x = CombMatrix(x_shape[1], name=scope+'comb_matrix')(x)
 
@@ -845,8 +847,8 @@ def dmnn_disc(x):
                     x = Add(name=scope+'add')([shortcut, pi])
 
         x = Activation('relu', name=scope+'relu_out')(x)
-        x = Flatten(name=scope+'flatten_out')(x)
-        # x = Lambda(lambda x: K.mean(x, axis=(1, 2, 3)), name=scope+'mean_pool')(x)
+        # x = Flatten(name=scope+'flatten_out')(x)
+        x = Lambda(lambda x: K.mean(x, axis=(1, 2, 3)), name=scope+'mean_pool')(x)
     return x
 
 

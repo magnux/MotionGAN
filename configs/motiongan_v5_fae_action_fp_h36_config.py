@@ -19,13 +19,9 @@
     'action_cond': True,
     # Augment data on training
     'augment_data': True,
-    # Coherence on generated sequences loss
-    'coherence_loss': True,
-    # Copy last known frame in the input
-    'last_known': True,
 
     # How fast should we learn?
-    'learning_rate': 1e-5,
+    'learning_rate': 1e-4,
     # It's the batch size
     'batch_size': 128,
     # Multiplies length of epoch, useful for tiny datasets

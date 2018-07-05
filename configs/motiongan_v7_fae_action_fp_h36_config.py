@@ -21,7 +21,7 @@
     'augment_data': True,
 
     # How fast should we learn?
-    'learning_rate': 1e-3,
+    'learning_rate': 1e-4,
     # It's the batch size
     'batch_size': 128,
     # Multiplies length of epoch, useful for tiny datasets

@@ -17,12 +17,10 @@
     'action_cond': True,
     # Disable GAN loss on the generator
     'no_gan_loss': True,
-    # Copy last known frame in the input
-    'last_known': True,
 
 
     # How fast should we learn?
-    'learning_rate': 1e-5,
+    'learning_rate': 1e-4,
     # It's the batch size
     'batch_size': 128,
     # Multiplies length of epoch, useful for tiny datasets

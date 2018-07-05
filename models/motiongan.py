@@ -782,7 +782,7 @@ class MotionGANV3(_MotionGAN):
 def resnet_disc(x):
     scope = Scoping.get_global_scope()
     with scope.name_scope('resnet'):
-        n_hidden = 32
+        n_hidden = 64
         n_reps = 2
         # max_dim = max(int(x.shape[1]), int(x.shape[2]))
         # n_blocks = 0

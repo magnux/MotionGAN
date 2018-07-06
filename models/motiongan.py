@@ -57,7 +57,7 @@ class _MotionGAN(object):
         self.gamma_grads = 1.0
         self.no_gan_loss = config.no_gan_loss
         self.wgan_scale_d = 10.0 * config.loss_factor
-        self.wgan_scale_g = 10.0 * config.loss_factor * (0.0 if self.no_gan_loss else 1.0)
+        self.wgan_scale_g = 2.0 * config.loss_factor * (0.0 if self.no_gan_loss else 1.0)
         self.rec_scale = 1.0   # if 'expmaps' not in self.data_set else 10.0
         self.latent_cond_dim = config.latent_cond_dim
         self.latent_scale_d = 10.0
@@ -145,8 +145,7 @@ class _MotionGAN(object):
 
         with K.name_scope('generator/functions/eval'):
             gen_f_outs = self.gen_losses.values() + self.gen_metrics.values()
-            # if self.use_pose_fae:
-            #     gen_f_outs.append(self.fae_z)
+            gen_f_outs.append(self.fae_z)
             # gen_f_outs.append(self.aux_out)
             gen_f_outs += self.gen_outputs
             self.gen_eval_f = K.function(self.gen_inputs,  gen_f_outs)
@@ -183,8 +182,7 @@ class _MotionGAN(object):
         eval_outs = self.gen_eval_f(inputs)
         keys = self.gen_losses.keys() + self.gen_metrics.keys()
         keys = ['val/%s' % key for key in keys]
-        # if self.use_pose_fae:
-        #     keys.append('fae_z')
+        keys.append('fae_z')
         # keys.append('aux_out')
         keys.append('gen_outputs')
         losses_dict = OrderedDict(zip(keys, eval_outs))
@@ -263,15 +261,15 @@ class _MotionGAN(object):
             #     gen_metrics['gen_loss_kl'] = K.mean(kl_loss_sum)
 
             # Action label loss
-            # with K.name_scope('action_loss'):
-            #     loss_class_real = K.mean(K.sparse_categorical_crossentropy(
-            #         _get_tensor(self.place_holders, 'true_label'),
-            #         _get_tensor(self.real_outputs, 'label_out'), True))
-            #     loss_class_fake = K.mean(K.sparse_categorical_crossentropy(
-            #         _get_tensor(self.place_holders, 'true_label'),
-            #         _get_tensor(self.fake_outputs, 'label_out'), True))
-            #     disc_losses['disc_loss_action'] = self.action_scale_d * (loss_class_real + loss_class_fake)
-            #     gen_losses['gen_loss_action'] = self.action_scale_g * loss_class_fake
+            with K.name_scope('action_loss'):
+                loss_class_real = K.mean(K.sparse_categorical_crossentropy(
+                    _get_tensor(self.place_holders, 'true_label'),
+                    _get_tensor(self.real_outputs, 'label_out'), True))
+                loss_class_fake = K.mean(K.sparse_categorical_crossentropy(
+                    _get_tensor(self.place_holders, 'true_label'),
+                    _get_tensor(self.fake_outputs, 'label_out'), True))
+                disc_losses['disc_loss_action'] = self.action_scale_d * (loss_class_real + loss_class_fake)
+                gen_losses['gen_loss_action'] = self.action_scale_g * loss_class_fake
 
             if self.latent_cond_dim > 0:
                 with K.name_scope('latent_loss'):
@@ -395,7 +393,7 @@ class _MotionGAN(object):
 
             output_tensors = [_out_net(x, 1, 'score')]
 
-            # output_tensors.append(_out_net(x, self.num_actions, 'label'))
+            output_tensors.append(_out_net(x, self.num_actions, 'label'))
 
             if self.latent_cond_dim > 0:
                 with scope.name_scope('latent_net'):
@@ -494,7 +492,7 @@ class _MotionGAN(object):
     def _pose_encoder(self, seq):
         scope = Scoping.get_global_scope()
         with scope.name_scope('encoder'):
-            fae_dim = self.org_shape[1] * self.org_shape[3] * 2
+            fae_dim = self.org_shape[1] * self.org_shape[3] * 4
 
             h = Permute((2, 1, 3), name=scope+'perm_in')(seq)
             h = Reshape((int(seq.shape[2]), int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
@@ -546,7 +544,7 @@ class _MotionGAN(object):
             dec_h = Conv2D(1, 3, 1, name=scope+'fae_merge', **CONV2D_ARGS)(gen_z)
             dec_h = Reshape((int(gen_z.shape[1]), int(gen_z.shape[2])), name=scope+'fae_reshape')(dec_h)
 
-            fae_dim = self.org_shape[1] * self.org_shape[3] * 2
+            fae_dim = self.org_shape[1] * self.org_shape[3] * 4
 
             dec_h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(dec_h)
             for i in range(3):
@@ -781,10 +779,10 @@ def resnet_disc(x):
     scope = Scoping.get_global_scope()
     with scope.name_scope('resnet'):
         n_hidden = 64
-        n_reps = 2
+        n_reps = 1
         n_blocks = 3
 
-        x = Conv2D(n_hidden, 3, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+        x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
         for i in range(n_blocks):
             for j in range(n_reps):
                 with scope.name_scope('block_%d_%d' % (i, j)):
@@ -811,13 +809,13 @@ def dmnn_disc(x):
     with scope.name_scope('dmnn'):
         x_shape = [int(dim) for dim in x.shape]
         n_hidden = 64
-        n_reps = 2
+        n_reps = 1
         n_blocks = 3
 
         x = CombMatrix(x_shape[1], name=scope+'comb_matrix')(x)
 
         x = EDM(name=scope+'edms')(x)
-        x = Reshape((x_shape[1]* x_shape[1], x_shape[2], 1), name=scope+'resh_in')(x)
+        x = Reshape((x_shape[1] * x_shape[1], x_shape[2], 1), name=scope+'resh_in')(x)
 
         x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
         for i in range(n_blocks):
@@ -825,14 +823,13 @@ def dmnn_disc(x):
                 with scope.name_scope('block_%d_%d' % (i, j)):
                     n_filters = n_hidden * (2 ** i)
                     strides = 2 if j == 0 else 1
-                    dilation = 1 if j == 0 else 2
                     if int(x.shape[-1]) != n_filters or strides > 1:
                         shortcut = Conv2D(n_filters, strides, strides,
                                           name=scope+'shortcut', **CONV2D_ARGS)(x)
                     else:
                         shortcut = x
                     with scope.name_scope('pi'):
-                        pi = _conv_block(x, n_filters, 2, 3, strides, Conv2D, dilation)
+                        pi = _conv_block(x, n_filters, 2, 3, strides)
                     x = Add(name=scope+'add')([shortcut, pi])
 
         # x = Activation('relu', name=scope+'relu_out')(x)
@@ -936,10 +933,6 @@ class MotionGANV7(_MotionGAN):
             for k in range(macro_blocks):
                 with scope.name_scope('macro_block_%d' % k):
                     x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
-                    x_mean = Lambda(lambda arg: K.mean(arg, axis=-1, keepdims=True),
-                                    name=scope+'mean_in')(x)
-                    x_std = Lambda(lambda arg: K.std(arg, axis=-1, keepdims=True),
-                                   name=scope+'std_in')(x)
                     pi = x
                     for i, factor in enumerate(block_factors):
                         with scope.name_scope('block_%d' % i):
@@ -951,7 +944,6 @@ class MotionGANV7(_MotionGAN):
                                 conv_func = Conv2DTranspose
 
                             with scope.name_scope('pi'):
-                                pi = InstanceNormalization(axis=-1, name=scope+'inorm')(pi)
                                 pi = _conv_block(pi, n_filters, 2, 3, 2, conv_func)
 
                             if (u_blocks // 2) <= i < u_blocks:
@@ -962,10 +954,8 @@ class MotionGANV7(_MotionGAN):
                                                      name=scope+'crop_pi')(pi)
                                 pi = Concatenate(name=scope+'cat_skip')([skip_pi, pi])
                                 with scope.name_scope('skip_pi'):
-                                    pi = InstanceNormalization(axis=-1, name=scope+'inorm')(pi)
                                     pi = _conv_block(pi, n_filters, 2, 3, 1, conv_func)
 
-                    pi = Lambda(lambda args: (args[0] * args[2]) + args[1], name=scope+'denorm_out')([pi, x_mean, x_std])
                     x = Add(name=scope+'add')([x, pi])
         return x
 

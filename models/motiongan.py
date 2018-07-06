@@ -8,7 +8,7 @@ from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.layers import Input
 from tensorflow.contrib.keras.api.keras.layers import Conv2DTranspose, Conv2D, \
     Dense, Activation, Lambda, Add, Concatenate, Permute, Reshape, Flatten, \
-    Conv1D, Multiply, Cropping2D, Conv3D, Embedding
+    Conv1D, Multiply, Cropping2D, Embedding
 from tensorflow.contrib.keras.api.keras.optimizers import Nadam
 from tensorflow.contrib.keras.api.keras.regularizers import l2
 from layers.edm import edm, EDM
@@ -19,6 +19,7 @@ from layers.seq_transform import remove_hip_in, remove_hip_out, translate_start_
     seq_to_diff_in, seq_to_diff_out, seq_to_angles_in, seq_to_angles_out
 from layers.relational_memory import RelationalMemoryRNN
 from layers.causal_conv import CausalConv1D, CausalConv2D
+from layers.normalization import InstanceNormalization
 from collections import OrderedDict
 from utils.scoping import Scoping
 
@@ -510,7 +511,8 @@ class _MotionGAN(object):
                                name=scope+'attention')([h, pi, tau])
 
             z = Conv1D(fae_dim, 1, 1, name=scope+'z', **CONV1D_ARGS)(h)
-            z_attention = Conv1D(fae_dim, 1, 1, name=scope+'z_attention', **CONV1D_ARGS)(h)
+            z_attention = Conv1D(fae_dim, 1, 1, activation='sigmoid',
+                                 name=scope+'z_attention', **CONV1D_ARGS)(h)
 
             # We are only expecting half of the latent features to be activated
             z = Multiply(name=scope+'z_attended')([z, z_attention])
@@ -720,7 +722,7 @@ class MotionGANV2(_MotionGAN):
                                name=scope+'out_x')([pi, tau, shortcut, gamma])
 
             # x = InstanceNormalization(axis=-1, name=scope+'inorm_out')(x)
-            x = Activation('relu', name=scope+'relu_out')(x)
+            # x = Activation('relu', name=scope+'relu_out')(x)
 
         return x
 
@@ -757,6 +759,7 @@ class MotionGANV3(_MotionGAN):
         with scope.name_scope('generator'):
             n_hidden = 512
 
+            x_shape = [int(dim) for dim in x.shape]
             x = Flatten(name=scope+'flatten_in')(x)
             x = _preact_dense(x, n_hidden)
             for i in range(4):
@@ -768,13 +771,8 @@ class MotionGANV3(_MotionGAN):
 
                     x = Add(name=scope+'add')([x, pi])
 
-            if self.use_pose_fae:
-                fae_dim = self.org_shape[1] * self.org_shape[3] * 2
-                x = Dense((self.seq_len * fae_dim), name=scope+'dense_out', activation='relu')(x)
-                x = Reshape((self.seq_len, fae_dim, 1), name=scope+'reshape_out')(x)
-            else:
-                x = Dense((self.njoints * self.seq_len * 3), name=scope+'dense_out', activation='relu')(x)
-                x = Reshape((self.njoints, self.seq_len, 3), name=scope+'reshape_out')(x)
+            x = Dense((x_shape[1] * x_shape[2]), name=scope+'dense_out', activation='relu')(x)
+            x = Reshape((x_shape[1], x_shape[2], 1), name=scope+'reshape_out')(x)
 
         return x
 
@@ -784,11 +782,6 @@ def resnet_disc(x):
     with scope.name_scope('resnet'):
         n_hidden = 64
         n_reps = 2
-        # max_dim = max(int(x.shape[1]), int(x.shape[2]))
-        # n_blocks = 0
-        # while max_dim > 0:
-        #     max_dim //= 2
-        #     n_blocks += 1
         n_blocks = 3
 
         x = Conv2D(n_hidden, 3, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
@@ -807,7 +800,7 @@ def resnet_disc(x):
                     x = Add(name=scope+'add')([shortcut, pi])
 
 
-        x = Activation('relu', name=scope+'relu_out')(x)
+        # x = Activation('relu', name=scope+'relu_out')(x)
         # x = Flatten(name=scope+'flatten_out')(x)
         x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
     return x
@@ -817,56 +810,35 @@ def dmnn_disc(x):
     scope = Scoping.get_global_scope()
     with scope.name_scope('dmnn'):
         x_shape = [int(dim) for dim in x.shape]
-        n_hidden = 32
+        n_hidden = 64
         n_reps = 2
-        # max_dim = max(int(x.shape[1]), int(x.shape[2]))
-        # n_blocks = 0
-        # while max_dim > 0:
-        #     max_dim //= 2
-        #     n_blocks += 1
         n_blocks = 3
 
         x = CombMatrix(x_shape[1], name=scope+'comb_matrix')(x)
 
         x = EDM(name=scope+'edms')(x)
-        x = Reshape((x_shape[1], x_shape[1], x_shape[2], 1), name=scope+'resh_in')(x)
+        x = Reshape((x_shape[1]* x_shape[1], x_shape[2], 1), name=scope+'resh_in')(x)
 
-        x = Conv3D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+        x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
         for i in range(n_blocks):
             for j in range(n_reps):
                 with scope.name_scope('block_%d_%d' % (i, j)):
                     n_filters = n_hidden * (2 ** i)
                     strides = 2 if j == 0 else 1
+                    dilation = 1 if j == 0 else 2
                     if int(x.shape[-1]) != n_filters or strides > 1:
-                        shortcut = Conv3D(n_filters, strides, strides,
+                        shortcut = Conv2D(n_filters, strides, strides,
                                           name=scope+'shortcut', **CONV2D_ARGS)(x)
                     else:
                         shortcut = x
                     with scope.name_scope('pi'):
-                        pi = _conv_block(x, n_filters, 2, 3, strides, Conv3D, 1)
+                        pi = _conv_block(x, n_filters, 2, 3, strides, Conv2D, dilation)
                     x = Add(name=scope+'add')([shortcut, pi])
 
-        x = Activation('relu', name=scope+'relu_out')(x)
+        # x = Activation('relu', name=scope+'relu_out')(x)
         # x = Flatten(name=scope+'flatten_out')(x)
-        x = Lambda(lambda x: K.mean(x, axis=(1, 2, 3)), name=scope+'mean_pool')(x)
+        x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
     return x
-
-
-# def split_disc(x):
-#     scope = Scoping.get_global_scope()
-#     x_shape = [int(dim) for dim in x.shape]
-#     time_steps = x_shape[2] // 2
-#
-#     split_input = Input(batch_shape=(x_shape[0], x_shape[1], time_steps, x_shape[3]))
-#     split_x = Concatenate(axis=-1, name=scope+'split_features_cat')([resnet_disc(split_input), dmnn_disc(split_input)])
-#     split_mod = Model(split_input, split_x, name='split_disc_model')
-#
-#     x_head = Lambda(lambda arg: arg[:, :, :time_steps, :], name=scope+'head_slice')(x)
-#     x_mid = Lambda(lambda arg: arg[:, :, (time_steps // 2):(time_steps // 2)+time_steps, :], name=scope+'mid_slice')(x)
-#     x_tail = Lambda(lambda arg: arg[:, :, time_steps:, :], name=scope+'tail_slice')(x)
-#
-#     x = Concatenate(axis=-1, name=scope+'features_cat')([split_mod(x_head), split_mod(x_mid),  split_mod(x_tail)])
-#     return x
 
 
 class MotionGANV5(_MotionGAN):
@@ -964,6 +936,10 @@ class MotionGANV7(_MotionGAN):
             for k in range(macro_blocks):
                 with scope.name_scope('macro_block_%d' % k):
                     x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+                    x_mean = Lambda(lambda arg: K.mean(arg, axis=-1, keepdims=True),
+                                    name=scope+'mean_in')(x)
+                    x_std = Lambda(lambda arg: K.std(arg, axis=-1, keepdims=True),
+                                   name=scope+'std_in')(x)
                     pi = x
                     for i, factor in enumerate(block_factors):
                         with scope.name_scope('block_%d' % i):
@@ -975,6 +951,7 @@ class MotionGANV7(_MotionGAN):
                                 conv_func = Conv2DTranspose
 
                             with scope.name_scope('pi'):
+                                pi = InstanceNormalization(axis=-1, name=scope+'inorm')(pi)
                                 pi = _conv_block(pi, n_filters, 2, 3, 2, conv_func)
 
                             if (u_blocks // 2) <= i < u_blocks:
@@ -985,8 +962,10 @@ class MotionGANV7(_MotionGAN):
                                                      name=scope+'crop_pi')(pi)
                                 pi = Concatenate(name=scope+'cat_skip')([skip_pi, pi])
                                 with scope.name_scope('skip_pi'):
+                                    pi = InstanceNormalization(axis=-1, name=scope+'inorm')(pi)
                                     pi = _conv_block(pi, n_filters, 2, 3, 1, conv_func)
 
+                    pi = Lambda(lambda args: (args[0] * args[2]) + args[1], name=scope+'denorm_out')([pi, x_mean, x_std])
                     x = Add(name=scope+'add')([x, pi])
         return x
 

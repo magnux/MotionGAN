@@ -32,10 +32,6 @@
     'no_gan_loss': False,
     # Action label conditional model
     'action_cond': False,
-    # Time preserving embedding (NOT COMPATIBLE with latent or FAE)
-    'time_pres_emb': False,
-    # Use pose FAE
-    'use_pose_fae': False,
     # Remove Hip, use hip relative coordinates, incompatible with use_angles
     'remove_hip': False,
     # Rescale coords using skeleton average bone len
@@ -60,7 +56,7 @@
     # It's the batch size
     'batch_size': 256,
     # Final epoch
-    'num_epochs': 192,
+    'num_epochs': 128,
     # Multiplies length of epoch, useful for tiny datasets
     'epoch_factor': 1,
     # How fast should we learn?

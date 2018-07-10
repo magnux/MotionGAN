@@ -28,7 +28,7 @@ CONV2D_ARGS = {'padding': 'same', 'data_format': 'channels_last', 'kernel_regula
 
 
 def get_model(config):
-    class_name = 'MotionGANV' + config.model_version[-1]
+    class_name = 'MotionGANV' + config.model_version[1:]
     module = __import__('models.motiongan', fromlist=[class_name])
     my_class = getattr(module, class_name)
     return my_class(config)
@@ -72,7 +72,6 @@ class _MotionGAN(object):
         self.smoothing_loss = config.smoothing_loss
         self.smoothing_scale = 20.0
         self.smoothing_basis = 5
-        self.time_pres_emb = config.time_pres_emb
         self.translate_start = config.translate_start
         self.rotate_start = config.rotate_start
         self.rescale_coords = config.rescale_coords
@@ -282,7 +281,7 @@ class _MotionGAN(object):
 
             if self.coherence_loss:
                 with K.name_scope('coherence_loss'):
-                    exp_decay = 1.0 / np.exp(np.linspace(0.0, 2.0, self.seq_len // 2, dtype='float32'))
+                    exp_decay = 1.0 / np.exp(np.linspace(0.0, 5.0, self.seq_len // 2, dtype='float32'))
                     exp_decay = np.reshape(exp_decay, (1, 1, self.seq_len // 2, 1))
                     coherence_mask = np.concatenate([np.zeros((1, 1, self.seq_len // 2, 1)), exp_decay], axis=2)
                     coherence_mask = K.constant(coherence_mask, dtype='float32')
@@ -610,26 +609,14 @@ class MotionGANV1(_MotionGAN):
         with scope.name_scope('generator'):
             n_hidden = 32
             block_factors = range(1, self.nblocks + 1)
-            block_strides = [2] * self.nblocks
-
-            if not (self.time_pres_emb or self.use_pose_fae):
-                x = Dense(4 * 4 * n_hidden * block_factors[0], name=scope+'dense_in')(x)
-                x = Reshape((4, 4, n_hidden * block_factors[0]), name=scope+'reshape_in')(x)
 
             for i, factor in enumerate(block_factors):
                 with scope.name_scope('block_%d' % i):
                     n_filters = n_hidden * factor
-                    strides = block_strides[i]
-                    if self.time_pres_emb:
-                        strides = (block_strides[i], 1)
-                    elif self.use_pose_fae:
-                        strides = 1
-
-                    with scope.name_scope('branch_0'): # scope for backward compat
-                        pi = _conv_block(x, n_filters, 1, 3, strides, Conv2DTranspose)
+                    pi = _conv_block(x, n_filters, 1, 3, 1, Conv2DTranspose)
 
                     if i < self.nblocks - 1:
-                        shortcut = Conv2DTranspose(n_filters, strides, strides,
+                        shortcut = Conv2DTranspose(n_filters, 1, 1,
                                                    name=scope+'shortcut', **CONV2D_ARGS)(x)
                         x = Add(name=scope+'add')([shortcut, pi])
                     else:
@@ -681,36 +668,17 @@ class MotionGANV2(_MotionGAN):
         with scope.name_scope('generator'):
             n_hidden = 32
             block_factors = range(1, self.nblocks + 1)
-            block_strides = [2] * self.nblocks
-
-            if not (self.time_pres_emb or self.use_pose_fae):
-                for i in range(2):
-                    with scope.name_scope('dense_block_%d' % i):
-                        if i > 0:
-                            # x = InstanceNormalization(axis=-1, name=scope+'inorm')(x)
-                            x = Activation('relu', name=scope+'relu')(x)
-                        x = Dense(n_hidden * 4, name=scope+'dense')(x)
-
-                # x = InstanceNormalization(axis=-1, name=scope+'inorm_conv_in')(x)
-                x = Activation('relu', name=scope+'relu_conv_in')(x)
-                x = Dense(4 * 4 * n_hidden * block_factors[0], name=scope+'dense_conv_in')(x)
-                x = Reshape((4, 4, n_hidden * block_factors[0]), name=scope+'reshape_conv_in')(x)
 
             for i, factor in enumerate(block_factors):
                 with scope.name_scope('block_%d' % i):
                     n_filters = n_hidden * factor
-                    strides = block_strides[i]
-                    if self.time_pres_emb:
-                        strides = (block_strides[i], 1)
-                    elif self.use_pose_fae:
-                        strides = 1
-                    shortcut = Conv2DTranspose(n_filters, strides, strides,
+                    shortcut = Conv2DTranspose(n_filters, 1, 1,
                                                name=scope+'shortcut', **CONV2D_ARGS)(x)
-                    with scope.name_scope('branch_0'):
-                        pi = _conv_block(x, n_filters, 1, 3, strides, Conv2DTranspose)
-                    with scope.name_scope('branch_1'):
-                        gamma = _conv_block(x, n_filters, 4, 3, strides, Conv2DTranspose)
-                        gamma = Activation('sigmoid', name=scope+'gamma_sigmoid')(gamma)
+                    with scope.name_scope('pi'):
+                        pi = _conv_block(x, n_filters, 1, 3, 1, Conv2DTranspose)
+                    with scope.name_scope('gamma'):
+                        gamma = _conv_block(x, n_filters, 4, 3, 1, Conv2DTranspose)
+                        gamma = Activation('sigmoid', name=scope+'sigmoid')(gamma)
 
                     # tau = 1 - gamma
                     tau = Lambda(lambda arg: 1 - arg, name=scope+'tau')(gamma)
@@ -839,7 +807,7 @@ def dmnn_disc(x):
 
 
 class MotionGANV5(_MotionGAN):
-    # DMNN + ResNet + Split Discriminator, WaveNet style generator
+    # DMNN + ResNet Discriminator, WaveNet style generator
 
     def discriminator(self, x):
         scope = Scoping.get_global_scope()
@@ -907,7 +875,7 @@ class MotionGANV5(_MotionGAN):
 
 
 class MotionGANV7(_MotionGAN):
-    # DMNN + ResNet + Split Discriminator, ResNet + UNet Generator 4 STACK
+    # DMNN + ResNet Discriminator, ResNet + UNet Generator 4 STACK
 
     def discriminator(self, x):
         scope = Scoping.get_global_scope()
@@ -961,7 +929,7 @@ class MotionGANV7(_MotionGAN):
 
 
 class MotionGANV8(_MotionGAN):
-    # DMNN + ResNet + Split Discriminator, LSTM + MHDPA Generator
+    # DMNN + ResNet Discriminator, LSTM + MHDPA Generator
 
     def discriminator(self, x):
         scope = Scoping.get_global_scope()
@@ -991,7 +959,7 @@ class MotionGANV8(_MotionGAN):
 
 
 class MotionGANV9(_MotionGAN):
-    # DMNN + ResNet + Split Discriminator, CausalConv Generator
+    # DMNN + ResNet Discriminator, CausalConv Generator
 
     def discriminator(self, x):
         scope = Scoping.get_global_scope()
@@ -1041,4 +1009,76 @@ class MotionGANV9(_MotionGAN):
                                     pi = _conv_block(pi, n_filters, 2, 3, 1, CausalConv2D)
 
                     x = Add(name=scope+'add')([x, pi])
+        return x
+
+
+class MotionGANV87(_MotionGAN):
+    # Super GAN 87
+
+    def discriminator(self, x):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('discriminator'):
+            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
+        return x
+
+    def generator(self, x):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('generator'):
+
+            with scope.name_scope('gen_v8'):
+                chans = int(x.shape[3])
+                x = Reshape((int(x.shape[1]), int(x.shape[2]) * chans), name=scope+'resh_in')(x)
+                x = Conv1D(int(x.shape[2]) // (2 * chans), 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(x)
+
+                x_shape = [int(dim) for dim in x.shape]
+                n_stages = 1
+                for i in range(n_stages):
+                    with scope.name_scope('stage_%d'%i):
+                        pi = RelationalMemoryRNN(4, x_shape[2] // 2, 4, return_sequences=True, name=scope+'pi_rel_mem')(x)
+                        pi = Conv1D(x_shape[2], 1, 1, name=scope+'pi_conv', **CONV1D_ARGS)(pi)
+                        x = Add(name=scope+'add')([x, pi])
+
+                x = Reshape((x_shape[1], x_shape[2], 1), name=scope+'resh_out')(x)
+
+            with scope.name_scope('gen_v7'):
+                n_hidden = 32
+                u_blocks = 0
+                min_dim = min(int(x.shape[1]), int(x.shape[2]))
+                while min_dim > 4:
+                    min_dim //= 2
+                    u_blocks += 1
+                u_blocks = min(u_blocks, 4)
+                u_blocks = u_blocks * 2
+                block_factors = range(1, (u_blocks // 2) + 1) + range(u_blocks // 2, 0, -1)
+                macro_blocks = 1
+
+                u_skips = []
+                for k in range(macro_blocks):
+                    with scope.name_scope('macro_block_%d' % k):
+                        x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+                        pi = x
+                        for i, factor in enumerate(block_factors):
+                            with scope.name_scope('block_%d' % i):
+                                n_filters = n_hidden * factor
+                                if i < (u_blocks // 2):
+                                    conv_func = Conv2D
+                                    u_skips.append(pi)
+                                else:
+                                    conv_func = Conv2DTranspose
+
+                                with scope.name_scope('pi'):
+                                    pi = _conv_block(pi, n_filters, 2, 3, 2, conv_func)
+
+                                if (u_blocks // 2) <= i < u_blocks:
+                                    skip_pi = u_skips.pop()
+                                    if skip_pi.shape[1] != pi.shape[1] or skip_pi.shape[2] != pi.shape[2]:
+                                        pi = Cropping2D(((0, int(pi.shape[1] - skip_pi.shape[1])),
+                                                        (0, int(pi.shape[2] - skip_pi.shape[2]))),
+                                                         name=scope+'crop_pi')(pi)
+                                    pi = Concatenate(name=scope+'cat_skip')([skip_pi, pi])
+                                    with scope.name_scope('skip_pi'):
+                                        pi = _conv_block(pi, n_filters, 2, 3, 1, conv_func)
+
+                        x = Add(name=scope+'add')([x, pi])
+
         return x

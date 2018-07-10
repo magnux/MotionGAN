@@ -7,8 +7,6 @@
     # Perform per joint normalization
     'normalize_per_joint': True,
 
-    # Use pose FAE
-    'use_pose_fae': True,
     # General loss factor
     # 'loss_factor': 0.1,
     # Remove Hip, use hip relative coordinates
@@ -23,9 +21,9 @@
     # Multiplies length of epoch, useful for tiny datasets
     'epoch_factor': 256,
     # Number of the random picks (0 == deactivated)
-    'pick_num': 0,
+    'pick_num': 20,
     # Size of the random crop (0 == deactivated)
-    'crop_len': 20,
+    'crop_len': 200,
     # Train on future prediction task only
     'train_fp': True,
 }

@@ -176,12 +176,12 @@ class DataInput(object):
             pose = pose[self.used_joints, ...]
             # pose[:, :3, :] = pose[:, :3, :] / 1.0e3 # Rescale to meters
             # pose = pose[:, :, range(0, plen, 2)]  # Subsampling to 25hz
-            pose = pose[:, :, range(0, plen, 10)]  # Subsampling to 5hz
+            # pose = pose[:, :, range(0, plen, 10)]  # Subsampling to 5hz
             plen = np.int32(pose.shape[2])
         elif self.data_set == 'Human36_expmaps':
             pose = pose[self.used_joints, ...]
             # pose = pose[:, :, range(0, plen, 2)]  # Subsampling to 25hz
-            pose = pose[:, :, range(0, plen, 10)]  # Subsampling to 5hz
+            # pose = pose[:, :, range(0, plen, 10)]  # Subsampling to 5hz
             plen = np.int32(pose.shape[2])
             # pose[:, :3, :] = (pose[:, :3, :] + 90) / 180
 

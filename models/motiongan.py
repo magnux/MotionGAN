@@ -20,6 +20,7 @@ from layers.seq_transform import remove_hip_in, remove_hip_out, translate_start_
 from layers.relational_memory import RelationalMemoryRNN
 from layers.causal_conv import CausalConv1D, CausalConv2D
 from layers.normalization import InstanceNormalization
+from layers.cudnn_recurrent import CuDNNLSTM
 from collections import OrderedDict
 from utils.scoping import Scoping
 
@@ -438,7 +439,7 @@ class _MotionGAN(object):
                 x_last = Tile((1, known_size, 1), name=scope+'tl_last_known')(x_last)
                 x = Concatenate(axis=2, name=scope+'cat_last_known')([x, x_last])
 
-            # x_mask = Lambda(lambda arg: 1 - arg, name=scope+'mask_occ')(x_mask)
+            x_mask = Lambda(lambda arg: 1 - arg, name=scope+'mask_occ')(x_mask)
             x = Concatenate(axis=-1, name=scope+'cat_occ')([x, x_mask])
 
             x = self._pose_encoder(x)
@@ -747,7 +748,7 @@ def resnet_disc(x):
     scope = Scoping.get_global_scope()
     with scope.name_scope('resnet'):
         n_hidden = 64
-        n_reps = 1
+        n_reps = 2
         n_blocks = 3
 
         x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
@@ -757,16 +758,16 @@ def resnet_disc(x):
                     n_filters = n_hidden * (2 ** i)
                     strides = 2 if j == 0 else 1
                     if int(x.shape[-1]) != n_filters or strides > 1:
-                        shortcut = Conv2D(n_filters, strides, strides,
+                        shortcut = Conv2D(n_filters, 1, strides,
                                           name=scope+'shortcut', **CONV2D_ARGS)(x)
                     else:
                         shortcut = x
                     with scope.name_scope('pi'):
-                        pi = _conv_block(x, n_filters, 2, 3, strides)
+                        pi = _conv_block(x, n_filters, 4, 3, strides)
                     x = Add(name=scope+'add')([shortcut, pi])
 
 
-        # x = Activation('relu', name=scope+'relu_out')(x)
+        x = Activation('relu', name=scope+'relu_out')(x)
         # x = Flatten(name=scope+'flatten_out')(x)
         x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
     return x
@@ -777,7 +778,7 @@ def dmnn_disc(x):
     with scope.name_scope('dmnn'):
         x_shape = [int(dim) for dim in x.shape]
         n_hidden = 64
-        n_reps = 1
+        n_reps = 2
         n_blocks = 3
 
         x = CombMatrix(x_shape[1], name=scope+'comb_matrix')(x)
@@ -792,15 +793,15 @@ def dmnn_disc(x):
                     n_filters = n_hidden * (2 ** i)
                     strides = 2 if j == 0 else 1
                     if int(x.shape[-1]) != n_filters or strides > 1:
-                        shortcut = Conv2D(n_filters, strides, strides,
+                        shortcut = Conv2D(n_filters, 1, strides,
                                           name=scope+'shortcut', **CONV2D_ARGS)(x)
                     else:
                         shortcut = x
                     with scope.name_scope('pi'):
-                        pi = _conv_block(x, n_filters, 2, 3, strides)
+                        pi = _conv_block(x, n_filters, 4, 3, strides)
                     x = Add(name=scope+'add')([shortcut, pi])
 
-        # x = Activation('relu', name=scope+'relu_out')(x)
+        x = Activation('relu', name=scope+'relu_out')(x)
         # x = Flatten(name=scope+'flatten_out')(x)
         x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
     return x

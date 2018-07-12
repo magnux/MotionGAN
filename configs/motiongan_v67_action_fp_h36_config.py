@@ -1,18 +1,22 @@
 {
     # Datasets: MSRC12, NTURGBD
-    'data_set': 'Human36_expmaps',
+    'data_set': 'Human36',
     'data_set_version': 'v1',
     # Model version to train
-    'model_version': 'v7',
-    # Perform per joint normalization
-    'normalize_per_joint': True,
+    'model_version': 'v67',
 
-    # General loss factor
-    # 'loss_factor': 0.1,
-    # Remove Hip, use hip relative coordinates
-    'remove_hip': True,
+    # Body shape conservation loss
+    'shape_loss': True,
+    # Rescale coords using skeleton average bone len
+    'rescale_coords': True,
+    # Translate sequence starting point to 0,0,0
+    'translate_start': True,
+    # Rotate sequence starting point
+    'rotate_start': True,
     # Action label conditional model
     'action_cond': True,
+    # Augment data on training
+    'augment_data': True,
     # Coherence on generated sequences loss
     # 'coherence_loss': True,
 

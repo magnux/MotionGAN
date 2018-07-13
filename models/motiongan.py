@@ -1026,22 +1026,33 @@ class MotionGANV87(_MotionGAN):
         scope = Scoping.get_global_scope()
         with scope.name_scope('generator'):
 
-            with scope.name_scope('gen_v8'):
+            with scope.name_scope('RNN'):
                 chans = int(x.shape[3])
                 x = Reshape((int(x.shape[1]), int(x.shape[2]) * chans), name=scope+'resh_in')(x)
-                x = Conv1D(int(x.shape[2]) // (2 * chans), 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(x)
+                x = Conv1D(int(x.shape[2]) // chans, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(x)
 
                 x_shape = [int(dim) for dim in x.shape]
                 n_stages = 1
                 for i in range(n_stages):
                     with scope.name_scope('stage_%d'%i):
-                        pi = RelationalMemoryRNN(4, x_shape[2] // 2, 4, return_sequences=True, name=scope+'pi_rel_mem')(x)
-                        pi = Conv1D(x_shape[2], 1, 1, name=scope+'pi_conv', **CONV1D_ARGS)(pi)
-                        x = Add(name=scope+'add')([x, pi])
+                        with scope.name_scope('rel_mem_rnn'):
+                            pi = RelationalMemoryRNN(4, x_shape[2] // 2, 4, return_sequences=True, name=scope+'pi_rel_mem')(x)
+                            pi = Conv1D(x_shape[2], 1, 1, activation='relu',
+                                        name=scope + 'pi_conv_0', **CONV1D_ARGS)(pi)
+                            pi = Conv1D(x_shape[2], 1, 1,
+                                        name=scope + 'pi_conv_1', **CONV1D_ARGS)(pi)
+                            x = Add(name=scope+'add')([x, pi])
+                        with scope.name_scope('lstm'):
+                            pi = CuDNNLSTM(x_shape[2], return_sequences=True, name=scope+'pi_lstm')(x)
+                            pi = Conv1D(x_shape[2], 1, 1, activation='relu',
+                                        name=scope+'pi_conv_0', **CONV1D_ARGS)(pi)
+                            pi = Conv1D(x_shape[2], 1, 1,
+                                        name=scope+'pi_conv_1', **CONV1D_ARGS)(pi)
+                            x = Add(name=scope+'add')([x, pi])
 
                 x = Reshape((x_shape[1], x_shape[2], 1), name=scope+'resh_out')(x)
 
-            with scope.name_scope('gen_v7'):
+            with scope.name_scope('CNN'):
                 n_hidden = 32
                 u_blocks = 0
                 min_dim = min(int(x.shape[1]), int(x.shape[2]))
@@ -1052,81 +1063,6 @@ class MotionGANV87(_MotionGAN):
                 u_blocks = u_blocks * 2
                 block_factors = range(1, (u_blocks // 2) + 1) + range(u_blocks // 2, 0, -1)
                 macro_blocks = 1
-
-                u_skips = []
-                for k in range(macro_blocks):
-                    with scope.name_scope('macro_block_%d' % k):
-                        x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
-                        pi = x
-                        for i, factor in enumerate(block_factors):
-                            with scope.name_scope('block_%d' % i):
-                                n_filters = n_hidden * factor
-                                if i < (u_blocks // 2):
-                                    conv_func = Conv2D
-                                    u_skips.append(pi)
-                                else:
-                                    conv_func = Conv2DTranspose
-
-                                with scope.name_scope('pi'):
-                                    pi = _conv_block(pi, n_filters, 2, 3, 2, conv_func)
-
-                                if (u_blocks // 2) <= i < u_blocks:
-                                    skip_pi = u_skips.pop()
-                                    if skip_pi.shape[1] != pi.shape[1] or skip_pi.shape[2] != pi.shape[2]:
-                                        pi = Cropping2D(((0, int(pi.shape[1] - skip_pi.shape[1])),
-                                                        (0, int(pi.shape[2] - skip_pi.shape[2]))),
-                                                         name=scope+'crop_pi')(pi)
-                                    pi = Concatenate(name=scope+'cat_skip')([skip_pi, pi])
-                                    with scope.name_scope('skip_pi'):
-                                        pi = _conv_block(pi, n_filters, 2, 3, 1, conv_func)
-
-                        x = Add(name=scope+'add')([x, pi])
-
-        return x
-
-
-class MotionGANV67(_MotionGAN):
-    # Super GAN 67
-
-    def discriminator(self, x):
-        scope = Scoping.get_global_scope()
-        with scope.name_scope('discriminator'):
-            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
-        return x
-
-    def generator(self, x):
-        scope = Scoping.get_global_scope()
-        with scope.name_scope('generator'):
-
-            with scope.name_scope('gen_v6'):
-                chans = int(x.shape[3])
-                x = Reshape((int(x.shape[1]), int(x.shape[2]) * chans), name=scope+'resh_in')(x)
-                x = Conv1D(int(x.shape[2]) // chans, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(x)
-
-                x_shape = [int(dim) for dim in x.shape]
-                n_stages = 2
-                for i in range(n_stages):
-                    with scope.name_scope('stage_%d'%i):
-                        pi = CuDNNLSTM(x_shape[2], return_sequences=True, name=scope+'pi_lstm')(x)
-                        pi = Conv1D(x_shape[2], 1, 1, activation='relu',
-                                    name=scope+'pi_conv_0', **CONV1D_ARGS)(pi)
-                        pi = Conv1D(x_shape[2], 1, 1,
-                                    name=scope+'pi_conv_1', **CONV1D_ARGS)(pi)
-                        x = Add(name=scope+'add')([x, pi])
-
-                x = Reshape((x_shape[1], x_shape[2], 1), name=scope+'resh_out')(x)
-
-            with scope.name_scope('gen_v7'):
-                n_hidden = 32
-                u_blocks = 0
-                min_dim = min(int(x.shape[1]), int(x.shape[2]))
-                while min_dim > 4:
-                    min_dim //= 2
-                    u_blocks += 1
-                u_blocks = min(u_blocks, 4)
-                u_blocks = u_blocks * 2
-                block_factors = range(1, (u_blocks // 2) + 1) + range(u_blocks // 2, 0, -1)
-                macro_blocks = 2
 
                 u_skips = []
                 for k in range(macro_blocks):

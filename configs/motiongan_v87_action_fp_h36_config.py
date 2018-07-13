@@ -18,7 +18,7 @@
     # Augment data on training
     'augment_data': True,
     # Coherence on generated sequences loss
-    # 'coherence_loss': True,
+    'coherence_loss': True,
 
     # How fast should we learn?
     'learning_rate': 1e-3,

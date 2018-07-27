@@ -3,7 +3,7 @@
     'data_set': 'Human36',
     'data_set_version': 'v1',
     # Model version to train
-    'model_version': 'v87',
+    'model_version': 'v85',
 
     # Body shape conservation loss
     # 'shape_loss': True,

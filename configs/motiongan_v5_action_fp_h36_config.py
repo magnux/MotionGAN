@@ -6,9 +6,9 @@
     'model_version': 'v5',
 
     # Body shape conservation loss
-    'shape_loss': True,
+    # 'shape_loss': True,
     # Rescale coords using skeleton average bone len
-    'rescale_coords': True,
+    # 'rescale_coords': True,
     # Translate sequence starting point to 0,0,0
     'translate_start': True,
     # Rotate sequence starting point
@@ -17,9 +17,11 @@
     'action_cond': True,
     # Augment data on training
     'augment_data': True,
+    # Coherence on generated sequences loss
+    'coherence_loss': True,
 
     # How fast should we learn?
-    'learning_rate': 1e-4,
+    'learning_rate': 1e-3,
     # It's the batch size
     'batch_size': 128,
     # Multiplies length of epoch, useful for tiny datasets

@@ -782,6 +782,8 @@ class MotionGANV5(_MotionGAN):
             # print(wave_gen.summary())
 
             xs = []
+            pred_x_labs = Lambda(lambda arg: K.stop_gradient(arg[:, x_shape[1] // 2, :, 1:]),
+                                 name=scope+'pred_lab')(x)
             for i in range(x_shape[1] // 2):
                 with scope.name_scope('wave_gen_call_%d' % i):
                     x_step = Lambda(lambda arg: K.stop_gradient(arg[:, i:x_shape[1] // 2, ...]),
@@ -796,6 +798,7 @@ class MotionGANV5(_MotionGAN):
                         x_step = Lambda(lambda arg: K.concatenate(arg, axis=1),
                                         name=scope+'wave_append_n')([x_step, x_step_n])
                     pred_x = wave_gen(x_step)
+                    pred_x = Concatenate(axis=-1, name=scope+'cat_pred_labs')([pred_x, pred_x_labs])
                     xs.append(pred_x)
 
             x = Lambda(lambda arg: arg[:, :x_shape[1] // 2, :, :], name=scope+'slice_out')(x)

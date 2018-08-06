@@ -687,6 +687,7 @@ def resnet_disc(x):
         n_blocks = 3
 
         x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+        x_outs = []
         for i in range(n_blocks):
             for j in range(n_reps):
                 with scope.name_scope('block_%d_%d' % (i, j)):
@@ -700,10 +701,18 @@ def resnet_disc(x):
                     with scope.name_scope('pi'):
                         pi = _conv_block(x, n_filters, 4, 3, strides)
                     x = Add(name=scope+'add')([shortcut, pi])
+                    if j == n_reps - 1:
+                        x_out = Reshape((int(x.shape[1]) * int(x.shape[2]),
+                                         int(x.shape[3])), name=scope+'res_out')(x)
+                        x_out = Activation('relu', name=scope+'relu_out')(x_out)
+                        x_out = Conv1D(n_hidden, 1, 1, name=scope+'dense_out', **CONV1D_ARGS)(x_out)
+                        x_out = Lambda(lambda arg: K.mean(arg, axis=1), name=scope+'mean_pool')(x_out)
+                        x_outs.append(x_out)
 
-        x = Activation('relu', name=scope+'relu_out')(x)
-        # x = Flatten(name=scope+'flatten_out')(x)
-        x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
+        # x = Activation('relu', name=scope+'relu_out')(x)
+        # # x = Flatten(name=scope+'flatten_out')(x)
+        # x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
+        x = Concatenate(axis=-1, name=scope+'cat_out')(x_outs)
     return x
 
 
@@ -721,6 +730,7 @@ def dmnn_disc(x):
         x = Reshape((x_shape[1] * x_shape[1], x_shape[2], 1), name=scope+'resh_in')(x)
 
         x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+        x_outs = []
         for i in range(n_blocks):
             for j in range(n_reps):
                 with scope.name_scope('block_%d_%d' % (i, j)):
@@ -734,10 +744,18 @@ def dmnn_disc(x):
                     with scope.name_scope('pi'):
                         pi = _conv_block(x, n_filters, 4, 3, strides)
                     x = Add(name=scope+'add')([shortcut, pi])
+                    if j == n_reps - 1:
+                        x_out = Reshape((int(x.shape[1]) * int(x.shape[2]),
+                                         int(x.shape[3])), name=scope + 'res_out')(x)
+                        x_out = Activation('relu', name=scope+'relu_out')(x_out)
+                        x_out = Conv1D(n_hidden, 1, 1, name=scope+'dense_out', **CONV1D_ARGS)(x_out)
+                        x_out = Lambda(lambda arg: K.mean(arg, axis=1), name=scope+'mean_pool')(x_out)
+                        x_outs.append(x_out)
 
-        x = Activation('relu', name=scope+'relu_out')(x)
-        # x = Flatten(name=scope+'flatten_out')(x)
-        x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
+        # x = Activation('relu', name=scope+'relu_out')(x)
+        # # x = Flatten(name=scope+'flatten_out')(x)
+        # x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
+        x = Concatenate(axis=-1, name=scope + 'cat_out')(x_outs)
     return x
 
 

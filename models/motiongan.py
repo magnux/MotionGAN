@@ -305,24 +305,24 @@ class _MotionGAN(object):
                     loss_shape = K.sum(K.square(real_shape - gen_shape), axis=(1, 2, 3))
                     gen_losses['gen_loss_shape'] = self.shape_scale * K.mean(loss_shape)
 
-                    # head_top = self.body_members['head']['joints'][-1]
-                    # left_hand = self.body_members['left_arm']['joints'][-1]
-                    # right_hand = self.body_members['right_arm']['joints'][-1]
-                    # left_foot = self.body_members['left_leg']['joints'][-1]
-                    # right_foot = self.body_members['right_leg']['joints'][-1]
-                    #
-                    # mask = np.zeros((self.njoints, self.njoints), dtype='float32')
-                    # for j in [head_top, left_hand, right_hand, left_foot, right_foot]:
-                    #     mask[j, :] = 1.0
-                    #     mask[:, j] = 1.0
-                    #
-                    # mask = np.reshape(mask, (1, self.njoints, self.njoints, 1))
-                    # mask = K.constant(mask, dtype='float32')
-                    # seq_mask_edm = K.prod(K.expand_dims(seq_mask, axis=1) * K.expand_dims(seq_mask, axis=2), axis=-1)
-                    # real_shape = edm(real_seq) * seq_mask_edm * mask
-                    # gen_shape = edm(gen_seq) * seq_mask_edm * mask
-                    # loss_shape = K.sum(K.square(real_shape - gen_shape), axis=(1, 2, 3))
-                    # gen_losses['gen_loss_limbs'] = self.shape_scale * K.mean(loss_shape)
+                    head_top = self.body_members['head']['joints'][-1]
+                    left_hand = self.body_members['left_arm']['joints'][-1]
+                    right_hand = self.body_members['right_arm']['joints'][-1]
+                    left_foot = self.body_members['left_leg']['joints'][-1]
+                    right_foot = self.body_members['right_leg']['joints'][-1]
+
+                    mask = np.zeros((self.njoints, self.njoints), dtype='float32')
+                    for j in [head_top, left_hand, right_hand, left_foot, right_foot]:
+                        mask[j, :] = 1.0
+                        mask[:, j] = 1.0
+
+                    mask = np.reshape(mask, (1, self.njoints, self.njoints, 1))
+                    mask = K.constant(mask, dtype='float32')
+                    seq_mask_edm = K.prod(K.expand_dims(seq_mask, axis=1) * K.expand_dims(seq_mask, axis=2), axis=-1)
+                    real_shape = edm(real_seq) * seq_mask_edm * mask
+                    gen_shape = edm(gen_seq) * seq_mask_edm * mask
+                    loss_shape = K.sum(K.square(real_shape - gen_shape), axis=(1, 2, 3))
+                    gen_losses['gen_loss_limbs'] = self.shape_scale * 0.01 * K.mean(loss_shape)
 
             if self.smoothing_loss:
                 with K.name_scope('smoothing_loss'):

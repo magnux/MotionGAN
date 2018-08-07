@@ -82,6 +82,7 @@ class _MotionGAN(object):
         self.use_angles = config.use_angles
         self.angles_scale = 0.5
         self.last_known = config.last_known
+        self.no_dmnn_disc = config.no_dmnn_disc
 
         self.stats = {}
         self.z_params = []
@@ -759,14 +760,19 @@ def dmnn_disc(x):
     return x
 
 
+def double_disc(x, no_dmnn_disc):
+    scope = Scoping.get_global_scope()
+    with scope.name_scope('discriminator'):
+        features = [resnet_disc(x)] if no_dmnn_disc else [resnet_disc(x), dmnn_disc(x)]
+        x = Concatenate(axis=-1, name=scope + 'features_cat')(features)
+    return x
+
+
 class MotionGANV5(_MotionGAN):
     # DMNN + ResNet Discriminator, WaveNet style generator
 
     def discriminator(self, x):
-        scope = Scoping.get_global_scope()
-        with scope.name_scope('discriminator'):
-            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
-        return x
+        return double_disc(x, self.no_dmnn_disc)
 
     def generator(self, x):
         scope = Scoping.get_global_scope()
@@ -834,10 +840,7 @@ class MotionGANV7(_MotionGAN):
     # DMNN + ResNet Discriminator, ResNet + UNet Generator 4 STACK
 
     def discriminator(self, x):
-        scope = Scoping.get_global_scope()
-        with scope.name_scope('discriminator'):
-            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
-        return x
+        return double_disc(x, self.no_dmnn_disc)
 
     def generator(self, x):
         scope = Scoping.get_global_scope()
@@ -888,10 +891,7 @@ class MotionGANV8(_MotionGAN):
     # DMNN + ResNet Discriminator, LSTM + MHDPA Generator
 
     def discriminator(self, x):
-        scope = Scoping.get_global_scope()
-        with scope.name_scope('discriminator'):
-            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
-        return x
+        return double_disc(x, self.no_dmnn_disc)
 
     def generator(self, x):
         scope = Scoping.get_global_scope()
@@ -918,10 +918,7 @@ class MotionGANV9(_MotionGAN):
     # DMNN + ResNet Discriminator, CausalConv Generator
 
     def discriminator(self, x):
-        scope = Scoping.get_global_scope()
-        with scope.name_scope('discriminator'):
-            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
-        return x
+        return double_disc(x, self.no_dmnn_disc)
 
     def generator(self, x):
         scope = Scoping.get_global_scope()
@@ -972,10 +969,7 @@ class MotionGANV87(_MotionGAN):
     # Super GAN 87
 
     def discriminator(self, x):
-        scope = Scoping.get_global_scope()
-        with scope.name_scope('discriminator'):
-            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
-        return x
+        return double_disc(x, self.no_dmnn_disc)
 
     def generator(self, x):
         scope = Scoping.get_global_scope()
@@ -1055,10 +1049,7 @@ class MotionGANV85(_MotionGAN):
     # Super GAN 85
 
     def discriminator(self, x):
-        scope = Scoping.get_global_scope()
-        with scope.name_scope('discriminator'):
-            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
-        return x
+        return double_disc(x, self.no_dmnn_disc)
 
     def generator(self, x):
         scope = Scoping.get_global_scope()
@@ -1130,10 +1121,7 @@ class MotionGANV86(_MotionGAN):
     # Super GAN 86
 
     def discriminator(self, x):
-        scope = Scoping.get_global_scope()
-        with scope.name_scope('discriminator'):
-            x = Concatenate(axis=-1, name=scope+'features_cat')([resnet_disc(x), dmnn_disc(x)])
-        return x
+        return double_disc(x, self.no_dmnn_disc)
 
     def generator(self, x):
         scope = Scoping.get_global_scope()

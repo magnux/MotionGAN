@@ -48,6 +48,8 @@
     'augment_data': False,
     # Copy last known frame in the input
     'last_known': False,
+    # Deactivate dmnn discriminator
+    'no_dmnn_disc': False,
 
     ## DMNN Model Options
     'motiongan_save_path': None,

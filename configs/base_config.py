@@ -48,6 +48,8 @@
     'augment_data': False,
     # Copy last known frame in the input
     'last_known': False,
+    # Add skip connection from input to output
+    'add_skip': False,
     # Deactivate dmnn discriminator
     'no_dmnn_disc': False,
 

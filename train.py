@@ -111,8 +111,9 @@ if __name__ == "__main__":
                     disc_inputs = [poses_batch]
                     gen_inputs = [poses_batch, mask_batch]
                     labels = np.reshape(labs_batch[:, 2], (config.batch_size, 1))
-                    place_holders = [labels]
+                    place_holders = []
                     if config.action_cond:
+                        place_holders.append(labels)
                         gen_inputs.append(labels)
                     if config.latent_cond_dim > 0:
                         latent_noise = gen_latent_noise(config.batch_size, config.latent_cond_dim)
@@ -140,8 +141,9 @@ if __name__ == "__main__":
 
                 gen_inputs = [poses_batch, mask_batch]
                 labels = np.reshape(labs_batch[:, 2], (config.batch_size, 1))
-                place_holders = [labels]
+                place_holders = []
                 if config.action_cond:
+                    place_holders.append(labels)
                     gen_inputs.append(labels)
                 if config.latent_cond_dim > 0:
                     latent_noise = gen_latent_noise(config.batch_size, config.latent_cond_dim)
@@ -194,8 +196,9 @@ if __name__ == "__main__":
             disc_inputs = [poses_batch]
             gen_inputs = [poses_batch, mask_batch]
             labels = np.reshape(labs_batch[:, 2], (config.batch_size, 1))
-            place_holders = [labels]
+            place_holders = []
             if config.action_cond:
+                place_holders.append(labels)
                 gen_inputs.append(labels)
             if config.latent_cond_dim > 0:
                 latent_noise = gen_latent_noise(config.batch_size, config.latent_cond_dim)

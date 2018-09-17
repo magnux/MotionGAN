@@ -57,7 +57,7 @@ class _MotionGAN(object):
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
         self.no_gan_loss = config.no_gan_loss
-        self.wgan_scale_d = 2.0 * config.loss_factor
+        self.wgan_scale_d = 10.0 * config.loss_factor
         self.wgan_scale_g = 2.0 * config.loss_factor * (0.0 if self.no_gan_loss else 1.0)
         self.rec_scale = 1.0   # if 'expmaps' not in self.data_set else 10.0
         self.latent_cond_dim = config.latent_cond_dim
@@ -67,7 +67,7 @@ class _MotionGAN(object):
         self.action_scale_d = 10.0
         self.action_scale_g = 1.0
         self.coherence_loss = config.coherence_loss
-        self.coherence_scale = 5.0
+        self.coherence_scale = 1.0
         self.shape_loss = config.shape_loss
         self.shape_scale = 2.0
         self.smoothing_loss = config.smoothing_loss
@@ -503,7 +503,7 @@ class _MotionGAN(object):
     def _pose_encoder(self, seq):
         scope = Scoping.get_global_scope()
         with scope.name_scope('encoder'):
-            fae_dim = self.org_shape[1] * self.org_shape[3] * 4
+            fae_dim = self.org_shape[1] * self.org_shape[3]
 
             h = Permute((2, 1, 3), name=scope+'perm_in')(seq)
             h = Reshape((int(seq.shape[2]), int(seq.shape[1] * seq.shape[3])), name=scope+'resh_in')(h)
@@ -555,7 +555,7 @@ class _MotionGAN(object):
             dec_h = Conv2D(1, 3, 1, name=scope+'fae_merge', **CONV2D_ARGS)(gen_z)
             dec_h = Reshape((int(gen_z.shape[1]), int(gen_z.shape[2])), name=scope+'fae_reshape')(dec_h)
 
-            fae_dim = self.org_shape[1] * self.org_shape[3] * 4
+            fae_dim = self.org_shape[1] * self.org_shape[3]
 
             dec_h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(dec_h)
             for i in range(3):
@@ -896,10 +896,14 @@ class MotionGANV8(_MotionGAN):
             x_shape = [int(dim) for dim in x.shape]
             n_stages = 2
             for i in range(n_stages):
-                with scope.name_scope('stage_%d'%i):
-                    pi = RelationalMemoryRNN(4, x_shape[2] // 2, 4, return_sequences=True, name=scope+'pi_rel_mem')(x)
-                    pi = Conv1D(x_shape[2], 1, 1, name=scope+'pi_conv', **CONV1D_ARGS)(pi)
-                    x = Add(name=scope+'add')([x, pi])
+                with scope.name_scope('stage_%d' % i):
+                    pi = RelationalMemoryRNN(8, x_shape[2], 8, return_sequences=True,
+                                             name=scope+'pi_rel_mem')(x)
+                    pi = Conv1D(x_shape[2], 1, 1, activation='relu',
+                                name=scope + 'pi_conv_0', **CONV1D_ARGS)(pi)
+                    pi = Conv1D(x_shape[2], 1, 1,
+                                name=scope + 'pi_conv_1', **CONV1D_ARGS)(pi)
+                    x = Add(name=scope + 'add')([x, pi])
 
             x = Reshape((x_shape[1], x_shape[2], 1), name=scope+'resh_out')(x)
 
@@ -974,22 +978,28 @@ class MotionGANV87(_MotionGAN):
 
                 x_shape = [int(dim) for dim in x.shape]
 
+                n_stages = 1
                 with scope.name_scope('rel_mem_rnn'):
-                    x = RelationalMemoryRNN(4, x_shape[2] // 2, 4, return_sequences=True, name=scope+'pi_rel_mem')(x)
-                    x = Conv1D(x_shape[2], 1, 1, activation='relu',
-                                name=scope + 'pi_conv_0', **CONV1D_ARGS)(x)
-                    x = Conv1D(x_shape[2], 1, 1,
-                                name=scope + 'pi_conv_1', **CONV1D_ARGS)(x)
+                    for k in range(n_stages):
+                        with scope.name_scope('stage_%d' % k):
+                            pi = RelationalMemoryRNN(8, x_shape[2], 8, return_sequences=True,
+                                                     name=scope+'pi_rel_mem')(x)
+                            pi = Conv1D(x_shape[2], 1, 1, activation='relu',
+                                        name=scope + 'pi_conv_0', **CONV1D_ARGS)(pi)
+                            pi = Conv1D(x_shape[2], 1, 1,
+                                        name=scope + 'pi_conv_1', **CONV1D_ARGS)(pi)
+                            x = Add(name=scope + 'add')([x, pi])
 
                 n_stages = 1
                 with scope.name_scope('lstm'):
                     for k in range(n_stages):
                         with scope.name_scope('stage_%d' % k):
-                            x = CuDNNLSTM(x_shape[2], return_sequences=True, name=scope+'pi_lstm')(x)
-                            x = Conv1D(x_shape[2], 1, 1, activation='relu',
-                                        name=scope+'pi_conv_0', **CONV1D_ARGS)(x)
-                            x = Conv1D(x_shape[2], 1, 1,
-                                        name=scope+'pi_conv_1', **CONV1D_ARGS)(x)
+                            pi = CuDNNLSTM(x_shape[2], return_sequences=True, name=scope+'pi_lstm')(x)
+                            pi = Conv1D(x_shape[2], 1, 1, activation='relu',
+                                        name=scope+'pi_conv_0', **CONV1D_ARGS)(pi)
+                            pi = Conv1D(x_shape[2], 1, 1,
+                                        name=scope+'pi_conv_1', **CONV1D_ARGS)(pi)
+                            x = Add(name=scope + 'add')([x, pi])
 
                 x = Reshape((x_shape[1], x_shape[2], 1), name=scope+'resh_out')(x)
 
@@ -1003,10 +1013,10 @@ class MotionGANV87(_MotionGAN):
                 u_blocks = min(u_blocks, 4)
                 u_blocks = u_blocks * 2
                 block_factors = range(1, (u_blocks // 2) + 1) + range(u_blocks // 2, 0, -1)
-                macro_blocks = 1
+                n_stages = 1
 
                 u_skips = []
-                for k in range(macro_blocks):
+                for k in range(n_stages):
                     with scope.name_scope('stage_%d' % k):
                         x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
                         pi = x

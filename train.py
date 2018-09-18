@@ -153,8 +153,8 @@ if __name__ == "__main__":
                 gen_losses = model_wrap.gen_train(gen_inputs)  # + place_holders)
 
                 # Output to terminal, note output is averaged over the epoch
-                disc_loss_sum += disc_losses['train/disc_loss_wgan']
-                gen_loss_sum += gen_losses['train/gen_loss_wgan']
+                disc_loss_sum += disc_losses['train/disc_loss_gan']
+                gen_loss_sum += gen_losses['train/gen_loss_gan']
                 t.set_postfix(disc_loss='%.2e' % (disc_loss_sum / (batch + 1)),
                               gen_loss='%.2e' % (gen_loss_sum / (batch + 1)))
 

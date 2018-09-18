@@ -57,8 +57,8 @@ class _MotionGAN(object):
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
         self.no_gan_loss = config.no_gan_loss
-        self.wgan_scale_d = 10.0 * config.loss_factor
-        self.wgan_scale_g = 2.0 * config.loss_factor * (0.0 if self.no_gan_loss else 1.0)
+        self.gan_scale_d = 10.0 * config.loss_factor
+        self.gan_scale_g = 10.0 * config.loss_factor * (0.0 if self.no_gan_loss else 1.0)
         self.rec_scale = 1.0   # if 'expmaps' not in self.data_set else 10.0
         self.latent_cond_dim = config.latent_cond_dim
         self.latent_scale_d = 10.0
@@ -115,7 +115,7 @@ class _MotionGAN(object):
         self.fake_outputs = self.disc_model(self.gen_outputs)
 
         # Losses
-        self.wgan_losses, self.disc_losses, self.gen_losses, self.gen_metrics = self._build_loss()
+        self.gan_losses, self.disc_losses, self.gen_losses, self.gen_metrics = self._build_loss()
 
         with K.name_scope('loss/sum'):
             disc_loss = 0.0
@@ -131,12 +131,12 @@ class _MotionGAN(object):
             disc_optimizer = Nadam(lr=config.learning_rate)
             disc_training_updates = disc_optimizer.get_updates(disc_loss, self.disc_model.trainable_weights)
             self.disc_train_f = K.function(self.disc_inputs + self.gen_inputs,
-                                           self.wgan_losses.values() + self.disc_losses.values(),
+                                           self.gan_losses.values() + self.disc_losses.values(),
                                            disc_training_updates)
 
         with K.name_scope('discriminator/functions/eval'):
             self.disc_eval_f = K.function(self.disc_inputs + self.gen_inputs,
-                                          self.wgan_losses.values() + self.disc_losses.values())
+                                          self.gan_losses.values() + self.disc_losses.values())
 
         self.disc_model = self._pseudo_build_model(self.disc_model, disc_optimizer)
 
@@ -163,14 +163,14 @@ class _MotionGAN(object):
 
     def disc_train(self, inputs):
         train_outs = self.disc_train_f(inputs)
-        keys = self.wgan_losses.keys() + self.disc_losses.keys()
+        keys = self.gan_losses.keys() + self.disc_losses.keys()
         keys = ['train/%s' % key for key in keys]
         losses_dict = OrderedDict(zip(keys, train_outs))
         return losses_dict
 
     def disc_eval(self, inputs):
         eval_outs = self.disc_eval_f(inputs)
-        keys = self.wgan_losses.keys() + self.disc_losses.keys()
+        keys = self.gan_losses.keys() + self.disc_losses.keys()
         keys = ['val/%s' % key for key in keys]
         losses_dict = OrderedDict(zip(keys, eval_outs))
         return losses_dict
@@ -199,7 +199,7 @@ class _MotionGAN(object):
     def _build_loss(self):
         with K.name_scope('loss'):
             # Dicts to store the losses
-            wgan_losses = OrderedDict()
+            gan_losses = OrderedDict()
             disc_losses = OrderedDict()
             gen_losses = OrderedDict()
             gen_metrics = OrderedDict()
@@ -213,30 +213,50 @@ class _MotionGAN(object):
             no_zero_frames = K.cast(K.greater_equal(K.abs(K.sum(real_seq, axis=(1, 3))), K.epsilon()), 'float32')
             no_zero_frames_edm = K.reshape(no_zero_frames, (no_zero_frames.shape[0], 1, 1, no_zero_frames.shape[1]))
 
-            # WGAN Basic losses
-            with K.name_scope('wgan_loss'):
-                loss_real = _get_tensor(self.real_outputs, 'score_out')
-                loss_fake = _get_tensor(self.fake_outputs, 'score_out')
-                wgan_losses['loss_real'] = K.mean(loss_real)  # K.mean(K.abs(loss_real))
-                wgan_losses['loss_fake'] = K.mean(loss_fake)  # K.mean(K.abs(loss_fake))
+            # # WGAN Basic losses
+            # with K.name_scope('gan_loss'):
+            #     loss_real = _get_tensor(self.real_outputs, 'score_out')
+            #     loss_fake = _get_tensor(self.fake_outputs, 'score_out')
+            #     gan_losses['loss_real'] = K.mean(loss_real)  # K.mean(K.abs(loss_real))
+            #     gan_losses['loss_fake'] = K.mean(loss_fake)  # K.mean(K.abs(loss_fake))
+            #
+            #     # Interpolates for GP
+            #     alpha = K.random_uniform((self.batch_size, 1, 1, 1))
+            #     interpolates = (alpha * real_seq) + ((1 - alpha) * gen_seq)
+            #
+            #     # Gradient Penalty
+            #     inter_outputs = self.disc_model(interpolates)
+            #     inter_score = _get_tensor(inter_outputs, 'score_out')
+            #     grad_mixed = K.gradients(inter_score, [interpolates])[0]
+            #     norm_grad_mixed = K.sqrt(K.sum(K.square(grad_mixed), axis=(1, 2, 3)) + K.epsilon())
+            #     grad_penalty = K.expand_dims(K.square(norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
+            #
+            #     # WGAN-GP losses
+            #     disc_loss_gan = loss_fake - loss_real + (self.lambda_grads * grad_penalty)  # -K.abs(loss_real - loss_fake) + (K.square(loss_real) * 0.1) + (self.lambda_grads * grad_penalty)
+            #     disc_losses['disc_loss_gan'] = self.gan_scale_d * K.mean(disc_loss_gan)
+            #
+            #     gen_loss_gan = -loss_fake  # K.abs(loss_real - loss_fake) + (K.square(loss_fake) * 0.1)
+            #     gen_losses['gen_loss_gan'] = self.gan_scale_g * K.mean(gen_loss_gan)
 
-                # Interpolates for GP
-                alpha = K.random_uniform((self.batch_size, 1, 1, 1))
-                interpolates = (alpha * real_seq) + ((1 - alpha) * gen_seq)
+            # GAN Basic losses
+            with K.name_scope('gan_loss'):
+                Kone = K.ones((self.batch_size, 1), dtype='float32')
+                Kzero = K.zeros((self.batch_size, 1), dtype='float32')
+                loss_real = K.binary_crossentropy(Kone, _get_tensor(self.real_outputs, 'score_out'), True)
+                loss_fake = K.binary_crossentropy(Kzero, _get_tensor(self.fake_outputs, 'score_out'), True)
+                gan_losses['loss_real'] = K.mean(loss_real)
+                gan_losses['loss_fake'] = K.mean(loss_fake)
 
                 # Gradient Penalty
-                inter_outputs = self.disc_model(interpolates)
-                inter_score = _get_tensor(inter_outputs, 'score_out')
-                grad_mixed = K.gradients(inter_score, [interpolates])[0]
-                norm_grad_mixed = K.sqrt(K.sum(K.square(grad_mixed), axis=(1, 2, 3)) + K.epsilon())
-                grad_penalty = K.expand_dims(K.square(norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
+                grad_disc = K.gradients(_get_tensor(self.real_outputs, 'score_out'), self.disc_inputs)[0]
+                norm_grad_disc = K.sum(K.square(grad_disc), axis=(1, 2, 3))
 
-                # WGAN-GP losses
-                disc_loss_wgan = loss_fake - loss_real + (self.lambda_grads * grad_penalty)  # -K.abs(loss_real - loss_fake) + (K.square(loss_real) * 0.1) + (self.lambda_grads * grad_penalty)
-                disc_losses['disc_loss_wgan'] = self.wgan_scale_d * K.mean(disc_loss_wgan)
+                # GAN-GP losses
+                disc_loss_gan = loss_real + loss_fake + (self.lambda_grads * norm_grad_disc)
+                disc_losses['disc_loss_gan'] = self.gan_scale_d * K.mean(disc_loss_gan)
 
-                gen_loss_wgan = -loss_fake  # K.abs(loss_real - loss_fake) + (K.square(loss_fake) * 0.1)
-                gen_losses['gen_loss_wgan'] = self.wgan_scale_g * K.mean(gen_loss_wgan)
+                gen_loss_gan = K.binary_crossentropy(Kone, _get_tensor(self.fake_outputs, 'score_out'), True)
+                gen_losses['gen_loss_gan'] = self.gan_scale_g * K.mean(gen_loss_gan)
 
             # Reconstruction loss
             with K.name_scope('reconstruction_loss'):
@@ -353,7 +373,7 @@ class _MotionGAN(object):
                         gen_loss_reg += reg_loss
                     gen_losses['gen_loss_reg'] = gen_loss_reg
 
-        return wgan_losses, disc_losses, gen_losses, gen_metrics
+        return gan_losses, disc_losses, gen_losses, gen_metrics
 
     def _pseudo_build_model(self, model, optimizer):
         # This function mimics compilation to enable saving the model
@@ -384,17 +404,9 @@ class _MotionGAN(object):
     def _proc_disc_outputs(self, x):
         scope = Scoping.get_global_scope()
         with scope.name_scope('discriminator'):
-            def _out_net(x_out, n_out, net_name, n_hidden=256, n_blocks=2):
+            def _out_net(x_out, n_out, net_name, activation=None):
                 with scope.name_scope(net_name+'_net'):
-                    # x_out = Dense(n_hidden, name=scope+'dense_in', activation='relu')(x_out)
-                    # for i in range(n_blocks):
-                    #     with scope.name_scope('block_%d' % i):
-                    #         pi = Dense(n_hidden, name=scope+'dense_0', activation='relu')(x_out)
-                    #         pi = Dense(n_hidden, name=scope+'dense_1', activation='relu')(pi)
-                    #
-                    #         x_out = Add(name=scope+'add')([x_out, pi])
-
-                    return Dense(n_out, name=scope+net_name+'_out')(x_out)
+                    return Dense(n_out, name=scope+net_name+'_out', activation=activation)(x_out)
 
             output_tensors = [_out_net(x, 1, 'score')]
 
@@ -698,6 +710,7 @@ def resnet_disc(x):
         n_blocks = 3
 
         x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+        x_outs = []
         for i in range(n_blocks):
             for j in range(n_reps):
                 with scope.name_scope('block_%d_%d' % (i, j)):
@@ -711,10 +724,18 @@ def resnet_disc(x):
                     with scope.name_scope('pi'):
                         pi = _conv_block(x, n_filters, 4, 3, strides)
                     x = Add(name=scope+'add')([shortcut, pi])
+                    if j == n_reps - 1:
+                        x_out = Reshape((int(x.shape[1]) * int(x.shape[2]),
+                                         int(x.shape[3])), name=scope+'res_out')(x)
+                        x_out = Activation('relu', name=scope+'relu_out')(x_out)
+                        x_out = Conv1D(n_hidden * 2, 1, 1, name=scope+'dense_out', **CONV1D_ARGS)(x_out)
+                        x_out = Lambda(lambda arg: K.mean(arg, axis=1), name=scope+'mean_pool')(x_out)
+                        x_outs.append(x_out)
 
-        x = Activation('relu', name=scope+'relu_out')(x)
-        # x = Flatten(name=scope+'flatten_out')(x)
-        x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
+        # x = Activation('relu', name=scope+'relu_out')(x)
+        # # x = Flatten(name=scope+'flatten_out')(x)
+        # x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
+        x = Concatenate(axis=-1, name=scope+'cat_out')(x_outs)
     return x
 
 
@@ -732,6 +753,7 @@ def dmnn_disc(x):
         x = Reshape((x_shape[1] * x_shape[1], x_shape[2], 1), name=scope+'resh_in')(x)
 
         x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+        x_outs = []
         for i in range(n_blocks):
             for j in range(n_reps):
                 with scope.name_scope('block_%d_%d' % (i, j)):
@@ -745,10 +767,18 @@ def dmnn_disc(x):
                     with scope.name_scope('pi'):
                         pi = _conv_block(x, n_filters, 4, 3, strides)
                     x = Add(name=scope+'add')([shortcut, pi])
+                    if j == n_reps - 1:
+                        x_out = Reshape((int(x.shape[1]) * int(x.shape[2]),
+                                         int(x.shape[3])), name=scope + 'res_out')(x)
+                        x_out = Activation('relu', name=scope+'relu_out')(x_out)
+                        x_out = Conv1D(n_hidden * 2, 1, 1, name=scope+'dense_out', **CONV1D_ARGS)(x_out)
+                        x_out = Lambda(lambda arg: K.mean(arg, axis=1), name=scope+'mean_pool')(x_out)
+                        x_outs.append(x_out)
 
-        x = Activation('relu', name=scope+'relu_out')(x)
-        # x = Flatten(name=scope+'flatten_out')(x)
-        x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
+        # x = Activation('relu', name=scope+'relu_out')(x)
+        # # x = Flatten(name=scope+'flatten_out')(x)
+        # x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
+        x = Concatenate(axis=-1, name=scope+'cat_out')(x_outs)
     return x
 
 

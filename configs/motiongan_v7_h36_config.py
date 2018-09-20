@@ -13,12 +13,8 @@
     'translate_start': True,
     # Rotate sequence starting point
     'rotate_start': True,
-    # Action label conditional model
-    'action_cond': True,
     # Augment data on training
     'augment_data': True,
-    # Coherence on generated sequences loss
-    # 'coherence_loss': True,
 
     # How fast should we learn?
     'learning_rate': 1e-3,
@@ -30,6 +26,4 @@
     'pick_num': 20,
     # Size of the random crop (0 == deactivated)
     'crop_len': 200,
-    # Train on future prediction task only
-    'train_fp': True,
 }

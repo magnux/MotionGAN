@@ -784,11 +784,50 @@ def dmnn_disc(x):
     return x
 
 
+def motion_disc(x):
+    scope = Scoping.get_global_scope()
+    with scope.name_scope('motion'):
+        x_diff = Lambda(lambda arg: arg[:, :, 1:, :] - arg[:, :, :-1, :], name=scope+'x_diff')(x)
+        x_diff = Permute((2, 1, 3), name=scope+'perm_diff')(x_diff)
+        x_diff = Reshape((int(x_diff.shape[1]), 1, int(x_diff.shape[2] * x_diff.shape[3])), name=scope+'resh_diff')(x_diff)
+
+        x_diff_edm = EDM(name=scope+'edms')(x)
+        x_diff_edm = Lambda(lambda arg: arg[:, :, :, 1:] - arg[:, :, :, :-1], name=scope+'x_diff_edm')(x_diff_edm)
+        x_diff_edm = Permute((3, 1, 2), name=scope+'perm_diff_edm')(x_diff_edm)
+        x_diff_edm = Reshape((int(x_diff_edm.shape[1]), 1, int(x_diff_edm.shape[2] * x_diff_edm.shape[3])),
+                             name=scope+'resh_diff_edm')(x_diff_edm)
+
+        x = Concatenate(axis=-1, name=scope+'cat_diffs')([x_diff, x_diff_edm])
+
+        n_hidden = 256
+        n_reps = 2
+        n_blocks = 3
+
+        x = Conv2D(n_hidden, 1, 1, name=scope + 'conv_in', **CONV2D_ARGS)(x)
+        for i in range(n_blocks):
+            for j in range(n_reps):
+                with scope.name_scope('block_%d_%d' % (i, j)):
+                    strides = 2 if j == 0 else 1
+                    if int(x.shape[-1]) != n_hidden or strides > 1:
+                        shortcut = Conv2D(n_hidden, 1, strides,
+                                          name=scope + 'shortcut',
+                                          **CONV2D_ARGS)(x)
+                    else:
+                        shortcut = x
+                    with scope.name_scope('pi'):
+                        pi = _conv_block(x, n_hidden, 4, (3, 1), strides)
+                    x = Add(name=scope + 'add')([shortcut, pi])
+
+        x = Activation('relu', name=scope+'relu_out')(x)
+        x = Lambda(lambda x: K.mean(x, axis=(1, 2)), name=scope+'mean_pool')(x)
+    return x
+
+
 def double_disc(x, no_dmnn_disc):
     scope = Scoping.get_global_scope()
     with scope.name_scope('discriminator'):
-        features = [resnet_disc(x)] if no_dmnn_disc else [resnet_disc(x), dmnn_disc(x)]
-        x = Concatenate(axis=-1, name=scope + 'features_cat')(features)
+        features = [resnet_disc(x)] if no_dmnn_disc else [resnet_disc(x), dmnn_disc(x), motion_disc(x)]
+        x = Concatenate(axis=-1, name=scope+'features_cat')(features)
     return x
 
 

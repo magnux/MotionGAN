@@ -16,8 +16,10 @@
     'model_version': 'v1',
     # Dropout Rate
     'dropout': 0.0,
+    # Select GAN type: standard, wgan, no_gan (to disable GAN)
+    'gan_type': 'standard',
     # Lambda for gradient penalty
-    'lambda_grads': 10,
+    'lambda_grads': 1.0,
     # General loss factor
     'loss_factor': 1.0,
     # Latent conditioning factor size (0 == No latent factor)
@@ -28,8 +30,6 @@
     'coherence_loss': False,
     # Sequence smoothing loss
     'smoothing_loss': False,
-    # Disable GAN loss on the generator
-    'no_gan_loss': False,
     # Action label conditional model
     'action_cond': False,
     # Remove Hip, use hip relative coordinates, incompatible with use_angles

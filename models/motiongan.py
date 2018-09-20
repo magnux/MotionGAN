@@ -56,9 +56,9 @@ class _MotionGAN(object):
         self.dropout = config.dropout
         self.lambda_grads = config.lambda_grads
         self.gamma_grads = 1.0
-        self.no_gan_loss = config.no_gan_loss
-        self.gan_scale_d = 100.0 * config.loss_factor
-        self.gan_scale_g = 100.0 * config.loss_factor * (0.0 if self.no_gan_loss else 1.0)
+        self.gan_type = config.gan_type
+        self.gan_scale_d = 10.0 * config.loss_factor
+        self.gan_scale_g = 10.0 * config.loss_factor * (0.0 if self.gan_type == 'no_gan' else 1.0)
         self.rec_scale = 1.0   # if 'expmaps' not in self.data_set else 10.0
         self.latent_cond_dim = config.latent_cond_dim
         self.latent_scale_d = 10.0
@@ -69,7 +69,7 @@ class _MotionGAN(object):
         self.coherence_loss = config.coherence_loss
         self.coherence_scale = 1.0
         self.shape_loss = config.shape_loss
-        self.shape_scale = 2.0
+        self.shape_scale = 1.0
         self.smoothing_loss = config.smoothing_loss
         self.smoothing_scale = 20.0
         self.smoothing_basis = 5
@@ -207,56 +207,58 @@ class _MotionGAN(object):
             # Grabbing tensors
             real_seq = _get_tensor(self.disc_inputs, 'real_seq')
             seq_mask = _get_tensor(self.gen_inputs, 'seq_mask')
-            seq_mask = seq_mask if not self.no_gan_loss else K.ones_like(seq_mask)
+            seq_mask = seq_mask if not self.gan_type == 'no_gan' else K.ones_like(seq_mask)
             gen_seq = self.gen_outputs[0]
 
             no_zero_frames = K.cast(K.greater_equal(K.abs(K.sum(real_seq, axis=(1, 3))), K.epsilon()), 'float32')
             no_zero_frames_edm = K.reshape(no_zero_frames, (no_zero_frames.shape[0], 1, 1, no_zero_frames.shape[1]))
 
-            # # WGAN Basic losses
-            # with K.name_scope('gan_loss'):
-            #     loss_real = _get_tensor(self.real_outputs, 'score_out')
-            #     loss_fake = _get_tensor(self.fake_outputs, 'score_out')
-            #     gan_losses['loss_real'] = K.mean(loss_real)  # K.mean(K.abs(loss_real))
-            #     gan_losses['loss_fake'] = K.mean(loss_fake)  # K.mean(K.abs(loss_fake))
-            #
-            #     # Interpolates for GP
-            #     alpha = K.random_uniform((self.batch_size, 1, 1, 1))
-            #     interpolates = (alpha * real_seq) + ((1 - alpha) * gen_seq)
-            #
-            #     # Gradient Penalty
-            #     inter_outputs = self.disc_model(interpolates)
-            #     inter_score = _get_tensor(inter_outputs, 'score_out')
-            #     grad_mixed = K.gradients(inter_score, [interpolates])[0]
-            #     norm_grad_mixed = K.sqrt(K.sum(K.square(grad_mixed), axis=(1, 2, 3)) + K.epsilon())
-            #     grad_penalty = K.expand_dims(K.square(norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
-            #
-            #     # WGAN-GP losses
-            #     disc_loss_gan = loss_fake - loss_real + (self.lambda_grads * grad_penalty)  # -K.abs(loss_real - loss_fake) + (K.square(loss_real) * 0.1) + (self.lambda_grads * grad_penalty)
-            #     disc_losses['disc_loss_gan'] = self.gan_scale_d * K.mean(disc_loss_gan)
-            #
-            #     gen_loss_gan = -loss_fake  # K.abs(loss_real - loss_fake) + (K.square(loss_fake) * 0.1)
-            #     gen_losses['gen_loss_gan'] = self.gan_scale_g * K.mean(gen_loss_gan)
+            if self.gan_type == 'wgan':
+                # WGAN Basic losses
+                with K.name_scope('gan_loss'):
+                    loss_real = _get_tensor(self.real_outputs, 'score_out')
+                    loss_fake = _get_tensor(self.fake_outputs, 'score_out')
+                    gan_losses['loss_real'] = K.mean(loss_real)  # K.mean(K.abs(loss_real))
+                    gan_losses['loss_fake'] = K.mean(loss_fake)  # K.mean(K.abs(loss_fake))
 
-            # GAN Basic losses
-            with K.name_scope('gan_loss'):
-                Kone = K.ones((self.batch_size, 1), dtype='float32')
-                Kzero = K.zeros((self.batch_size, 1), dtype='float32')
-                loss_real = K.binary_crossentropy(Kone, _get_tensor(self.real_outputs, 'score_out'), True)
-                loss_fake = K.binary_crossentropy(Kzero, _get_tensor(self.fake_outputs, 'score_out'), True)
-                gan_losses['loss_real'] = K.mean(loss_real)
-                gan_losses['loss_fake'] = K.mean(loss_fake)
+                    # Interpolates for GP
+                    alpha = K.random_uniform((self.batch_size, 1, 1, 1))
+                    interpolates = (alpha * real_seq) + ((1 - alpha) * gen_seq)
 
-                # R1 Gradient Penalty
-                grad_disc = K.gradients(_get_tensor(self.real_outputs, 'score_out'), self.disc_inputs)[0]
-                norm_grad_disc = K.sum(K.square(grad_disc), axis=(1, 2, 3))
+                    # Gradient Penalty
+                    inter_outputs = self.disc_model(interpolates)
+                    inter_score = _get_tensor(inter_outputs, 'score_out')
+                    grad_mixed = K.gradients(inter_score, [interpolates])[0]
+                    norm_grad_mixed = K.sqrt(K.sum(K.square(grad_mixed), axis=(1, 2, 3)) + K.epsilon())
+                    grad_penalty = K.expand_dims(K.square(norm_grad_mixed - self.gamma_grads) / (self.gamma_grads ** 2), axis=-1)
 
-                # GAN-GP losses
-                disc_loss_gan = loss_real + loss_fake + (self.lambda_grads * norm_grad_disc)
-                disc_losses['disc_loss_gan'] = self.gan_scale_d * K.mean(disc_loss_gan)
+                    # WGAN-GP losses
+                    disc_loss_gan = loss_fake - loss_real + (self.lambda_grads * grad_penalty)  # -K.abs(loss_real - loss_fake) + (K.square(loss_real) * 0.1) + (self.lambda_grads * grad_penalty)
+                    disc_losses['disc_loss_gan'] = self.gan_scale_d * K.mean(disc_loss_gan)
 
-                gen_loss_gan = K.binary_crossentropy(Kone, _get_tensor(self.fake_outputs, 'score_out'), True)
-                gen_losses['gen_loss_gan'] = self.gan_scale_g * K.mean(gen_loss_gan)
+                    gen_loss_gan = -loss_fake  # K.abs(loss_real - loss_fake) + (K.square(loss_fake) * 0.1)
+                    gen_losses['gen_loss_gan'] = self.gan_scale_g * K.mean(gen_loss_gan)
+
+            elif self.gan_type == 'standard':
+                # GAN Basic losses
+                with K.name_scope('gan_loss'):
+                    Kone = K.ones((self.batch_size, 1), dtype='float32')
+                    Kzero = K.zeros((self.batch_size, 1), dtype='float32')
+                    loss_real = K.binary_crossentropy(Kone, _get_tensor(self.real_outputs, 'score_out'), True)
+                    loss_fake = K.binary_crossentropy(Kzero, _get_tensor(self.fake_outputs, 'score_out'), True)
+                    gan_losses['loss_real'] = K.mean(loss_real)
+                    gan_losses['loss_fake'] = K.mean(loss_fake)
+
+                    # R1 Gradient Penalty
+                    grad_disc = K.gradients(_get_tensor(self.real_outputs, 'score_out'), self.disc_inputs)[0]
+                    norm_grad_disc = K.sum(K.square(grad_disc), axis=(1, 2, 3))
+
+                    # GAN-GP losses
+                    disc_loss_gan = loss_real + loss_fake + (self.lambda_grads * norm_grad_disc)
+                    disc_losses['disc_loss_gan'] = self.gan_scale_d * K.mean(disc_loss_gan)
+
+                    gen_loss_gan = K.binary_crossentropy(Kone, _get_tensor(self.fake_outputs, 'score_out'), True)
+                    gen_losses['gen_loss_gan'] = self.gan_scale_g * K.mean(gen_loss_gan)
 
             # Reconstruction loss
             with K.name_scope('reconstruction_loss'):

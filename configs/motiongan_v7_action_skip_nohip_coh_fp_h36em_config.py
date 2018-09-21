@@ -11,6 +11,8 @@
     # 'loss_factor': 0.1,
     # Remove Hip, use hip relative coordinates
     'remove_hip': True,
+    # Action label conditional model
+    'action_cond': True,
     # Coherence on generated sequences loss
     'coherence_loss': True,
     # Copy last known frame in the input

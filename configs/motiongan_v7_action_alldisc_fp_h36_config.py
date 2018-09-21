@@ -3,20 +3,24 @@
     'data_set': 'Human36',
     'data_set_version': 'v1',
     # Model version to train
-    'model_version': 'v87',
+    'model_version': 'v7',
 
     # Body shape conservation loss
-    # 'shape_loss': True,
+    'shape_loss': True,
     # Rescale coords using skeleton average bone len
     # 'rescale_coords': True,
     # Translate sequence starting point to 0,0,0
     'translate_start': True,
     # Rotate sequence starting point
     'rotate_start': True,
+    # Action label conditional model
+    'action_cond': True,
     # Augment data on training
     'augment_data': True,
-    # Coherence on generated sequences loss
-    'coherence_loss': True,
+    # Activate dmnn discriminator
+    'add_dmnn_disc': True,
+    # Activate motion discriminator
+    'add_motion_disc': True,
 
     # How fast should we learn?
     'learning_rate': 1e-3,

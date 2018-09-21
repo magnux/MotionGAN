@@ -50,8 +50,10 @@
     'last_known': False,
     # Add skip connection from input to output
     'add_skip': False,
-    # Deactivate dmnn discriminator
-    'no_dmnn_disc': False,
+    # Activate dmnn discriminator
+    'add_dmnn_disc': False,
+    # Activate motion discriminator
+    'add_motion_disc': False,
 
     ## DMNN Model Options
     'motiongan_save_path': None,

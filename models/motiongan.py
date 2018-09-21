@@ -83,7 +83,8 @@ class _MotionGAN(object):
         self.angles_scale = 0.5
         self.last_known = config.last_known
         self.add_skip = config.add_skip
-        self.no_dmnn_disc = config.no_dmnn_disc
+        self.add_dmnn_disc = config.add_dmnn_disc
+        self.add_motion_disc = config.add_motion_disc
 
         self.stats = {}
         self.z_params = []
@@ -345,10 +346,10 @@ class _MotionGAN(object):
                     mask = np.reshape(mask, (1, self.njoints, self.njoints, 1))
                     mask = K.constant(mask, dtype='float32')
                     seq_mask_edm = K.prod(K.expand_dims(seq_mask, axis=1) * K.expand_dims(seq_mask, axis=2), axis=-1)
-                    real_shape = edm(real_seq) * seq_mask_edm * mask
-                    gen_shape = edm(gen_seq) * seq_mask_edm * mask
+                    real_shape = edm(real_seq) * no_zero_frames_edm * seq_mask_edm * mask
+                    gen_shape = edm(gen_seq) * no_zero_frames_edm * seq_mask_edm * mask
                     loss_shape = K.sum(K.square(real_shape - gen_shape), axis=(1, 2, 3))
-                    gen_losses['gen_loss_limbs'] = self.shape_scale * 0.01 * K.mean(loss_shape)
+                    gen_losses['gen_loss_limbs'] = self.shape_scale * 0.1 * K.mean(loss_shape)
 
             if self.smoothing_loss:
                 with K.name_scope('smoothing_loss'):
@@ -706,6 +707,30 @@ class MotionGANV3(_MotionGAN):
 
 def resnet_disc(x):
     scope = Scoping.get_global_scope()
+    with scope.name_scope('encoder'):
+            fae_dim = int(x.shape[1] * x.shape[3])
+
+            h = Permute((2, 1, 3), name=scope+'perm_in')(x)
+            h = Reshape((int(x.shape[2]), int(x.shape[1] * x.shape[3])), name=scope+'resh_in')(h)
+
+            h = Conv1D(fae_dim, 1, 1, name=scope+'conv_in', **CONV1D_ARGS)(h)
+            for i in range(3):
+                with scope.name_scope('block_%d' % i):
+                    pi = Activation('relu', name=scope+'relu_0')(h)
+                    pi = Conv1D(fae_dim // 2, 1, 1, name=scope+'pi_0', **CONV1D_ARGS)(pi)
+                    pi = Activation('relu', name=scope+'relu_1')(pi)
+                    pi = Conv1D(fae_dim, 1, 1, name=scope+'pi_1', **CONV1D_ARGS)(pi)
+                    tau = Conv1D(fae_dim, 1, 1, activation='sigmoid', name=scope+'tau_0', **CONV1D_ARGS)(h)
+                    h = Lambda(lambda args: (args[0] * (1 - args[2])) + (args[1] * args[2]),
+                               name=scope+'attention')([h, pi, tau])
+
+            z = Conv1D(fae_dim, 1, 1, name=scope+'z', **CONV1D_ARGS)(h)
+            z_attention = Conv1D(fae_dim, 1, 1, activation='sigmoid',
+                                 name=scope+'z_attention', **CONV1D_ARGS)(h)
+
+            z = Multiply(name=scope+'z_attended')([z, z_attention])
+            x = Reshape((int(z.shape[1]), int(z.shape[2]), 1), name=scope+'res_out')(z)
+        
     with scope.name_scope('resnet'):
         n_hidden = 64
         n_reps = 2
@@ -823,19 +848,25 @@ def motion_disc(x):
     return x
 
 
-def double_disc(x, no_dmnn_disc):
+def composite_disc(x, add_dmnn_disc, add_motion_disc):
     scope = Scoping.get_global_scope()
     with scope.name_scope('discriminator'):
-        features = [resnet_disc(x)] if no_dmnn_disc else [resnet_disc(x), dmnn_disc(x), motion_disc(x)]
-        x = Concatenate(axis=-1, name=scope+'features_cat')(features)
-    return x
+        features = [resnet_disc(x)]
+        if add_dmnn_disc:
+            features.append(dmnn_disc(x))
+        if add_motion_disc:
+            features.append(motion_disc(x))
+        if len(features) > 1:
+            return Concatenate(axis=-1, name=scope+'features_cat')(features)
+        else:
+            return features[0]
 
 
 class MotionGANV5(_MotionGAN):
     # DMNN + ResNet Discriminator, WaveNet style generator
 
     def discriminator(self, x):
-        return double_disc(x, self.no_dmnn_disc)
+        return composite_disc(x, self.add_dmnn_disc, self.add_motion_disc)
 
     def generator(self, x):
         scope = Scoping.get_global_scope()
@@ -903,7 +934,7 @@ class MotionGANV7(_MotionGAN):
     # DMNN + ResNet Discriminator, ResNet + UNet Generator 4 STACK
 
     def discriminator(self, x):
-        return double_disc(x, self.no_dmnn_disc)
+        return composite_disc(x, self.add_dmnn_disc, self.add_motion_disc)
 
     def generator(self, x):
         scope = Scoping.get_global_scope()
@@ -954,7 +985,7 @@ class MotionGANV8(_MotionGAN):
     # DMNN + ResNet Discriminator, LSTM + MHDPA Generator
 
     def discriminator(self, x):
-        return double_disc(x, self.no_dmnn_disc)
+        return composite_disc(x, self.add_dmnn_disc, self.add_motion_disc)
 
     def generator(self, x):
         scope = Scoping.get_global_scope()
@@ -985,7 +1016,7 @@ class MotionGANV9(_MotionGAN):
     # DMNN + ResNet Discriminator, CausalConv Generator
 
     def discriminator(self, x):
-        return double_disc(x, self.no_dmnn_disc)
+        return composite_disc(x, self.add_dmnn_disc, self.add_motion_disc)
 
     def generator(self, x):
         scope = Scoping.get_global_scope()
@@ -1036,7 +1067,7 @@ class MotionGANV87(_MotionGAN):
     # Super GAN 87
 
     def discriminator(self, x):
-        return double_disc(x, self.no_dmnn_disc)
+        return composite_disc(x, self.add_dmnn_disc, self.add_motion_disc)
 
     def generator(self, x):
         scope = Scoping.get_global_scope()

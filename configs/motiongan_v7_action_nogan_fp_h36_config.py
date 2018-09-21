@@ -6,7 +6,7 @@
     'model_version': 'v7',
 
     # Body shape conservation loss
-    # 'shape_loss': True,
+    'shape_loss': True,
     # Rescale coords using skeleton average bone len
     # 'rescale_coords': True,
     # Translate sequence starting point to 0,0,0

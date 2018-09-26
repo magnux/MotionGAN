@@ -240,7 +240,7 @@ class _MotionGAN(object):
                     gen_loss_gan = -loss_fake  # K.abs(loss_real - loss_fake) + (K.square(loss_fake) * 0.1)
                     gen_losses['gen_loss_gan'] = self.gan_scale_g * K.mean(gen_loss_gan)
 
-            elif self.gan_type == 'standard':
+            elif self.gan_type == 'standard' or self.gan_type == 'no_gan':
                 # GAN Basic losses
                 with K.name_scope('gan_loss'):
                     Kone = K.ones((self.batch_size, 1), dtype='float32')

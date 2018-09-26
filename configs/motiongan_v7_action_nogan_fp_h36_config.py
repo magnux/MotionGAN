@@ -17,8 +17,8 @@
     'action_cond': True,
     # Augment data on training
     'augment_data': True,
-    # Disable GAN loss on the generator
-    'no_gan_loss': True,
+    # Select GAN type: standard, wgan, no_gan (to disable GAN)
+    'gan_type': 'no_gan',
 
     # How fast should we learn?
     'learning_rate': 1e-3,

@@ -2,6 +2,9 @@ from __future__ import absolute_import, division, print_function
 
 import tensorflow as tf
 import numpy as np
+import scipy as sp
+import ot
+from ot.dr import wda
 from config import get_config
 from data_input import DataInput
 from models.motiongan import get_model
@@ -19,7 +22,7 @@ logging = tf.logging
 flags = tf.flags
 flags.DEFINE_bool("verbose", False, "To talk or not to talk")
 flags.DEFINE_multi_string("model_path", None, "Model output directory")
-flags.DEFINE_string("test_mode", "show_images", "Test modes: show_images, write_images, write_data, dmnn_score, dmnn_score_table, hmp_compare")
+flags.DEFINE_string("test_mode", "show_images", "Test modes: show_images, write_images, write_data, dmnn_score, dmnn_score_table, hmp_compare, dist_compare")
 flags.DEFINE_string("dmnn_path", None, "Path to trained DMNN model")
 flags.DEFINE_string("images_mode", "gif", "Image modes: gif, png")
 flags.DEFINE_integer("mask_mode", 3, "Mask modes: " + ' '.join(['%d:%s' % tup for tup in enumerate(MASK_MODES)]))
@@ -36,7 +39,8 @@ def _reset_rand_seed():
 if __name__ == "__main__":
     _reset_rand_seed()
     # Config stuff
-    batch_size = 1 if not "dmnn_score" in FLAGS.test_mode else 256
+    batch_size = 1 if ((not "dmnn_score" in FLAGS.test_mode) and
+                       (not "dist_compare" in FLAGS.test_mode)) else 256
     configs = []
     model_wraps = []
     # Hacks to fill undefined, but necessary flags
@@ -46,7 +50,7 @@ if __name__ == "__main__":
     for save_path in FLAGS.model_path:
         FLAGS.save_path = save_path
         config = get_config(FLAGS)
-        config.only_val = True
+        config.only_val = True if not "dist_compare" in FLAGS.test_mode else False
         config.batch_size = batch_size
 
         # Model building
@@ -74,6 +78,8 @@ if __name__ == "__main__":
     # TODO: assert all configs are for the same dataset
     data_input = DataInput(configs[0])
     _reset_rand_seed()
+    train_batches = data_input.train_epoch_size
+    train_generator = data_input.batch_generator(True)
     val_batches = data_input.val_epoch_size
     val_generator = data_input.batch_generator(False)
 
@@ -501,6 +507,113 @@ if __name__ == "__main__":
                     print(err_str)
 
                 print(Style.RESET_ALL)
+
+
+    elif FLAGS.test_mode == "dist_compare":
+
+        accs = OrderedDict({'real_acc': 0, 'linear_acc': 0, 'burke_acc': 0})
+
+        total_samples = 2048
+        seq_tails_train = np.empty((total_samples, njoints * (seq_len // 2) * 3))
+        gen_tails_train = [np.empty((total_samples, njoints * (seq_len // 2) * 3)) for _ in range(len(model_wraps))]
+        labs_train = np.empty((total_samples,))
+        t = trange(total_samples // batch_size)
+        for i in t:
+            labs_batch, poses_batch = train_generator.next()
+
+            mask_batch = poses_batch[..., 3, np.newaxis]
+            mask_batch = mask_batch * gen_mask(FLAGS.mask_mode, FLAGS.keep_prob,
+                                               batch_size, njoints, seq_len,
+                                               body_members, True)
+            poses_batch = poses_batch[..., :3]
+
+            labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
+
+            for m, model_wrap in enumerate(model_wraps):
+                gen_inputs = [poses_batch, mask_batch]
+                if configs[m].action_cond:
+                    gen_inputs.append(labels)
+                gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
+                gen_tails_train[m][i * batch_size:(i+1) * batch_size, ...] = np.reshape(gen_output[:, :, seq_len // 2:, :], (batch_size, -1))
+
+            seq_tails_train[i * batch_size:(i+1) * batch_size, ...] = np.reshape(poses_batch[:, :, seq_len // 2:, :], (batch_size, -1))
+            labs_train[i * batch_size:(i+1) * batch_size] = labels[:, 0]
+
+        # from sklearn.decomposition import PCA
+        # pca = PCA(n_components=.95, svd_solver='full')
+        # pca.fit(seq_tails_train)
+        # seq_proj_pca = pca.transform(seq_tails_train)
+        # print(pca.explained_variance_ratio_)
+
+        from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+        clf = LinearDiscriminantAnalysis()
+        clf.fit(seq_tails_train, labs_train)
+        seq_proj_lda = clf.transform(seq_tails_train)
+        print(clf.explained_variance_ratio_)
+
+        def gw_dist(c1, c2):
+            C1 = sp.spatial.distance.cdist(c1, c1)
+            C2 = sp.spatial.distance.cdist(c2, c2)
+
+            maxmax = max(C1.max(), C2.max())
+
+            C1 /= maxmax
+            C2 /= maxmax
+
+            p = ot.unif(C1.shape[0])
+            q = ot.unif(C1.shape[0])
+
+            return ot.gromov_wasserstein2(C1, C2, p, q, 'square_loss', epsilon=5e-4)
+
+
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots()
+        ax.scatter(seq_proj_lda[:, 0], seq_proj_lda[:, 1], c=labs_train, marker='.', alpha=0.1, label='GT')
+        ax.legend()
+        ax.set_title('Projected samples')
+        ax.grid(True)
+        fig.tight_layout()
+        plt.show(block=False)
+
+        print(
+            'Gromov-Wasserstein distance intra LDA projection: ' + str(
+                gw_dist(seq_proj_lda[:total_samples//2, ...], seq_proj_lda[total_samples//2:, ...])))
+
+        for m, _ in enumerate(model_wraps):
+            print(configs[m].save_path)
+
+            # gw_dist = gw_dist(seq_tails_train, gen_tails_train[m])
+            # print('Gromov-Wasserstein distances between the distributions: ' + str(gw_dist))
+
+
+            # gen_proj_pca = pca.transform(gen_tails_train[m])
+            # print('Gromov-Wasserstein distance between PCA projected distributions: ' + str(gw_dist(seq_proj_pca, gen_proj_pca)))
+
+
+            gen_proj_lda = clf.transform(gen_tails_train[m])
+
+            fig, ax = plt.subplots()
+            ax.scatter(seq_proj_lda[:, 0], seq_proj_lda[:, 1], marker='.', alpha=0.1, label='GT')
+            ax.legend()
+            ax.scatter(gen_proj_lda[:, 0], gen_proj_lda[:, 1], marker='.', alpha=0.1, label=configs[m].save_path)
+            ax.legend()
+            ax.set_title('Projected samples')
+            ax.grid(True)
+            fig.tight_layout()
+            plt.show(block=False)
+
+            print('Gromov-Wasserstein distance between LDA projected distributions: ' + str(gw_dist(seq_proj_lda, gen_proj_lda)))
+
+        plt.show()
+
+
+
+
+
+
+
+
 
 
 

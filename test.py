@@ -525,7 +525,7 @@ if __name__ == "__main__":
 
         accs = OrderedDict({'real_acc': 0, 'linear_acc': 0, 'burke_acc': 0})
 
-        total_samples = 4096
+        total_samples = 8192
         seq_tails_train = np.empty((total_samples, njoints * (seq_len // 2) * 3))
         labs_train = np.empty((total_samples,))
         t = trange(total_samples // batch_size)
@@ -585,13 +585,25 @@ if __name__ == "__main__":
         import matplotlib.pyplot as plt
 
         fig, ax = plt.subplots()
+        for lab in sorted(set(labs_train)):
+            idxs = labs_train == lab
+            xs = seq_proj_lda_train[idxs, 0]
+            ys = seq_proj_lda_train[idxs, 1]
+            ax.scatter(xs, ys, marker='.', alpha=0.1, label=str(lab))
+        ax.legend()
+        ax.set_title('Projected samples (GT train classes)')
+        ax.grid(True)
+        fig.tight_layout()
+        plt.show(block=False)
+
+        fig, ax = plt.subplots()
         for lab in sorted(set(labs_val)):
             idxs = labs_val == lab
             xs = seq_proj_lda_val[idxs, 0]
             ys = seq_proj_lda_val[idxs, 1]
             ax.scatter(xs, ys, marker='.', alpha=0.1, label=str(lab))
         ax.legend()
-        ax.set_title('Projected samples (GT Classes)')
+        ax.set_title('Projected samples (GT val classes)')
         ax.grid(True)
         fig.tight_layout()
         plt.show(block=False)

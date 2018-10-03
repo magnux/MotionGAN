@@ -1297,6 +1297,8 @@ class MotionGANV87nolstm(_MotionGAN):
                                         name=scope + 'pi_conv_1', **CONV1D_ARGS)(pi)
                             x = Add(name=scope + 'add')([x, pi])
 
+                x = Reshape((x_shape[1], x_shape[2], 1), name=scope+'resh_out')(x)
+
             with scope.name_scope('CNN'):
                 n_hidden = 32
                 u_blocks = 0

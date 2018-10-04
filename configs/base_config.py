@@ -24,6 +24,8 @@
     'loss_factor': 1.0,
     # Latent conditioning factor size (0 == No latent factor)
     'latent_cond_dim': 0,
+    # Latent conditioning loss
+    'latent_loss': False,
     # Body shape conservation loss
     'shape_loss': False,
     # Coherence on generated sequences loss

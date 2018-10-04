@@ -63,6 +63,7 @@ class _MotionGAN(object):
         self.latent_cond_dim = config.latent_cond_dim
         self.latent_scale_d = 10.0
         self.latent_scale_g = 1.0
+        self.latent_loss = config.latent_loss
         self.action_cond = config.action_cond
         self.action_scale_d = 10.0
         self.action_scale_g = 1.0
@@ -299,7 +300,7 @@ class _MotionGAN(object):
                     disc_losses['disc_loss_action'] = self.action_scale_d * (loss_class_real + loss_class_fake)
                     gen_losses['gen_loss_action'] = self.action_scale_g * loss_class_fake
 
-            if self.latent_cond_dim > 0:
+            if self.latent_cond_dim > 0 and self.latent_loss:
                 with K.name_scope('latent_loss'):
                     loss_latent_real = K.mean(K.square(
                         _get_tensor(self.place_holders, 'latent_cond') - _get_tensor(self.real_outputs, 'latent_out')))
@@ -416,9 +417,8 @@ class _MotionGAN(object):
             if self.action_cond:
                 output_tensors.append(_out_net(x, self.num_actions, 'label'))
 
-            if self.latent_cond_dim > 0:
-                with scope.name_scope('latent_net'):
-                    output_tensors.append(_out_net(x, self.latent_cond_dim, 'latent'))
+            if self.latent_cond_dim > 0 and self.latent_loss:
+                output_tensors.append(_out_net(x, self.latent_cond_dim, 'latent'))
 
         return output_tensors
 

@@ -531,7 +531,7 @@ if __name__ == "__main__":
 
         accs = OrderedDict({'real_acc': 0, 'linear_acc': 0, 'burke_acc': 0})
 
-        total_samples = 8192
+        total_samples = 2048
         seq_tails_train = np.empty((total_samples, njoints * (seq_len // 2) * 3))
         labs_train = np.empty((total_samples,))
         t = trange(total_samples // batch_size)
@@ -559,9 +559,9 @@ if __name__ == "__main__":
         lda.fit(seq_tails_train, labs_train)
         print(lda.explained_variance_ratio_)
 
-        # total_samples = 1024
-        # seq_tails_train = seq_tails_train[:total_samples, ...]
-        # labs_train = labs_train[:total_samples]
+        total_samples = 1024
+        seq_tails_train = seq_tails_train[:total_samples, ...]
+        labs_train = labs_train[:total_samples]
 
         seq_tails_val = np.empty((total_samples, njoints * (seq_len // 2) * 3))
         gen_tails_val = [np.empty((total_samples, njoints * (seq_len // 2) * 3)) for _ in range(len(model_wraps))]
@@ -592,9 +592,9 @@ if __name__ == "__main__":
         seq_proj_lda_train = lda.transform(seq_tails_train)
         seq_proj_lda_val = lda.transform(seq_tails_val)
 
-        from sklearn.ensemble import RandomForestClassifier
-        rforest = RandomForestClassifier()
-        rforest.fit(seq_tails_train, labs_train)
+        # from sklearn.ensemble import RandomForestClassifier
+        # rforest = RandomForestClassifier()
+        # rforest.fit(seq_tails_train, labs_train)
 
         # import matplotlib.pyplot as plt
 
@@ -633,9 +633,8 @@ if __name__ == "__main__":
         # plt.show(block=False)
 
         # print('Gromov-Wasserstein distance intra split: ' + str(gw_dist(seq_tails_train, seq_tails_val)))
-        print('Gromov-Wasserstein distance intra split projection: ' + str(gw_dist(seq_proj_lda_train, seq_proj_lda_val, 'euclidean')))
-        print('Gromov-Wasserstein distance intra split projection: ' + str(gw_dist(seq_proj_lda_train, seq_proj_lda_val, 'canberra')))
-        print('Gromov-Wasserstein distance intra split projection: ' + str(gw_dist(seq_proj_lda_train, seq_proj_lda_val, 'braycurtis')))
+        print('Gromov-Wasserstein distance intra split projection: ' + str(gw_dist(seq_proj_lda_train, seq_proj_lda_val, 'sqeuclidean')))
+        # print('Gromov-Wasserstein distance intra split projection: ' + str(gw_dist(seq_proj_lda_train, seq_proj_lda_val, 'canberra')))
 
         # seq_kl_dist = kl_dist(seq_tails_train, seq_tails_val, rforest)
         # print('Kullback-Leibler divergence of RF: %s, %f' % (str(seq_kl_dist), np.sum(seq_kl_dist)))
@@ -657,9 +656,8 @@ if __name__ == "__main__":
             # plt.show(block=False)
 
             # print('Gromov-Wasserstein distance between the distributions: ' + str(gw_dist(seq_tails_val, gen_tails_val[m])))
-            print('Gromov-Wasserstein distance between projected distributions: ' + str(gw_dist(seq_proj_lda_val, gen_proj_lda, 'euclidean')))
-            print('Gromov-Wasserstein distance between projected distributions: ' + str(gw_dist(seq_proj_lda_val, gen_proj_lda, 'canberra')))
-            print('Gromov-Wasserstein distance between projected distributions: ' + str(gw_dist(seq_proj_lda_val, gen_proj_lda, 'braycurtis')))
+            print('Gromov-Wasserstein distance between projected distributions: ' + str(gw_dist(seq_proj_lda_val, gen_proj_lda, 'sqeuclidean')))
+            # print('Gromov-Wasserstein distance between projected distributions: ' + str(gw_dist(seq_proj_lda_val, gen_proj_lda, 'canberra')))
 
             # gen_kl_dist = kl_dist(seq_tails_val, gen_tails_val[m], rforest)
             # gen_kl_dists[m, :] = gen_kl_dist

@@ -511,6 +511,8 @@ if __name__ == "__main__":
 
     elif FLAGS.test_mode == "dist_compare":
 
+        total_samples = 1024
+
         def gw_dist(c1, c2, dist_metric):
             C1 = sp.spatial.distance.cdist(c1, c1, metric=dist_metric)
             C2 = sp.spatial.distance.cdist(c2, c2, metric=dist_metric)
@@ -524,15 +526,13 @@ if __name__ == "__main__":
             return ot.gromov_wasserstein2(C1, C2, p, q, 'square_loss', epsilon=5e-4)
 
         def kl_dist(x1, x2, clf):
-            p1 = clf.predict_proba(x1)
-            p2 = clf.predict_proba(x2)
+            p1 = clf.predict_proba(np.reshape(x1, (total_samples, -1)))
+            p2 = clf.predict_proba(np.reshape(x2, (total_samples, -1)))
 
             return sp.stats.entropy(p1, p2)
 
-        accs = OrderedDict({'real_acc': 0, 'linear_acc': 0, 'burke_acc': 0})
 
-        total_samples = 2048
-        seq_tails_train = np.empty((total_samples, njoints * (seq_len // 2) * 3))
+        seq_tails_train = np.empty((total_samples, njoints, (seq_len // 2), 3))
         labs_train = np.empty((total_samples,))
         t = trange(total_samples // batch_size)
         for i in t:
@@ -546,25 +546,11 @@ if __name__ == "__main__":
 
             labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
 
-            seq_tails_train[i * batch_size:(i+1) * batch_size, ...] = np.reshape(poses_batch[:, :, seq_len // 2:, :], (batch_size, -1))
+            seq_tails_train[i * batch_size:(i+1) * batch_size, ...] = poses_batch[:, :, seq_len // 2:, :]
             labs_train[i * batch_size:(i+1) * batch_size] = labels[:, 0]
 
-        # from sklearn.decomposition import PCA
-        # pca = PCA(n_components=.95, svd_solver='full')
-        # pca.fit(seq_tails_train)
-        # print(pca.explained_variance_ratio_)
-
-        from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-        lda = LinearDiscriminantAnalysis()
-        lda.fit(seq_tails_train, labs_train)
-        print(lda.explained_variance_ratio_)
-
-        total_samples = 1024
-        seq_tails_train = seq_tails_train[:total_samples, ...]
-        labs_train = labs_train[:total_samples]
-
-        seq_tails_val = np.empty((total_samples, njoints * (seq_len // 2) * 3))
-        gen_tails_val = [np.empty((total_samples, njoints * (seq_len // 2) * 3)) for _ in range(len(model_wraps))]
+        seq_tails_val = np.empty((total_samples, njoints, (seq_len // 2), 3))
+        gen_tails_val = [np.empty((total_samples, njoints, (seq_len // 2), 3)) for _ in range(len(model_wraps))]
         labs_val = np.empty((total_samples,))
         t = trange(total_samples // batch_size)
         for i in t:
@@ -583,87 +569,110 @@ if __name__ == "__main__":
                 if configs[m].action_cond:
                     gen_inputs.append(labels)
                 gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
-                gen_tails_val[m][i * batch_size:(i+1) * batch_size, ...] = np.reshape(gen_output[:, :, seq_len // 2:, :], (batch_size, -1))
+                gen_tails_val[m][i * batch_size:(i+1) * batch_size, ...] = gen_output[:, :, seq_len // 2:, :]
 
-            seq_tails_val[i * batch_size:(i+1) * batch_size, ...] = np.reshape(poses_batch[:, :, seq_len // 2:, :], (batch_size, -1))
+            seq_tails_val[i * batch_size:(i+1) * batch_size, ...] = poses_batch[:, :, seq_len // 2:, :]
             labs_val[i * batch_size:(i+1) * batch_size] = labels[:, 0]
 
-        # seq_proj_pca = pca.transform(seq_tails_val)
-        seq_proj_lda_train = lda.transform(seq_tails_train)
-        seq_proj_lda_val = lda.transform(seq_tails_val)
+        # from scipy.fftpack import dct
+        # def dct_transform(seqs):
+        #     num_basis = 3
+        #     new_seqs = np.empty((total_samples, num_basis * njoints * 3))
+        #     seqs = np.reshape(np.transpose(seqs, (0, 2, 1, 3)), (total_samples, seq_len // 2, njoints * 3))
+        #     for s in range(total_samples):
+        #         new_seqs[s, ...] = np.reshape(dct(seqs[s, ...], axis=0)[:num_basis, :], (-1))
+        #     return new_seqs
+        # seq_tails_train_trans = dct_transform(seq_tails_train)
+        # seq_tails_val_trans = dct_transform(seq_tails_val)
+
+        # from sklearn.decomposition import PCA
+        # pca = PCA(n_components=.95, svd_solver='full')
+        # pca.fit(seq_tails_train)
+        # print(pca.explained_variance_ratio_)
+        # seq_tails_train_trans = pca.transform(seq_tails_val)
+
+        from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+        lda = LinearDiscriminantAnalysis()
+        lda.fit(np.reshape(seq_tails_val, (total_samples, -1)), labs_train)
+        print(lda.explained_variance_ratio_)
+
+        def lda_transform(seqs):
+            return lda.transform(np.reshape(seqs, (total_samples, -1)))
+
+        seq_tails_train_trans = lda_transform(seq_tails_train)
+        seq_tails_val_trans = lda_transform(seq_tails_val)
 
         # from sklearn.ensemble import RandomForestClassifier
         # rforest = RandomForestClassifier()
-        # rforest.fit(seq_tails_train, labs_train)
+        # rforest.fit(np.reshape(seq_tails_train, (total_samples, -1), labs_train)
 
-        # import matplotlib.pyplot as plt
+        import matplotlib.pyplot as plt
 
         # fig, ax = plt.subplots()
         # for lab in sorted(set(labs_train)):
         #     idxs = labs_train == lab
-        #     xs = seq_proj_lda_train[idxs, 0]
-        #     ys = seq_proj_lda_train[idxs, 1]
+        #     xs = seq_tails_train_trans[idxs, 0]
+        #     ys = seq_tails_train_trans[idxs, 1]
         #     ax.scatter(xs, ys, marker='.', alpha=0.1, label=str(lab))
         # ax.legend()
         # ax.set_title('Projected samples (GT train classes)')
         # ax.grid(True)
         # fig.tight_layout()
         # plt.show(block=False)
-        #
+
         # fig, ax = plt.subplots()
         # for lab in sorted(set(labs_val)):
         #     idxs = labs_val == lab
-        #     xs = seq_proj_lda_val[idxs, 0]
-        #     ys = seq_proj_lda_val[idxs, 1]
+        #     xs = seq_tails_val_trans[idxs, 0]
+        #     ys = seq_tails_val_trans[idxs, 1]
         #     ax.scatter(xs, ys, marker='.', alpha=0.1, label=str(lab))
         # ax.legend()
         # ax.set_title('Projected samples (GT val classes)')
         # ax.grid(True)
         # fig.tight_layout()
         # plt.show(block=False)
-        #
-        # fig, ax = plt.subplots()
-        # ax.scatter(seq_proj_lda_train[:, 0], seq_proj_lda_train[:, 1], marker='.', alpha=0.1, label='train')
-        # ax.legend()
-        # ax.scatter(seq_proj_lda_val[:, 0], seq_proj_lda_val[:, 1], marker='.', alpha=0.1, label='val')
-        # ax.legend()
-        # ax.set_title('Projected samples (GT Splits)')
-        # ax.grid(True)
-        # fig.tight_layout()
-        # plt.show(block=False)
+
+        fig, ax = plt.subplots()
+        ax.scatter(seq_tails_train_trans[:, 0], seq_tails_train_trans[:, 1], marker='.', alpha=0.1, label='train')
+        ax.legend()
+        ax.scatter(seq_tails_val_trans[:, 0], seq_tails_val_trans[:, 1], marker='.', alpha=0.1, label='val')
+        ax.legend()
+        ax.set_title('Projected samples (GT Splits)')
+        ax.grid(True)
+        fig.tight_layout()
+        plt.show(block=False)
 
         # print('Gromov-Wasserstein distance intra split: ' + str(gw_dist(seq_tails_train, seq_tails_val)))
-        print('Gromov-Wasserstein distance intra split projection: ' + str(gw_dist(seq_proj_lda_train, seq_proj_lda_val, 'sqeuclidean')))
-        # print('Gromov-Wasserstein distance intra split projection: ' + str(gw_dist(seq_proj_lda_train, seq_proj_lda_val, 'canberra')))
+        print('Gromov-Wasserstein distance intra split projection: ' + str(gw_dist(seq_tails_train_trans, seq_tails_val_trans, 'sqeuclidean')))
+        # print('Gromov-Wasserstein distance intra split projection: ' + str(gw_dist(seq_tails_train_trans, seq_tails_val_trans, 'canberra')))
 
-        # seq_kl_dist = kl_dist(seq_tails_train, seq_tails_val, rforest)
+        # seq_kl_dist = kl_dist(seq_tails_train, seq_tails_val, lda)
         # print('Kullback-Leibler divergence of RF: %s, %f' % (str(seq_kl_dist), np.sum(seq_kl_dist)))
 
-        # gen_kl_dists = np.empty((len(model_wraps), configs[0].num_actions))
         for m, _ in enumerate(model_wraps):
             print(configs[m].save_path)
 
-            gen_proj_lda = lda.transform(gen_tails_val[m])
+            gen_trans = lda_transform(gen_tails_val[m])
+            # gen_trans = dct_transform(gen_tails_val[m])
 
-            # fig, ax = plt.subplots()
-            # ax.scatter(seq_proj_lda_val[:, 0], seq_proj_lda_val[:, 1], marker='.', alpha=0.1, label='GT')
-            # ax.legend()
-            # ax.scatter(gen_proj_lda[:, 0], gen_proj_lda[:, 1], marker='.', alpha=0.1, label=configs[m].save_path)
-            # ax.legend()
-            # ax.set_title('Projected samples')
-            # ax.grid(True)
-            # fig.tight_layout()
-            # plt.show(block=False)
+            fig, ax = plt.subplots()
+            ax.scatter(seq_tails_val_trans[:, 0], seq_tails_val_trans[:, 1], marker='.', alpha=0.1, label='GT')
+            ax.legend()
+            ax.scatter(gen_trans[:, 0], gen_trans[:, 1], marker='.', alpha=0.1, label=configs[m].save_path)
+            ax.legend()
+            ax.set_title('Projected samples')
+            ax.grid(True)
+            fig.tight_layout()
+            plt.show(block=False)
 
             # print('Gromov-Wasserstein distance between the distributions: ' + str(gw_dist(seq_tails_val, gen_tails_val[m])))
-            print('Gromov-Wasserstein distance between projected distributions: ' + str(gw_dist(seq_proj_lda_val, gen_proj_lda, 'sqeuclidean')))
-            # print('Gromov-Wasserstein distance between projected distributions: ' + str(gw_dist(seq_proj_lda_val, gen_proj_lda, 'canberra')))
+            print('Gromov-Wasserstein distance between projected distributions: ' + str(gw_dist(seq_tails_val_trans, gen_trans, 'sqeuclidean')))
+            # print('Gromov-Wasserstein distance between projected distributions: ' + str(gw_dist(seq_tails_val_trans, gen_trans, 'canberra')))
 
-            # gen_kl_dist = kl_dist(seq_tails_val, gen_tails_val[m], rforest)
-            # gen_kl_dists[m, :] = gen_kl_dist
+            # gen_kl_dist = kl_dist(seq_tails_val, gen_tails_val[m], lda)
             # print('Kullback-Leibler divergence of projected NB: %s, %f' % (str(gen_kl_dist), np.sum(gen_kl_dist)))
 
-        # plt.show()
+        plt.show()
 
 
 

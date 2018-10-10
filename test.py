@@ -511,7 +511,7 @@ if __name__ == "__main__":
 
     elif FLAGS.test_mode == "dist_compare":
 
-        total_samples = 1024
+        total_samples = 2 ** 12
 
         def gw_dist(c1, c2, dist_metric):
             C1 = sp.spatial.distance.cdist(c1, c1, metric=dist_metric)
@@ -530,6 +530,14 @@ if __name__ == "__main__":
             p2 = clf.predict_proba(np.reshape(x2, (total_samples, -1)))
 
             return sp.stats.entropy(p1, p2)
+
+
+        def proj_dist(c1, c2, dist_metric):
+            distances = np.min(sp.spatial.distance.cdist(c1, c2, metric=dist_metric), axis=1) - sp.spatial.distance.cdist(c2, c2, metric=dist_metric)
+            distances = np.clip(distances, a_min=0, a_max=None)
+            distances = np.sum(distances, axis=1)
+            distances = np.mean(distances)
+            return distances
 
 
         seq_tails_train = np.empty((total_samples, njoints, (seq_len // 2), 3))
@@ -585,15 +593,20 @@ if __name__ == "__main__":
         # seq_tails_train_trans = dct_transform(seq_tails_train)
         # seq_tails_val_trans = dct_transform(seq_tails_val)
 
-        # from sklearn.decomposition import PCA
-        # pca = PCA(n_components=.95, svd_solver='full')
-        # pca.fit(seq_tails_train)
-        # print(pca.explained_variance_ratio_)
-        # seq_tails_train_trans = pca.transform(seq_tails_val)
+        from sklearn.decomposition import PCA
+        pca = PCA(n_components=.95, svd_solver='full')
+        pca.fit(np.reshape(seq_tails_train, (total_samples, -1)))
+        print(pca.explained_variance_ratio_)
+
+        def pca_transform(seqs):
+            return pca.transform(np.reshape(seqs, (total_samples, -1)))
+
+        seq_tails_train_trans_pca = pca_transform(seq_tails_train)
+        seq_tails_val_trans_pca = pca_transform(seq_tails_val)
 
         from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
         lda = LinearDiscriminantAnalysis()
-        lda.fit(np.reshape(seq_tails_val, (total_samples, -1)), labs_train)
+        lda.fit(np.reshape(seq_tails_train, (total_samples, -1)), labs_train)
         print(lda.explained_variance_ratio_)
 
         def lda_transform(seqs):
@@ -642,9 +655,9 @@ if __name__ == "__main__":
         fig.tight_layout()
         plt.show(block=False)
 
-        # print('Gromov-Wasserstein distance intra split: ' + str(gw_dist(seq_tails_train, seq_tails_val)))
-        print('Gromov-Wasserstein distance intra split projection: ' + str(gw_dist(seq_tails_train_trans, seq_tails_val_trans, 'sqeuclidean')))
-        # print('Gromov-Wasserstein distance intra split projection: ' + str(gw_dist(seq_tails_train_trans, seq_tails_val_trans, 'canberra')))
+        # print('Distance intra split: ' + str(proj_dist(np.reshape(seq_tails_train, (total_samples, -1)), np.reshape(seq_tails_val, (total_samples, -1)), 'euclidean')))
+        print('Distance intra split PCA projection: ' + str(proj_dist(seq_tails_train_trans_pca, seq_tails_val_trans_pca, 'euclidean')))
+        print('Distance intra split LDA projection: ' + str(proj_dist(seq_tails_train_trans, seq_tails_val_trans, 'euclidean')))
 
         # seq_kl_dist = kl_dist(seq_tails_train, seq_tails_val, lda)
         # print('Kullback-Leibler divergence of RF: %s, %f' % (str(seq_kl_dist), np.sum(seq_kl_dist)))
@@ -652,6 +665,7 @@ if __name__ == "__main__":
         for m, _ in enumerate(model_wraps):
             print(configs[m].save_path)
 
+            gen_trans_pca = pca_transform(gen_tails_val[m])
             gen_trans = lda_transform(gen_tails_val[m])
             # gen_trans = dct_transform(gen_tails_val[m])
 
@@ -665,8 +679,9 @@ if __name__ == "__main__":
             fig.tight_layout()
             plt.show(block=False)
 
-            # print('Gromov-Wasserstein distance between the distributions: ' + str(gw_dist(seq_tails_val, gen_tails_val[m])))
-            print('Gromov-Wasserstein distance between projected distributions: ' + str(gw_dist(seq_tails_val_trans, gen_trans, 'sqeuclidean')))
+            # print('Distance between distributions: ' + str(proj_dist(np.reshape(seq_tails_val, (total_samples, -1)), np.reshape(gen_tails_val[m], (total_samples, -1)), 'euclidean')))
+            print('Distance between PCA projected distributions: ' + str(proj_dist(seq_tails_val_trans_pca, gen_trans_pca, 'euclidean')))
+            print('Distance between LDA projected distributions: ' + str(proj_dist(seq_tails_val_trans, gen_trans, 'euclidean')))
             # print('Gromov-Wasserstein distance between projected distributions: ' + str(gw_dist(seq_tails_val_trans, gen_trans, 'canberra')))
 
             # gen_kl_dist = kl_dist(seq_tails_val, gen_tails_val[m], lda)

@@ -516,7 +516,12 @@ if __name__ == "__main__":
             rad_dist = min_dist - sp.spatial.distance.cdist(c2, c2, metric=dist_metric)
             rad_dist = np.clip(rad_dist, a_min=0, a_max=None)
             rad_dist = np.sum(rad_dist, axis=1)
-            return np.mean(min_dist), np.mean(rad_dist)
+
+            min_dist = np.mean(min_dist)
+            rad_dist = np.mean(rad_dist)
+            proj_score = (1 / np.log(min_dist)) * (1 / np.log(rad_dist))
+            
+            return min_dist, rad_dist, proj_score
 
         seq_tails_train = np.empty((total_samples, njoints, (seq_len // 2), 3))
         labs_train = np.empty((total_samples,))

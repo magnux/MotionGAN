@@ -3,8 +3,6 @@ from __future__ import absolute_import, division, print_function
 import tensorflow as tf
 import numpy as np
 import scipy as sp
-import ot
-from ot.dr import wda
 from config import get_config
 from data_input import DataInput
 from models.motiongan import get_model
@@ -511,34 +509,14 @@ if __name__ == "__main__":
 
     elif FLAGS.test_mode == "dist_compare":
 
-        total_samples = 2 ** 12
-
-        def gw_dist(c1, c2, dist_metric):
-            C1 = sp.spatial.distance.cdist(c1, c1, metric=dist_metric)
-            C2 = sp.spatial.distance.cdist(c2, c2, metric=dist_metric)
-
-            C1 /= C1.max()
-            C2 /= C2.max()
-
-            p = ot.unif(C1.shape[0])
-            q = ot.unif(C2.shape[0])
-
-            return ot.gromov_wasserstein2(C1, C2, p, q, 'square_loss', epsilon=5e-4)
-
-        def kl_dist(x1, x2, clf):
-            p1 = clf.predict_proba(np.reshape(x1, (total_samples, -1)))
-            p2 = clf.predict_proba(np.reshape(x2, (total_samples, -1)))
-
-            return sp.stats.entropy(p1, p2)
-
+        total_samples = 2 ** 14
 
         def proj_dist(c1, c2, dist_metric):
-            distances = np.min(sp.spatial.distance.cdist(c1, c2, metric=dist_metric), axis=1) - sp.spatial.distance.cdist(c2, c2, metric=dist_metric)
-            distances = np.clip(distances, a_min=0, a_max=None)
-            distances = np.sum(distances, axis=1)
-            distances = np.mean(distances)
-            return distances
-
+            min_dist = np.min(sp.spatial.distance.cdist(c1, c2, metric=dist_metric), axis=1)
+            rad_dist = min_dist - sp.spatial.distance.cdist(c2, c2, metric=dist_metric)
+            rad_dist = np.clip(rad_dist, a_min=0, a_max=None)
+            rad_dist = np.sum(rad_dist, axis=1)
+            return np.mean(min_dist), np.mean(rad_dist)
 
         seq_tails_train = np.empty((total_samples, njoints, (seq_len // 2), 3))
         labs_train = np.empty((total_samples,))
@@ -556,6 +534,26 @@ if __name__ == "__main__":
 
             seq_tails_train[i * batch_size:(i+1) * batch_size, ...] = poses_batch[:, :, seq_len // 2:, :]
             labs_train[i * batch_size:(i+1) * batch_size] = labels[:, 0]
+
+        # from layers.tsne import *
+        # from tensorflow.contrib.keras.api.keras.models import Sequential
+        # from tensorflow.contrib.keras.api.keras.layers import Dense
+        # from tensorflow.contrib.keras.api.keras.optimizers import SGD
+        #
+        # X_train = np.reshape(seq_tails_train, (total_samples, -1))
+        # d = 2
+        #
+        # tsne_model = Sequential()
+        # tsne_model.add(Dense(512, activation='relu', input_shape=(X_train.shape[1],)))
+        # tsne_model.add(Dense(512, activation='relu'))
+        # tsne_model.add(Dense(512, activation='relu'))
+        # tsne_model.add(Dense(d))
+        # tsne_model.compile(loss=build_tsne_loss(d, batch_size), optimizer=SGD(lr=0.1))
+        #
+        # P = compute_joint_probabilities(X_train, batch_size=batch_size, d=d, perplexity=25, tol=1e-5, verbose=0)
+        # Y_train = P.reshape(X_train.shape[0], -1)
+        #
+        # tsne_model.fit(X_train, Y_train, batch_size=batch_size, epochs=1024, shuffle=False, verbose=0)
 
         seq_tails_val = np.empty((total_samples, njoints, (seq_len // 2), 3))
         gen_tails_val = [np.empty((total_samples, njoints, (seq_len // 2), 3)) for _ in range(len(model_wraps))]
@@ -584,25 +582,25 @@ if __name__ == "__main__":
 
         # from scipy.fftpack import dct
         # def dct_transform(seqs):
-        #     num_basis = 3
+        #     num_basis = seq_len // 2
         #     new_seqs = np.empty((total_samples, num_basis * njoints * 3))
         #     seqs = np.reshape(np.transpose(seqs, (0, 2, 1, 3)), (total_samples, seq_len // 2, njoints * 3))
         #     for s in range(total_samples):
         #         new_seqs[s, ...] = np.reshape(dct(seqs[s, ...], axis=0)[:num_basis, :], (-1))
         #     return new_seqs
-        # seq_tails_train_trans = dct_transform(seq_tails_train)
-        # seq_tails_val_trans = dct_transform(seq_tails_val)
+        # seq_tails_train_trans_dct = dct_transform(seq_tails_train)
+        # seq_tails_val_trans_dct = dct_transform(seq_tails_val)
 
-        from sklearn.decomposition import PCA
-        pca = PCA(n_components=.95, svd_solver='full')
-        pca.fit(np.reshape(seq_tails_train, (total_samples, -1)))
-        print(pca.explained_variance_ratio_)
-
-        def pca_transform(seqs):
-            return pca.transform(np.reshape(seqs, (total_samples, -1)))
-
-        seq_tails_train_trans_pca = pca_transform(seq_tails_train)
-        seq_tails_val_trans_pca = pca_transform(seq_tails_val)
+        # from sklearn.decomposition import PCA
+        # pca = PCA(n_components=.95, svd_solver='full')
+        # pca.fit(np.reshape(seq_tails_train, (total_samples, -1)))
+        # print(pca.explained_variance_ratio_)
+        #
+        # def pca_transform(seqs):
+        #     return pca.transform(np.reshape(seqs, (total_samples, -1)))
+        #
+        # seq_tails_train_trans_pca = pca_transform(seq_tails_train)
+        # seq_tails_val_trans_pca = pca_transform(seq_tails_val)
 
         from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
         lda = LinearDiscriminantAnalysis()
@@ -615,23 +613,29 @@ if __name__ == "__main__":
         seq_tails_train_trans = lda_transform(seq_tails_train)
         seq_tails_val_trans = lda_transform(seq_tails_val)
 
-        # from sklearn.ensemble import RandomForestClassifier
-        # rforest = RandomForestClassifier()
-        # rforest.fit(np.reshape(seq_tails_train, (total_samples, -1), labs_train)
+        # from sklearn.naive_bayes import GaussianNB
+        # gaussian_nb = GaussianNB()
+        # gaussian_nb.fit(seq_tails_train_trans_dct, labs_train)
+        #
+        # def nb_transform(seqs):
+        #     return gaussian_nb.predict_proba(np.reshape(seqs, (total_samples, -1)))
+        #
+        # seq_tails_train_trans_nb = nb_transform(seq_tails_train_trans_dct)
+        # seq_tails_val_trans_nb = nb_transform(seq_tails_val_trans_dct)
 
         import matplotlib.pyplot as plt
 
-        # fig, ax = plt.subplots()
-        # for lab in sorted(set(labs_train)):
-        #     idxs = labs_train == lab
-        #     xs = seq_tails_train_trans[idxs, 0]
-        #     ys = seq_tails_train_trans[idxs, 1]
-        #     ax.scatter(xs, ys, marker='.', alpha=0.1, label=str(lab))
-        # ax.legend()
-        # ax.set_title('Projected samples (GT train classes)')
-        # ax.grid(True)
-        # fig.tight_layout()
-        # plt.show(block=False)
+        fig, ax = plt.subplots()
+        for lab in sorted(set(labs_train)):
+            idxs = labs_train == lab
+            xs = seq_tails_train_trans[idxs, 0]
+            ys = seq_tails_train_trans[idxs, 1]
+            ax.scatter(xs, ys, marker='.', alpha=0.1, label=str(lab))
+        ax.legend()
+        ax.set_title('Projected samples (GT train classes)')
+        ax.grid(True)
+        fig.tight_layout()
+        plt.show(block=False)
 
         # fig, ax = plt.subplots()
         # for lab in sorted(set(labs_val)):
@@ -656,17 +660,19 @@ if __name__ == "__main__":
         plt.show(block=False)
 
         # print('Distance intra split: ' + str(proj_dist(np.reshape(seq_tails_train, (total_samples, -1)), np.reshape(seq_tails_val, (total_samples, -1)), 'euclidean')))
-        print('Distance intra split PCA projection: ' + str(proj_dist(seq_tails_train_trans_pca, seq_tails_val_trans_pca, 'euclidean')))
+        # print('Distance intra split PCA projection: ' + str(proj_dist(seq_tails_train_trans_pca, seq_tails_val_trans_pca, 'euclidean')))
         print('Distance intra split LDA projection: ' + str(proj_dist(seq_tails_train_trans, seq_tails_val_trans, 'euclidean')))
+        # print('Distance intra split NB projection: ' + str(proj_dist(seq_tails_train_trans_nb, seq_tails_val_trans_nb, 'euclidean')))
 
-        # seq_kl_dist = kl_dist(seq_tails_train, seq_tails_val, lda)
+        # seq_kl_dist = sp.stats.entropy(seq_tails_train_trans_nb, seq_tails_val_trans_nb)
         # print('Kullback-Leibler divergence of RF: %s, %f' % (str(seq_kl_dist), np.sum(seq_kl_dist)))
 
         for m, _ in enumerate(model_wraps):
             print(configs[m].save_path)
 
-            gen_trans_pca = pca_transform(gen_tails_val[m])
+            # gen_trans_pca = pca_transform(gen_tails_val[m])
             gen_trans = lda_transform(gen_tails_val[m])
+            # gen_trans_nb = nb_transform(dct_transform(gen_tails_val[m]))
             # gen_trans = dct_transform(gen_tails_val[m])
 
             fig, ax = plt.subplots()
@@ -680,11 +686,11 @@ if __name__ == "__main__":
             plt.show(block=False)
 
             # print('Distance between distributions: ' + str(proj_dist(np.reshape(seq_tails_val, (total_samples, -1)), np.reshape(gen_tails_val[m], (total_samples, -1)), 'euclidean')))
-            print('Distance between PCA projected distributions: ' + str(proj_dist(seq_tails_val_trans_pca, gen_trans_pca, 'euclidean')))
+            # print('Distance between PCA projected distributions: ' + str(proj_dist(seq_tails_val_trans_pca, gen_trans_pca, 'euclidean')))
             print('Distance between LDA projected distributions: ' + str(proj_dist(seq_tails_val_trans, gen_trans, 'euclidean')))
-            # print('Gromov-Wasserstein distance between projected distributions: ' + str(gw_dist(seq_tails_val_trans, gen_trans, 'canberra')))
+            # print('Distance between NB projected distributions: ' + str(proj_dist(seq_tails_val_trans_nb, gen_trans_nb, 'euclidean')))
 
-            # gen_kl_dist = kl_dist(seq_tails_val, gen_tails_val[m], lda)
+            # gen_kl_dist = sp.stats.entropy(seq_tails_train_trans_nb, nb_transform(dct_transform(gen_tails_val[m])))
             # print('Kullback-Leibler divergence of projected NB: %s, %f' % (str(gen_kl_dist), np.sum(gen_kl_dist)))
 
         plt.show()

@@ -512,16 +512,32 @@ if __name__ == "__main__":
         total_samples = 2 ** 14
 
         def proj_dist(c1, c2, dist_metric):
+            c1 = np.reshape(c1, (total_samples, -1))
+            c2 = np.reshape(c2, (total_samples, -1))
+
             min_dist = np.min(sp.spatial.distance.cdist(c1, c2, metric=dist_metric), axis=1)
             rad_dist = min_dist - sp.spatial.distance.cdist(c2, c2, metric=dist_metric)
             rad_dist = np.clip(rad_dist, a_min=0, a_max=None)
+            count_rad = np.count_nonzero(rad_dist, axis=1)
             rad_dist = np.sum(rad_dist, axis=1)
+
+            rad_dist_comp = min_dist - sp.spatial.distance.cdist(c1, c1, metric=dist_metric)
+            rad_dist_comp = np.clip(rad_dist_comp, a_min=0, a_max=None)
+            count_rad_comp = np.count_nonzero(rad_dist_comp, axis=1)
+            rad_dist_comp = np.sum(rad_dist_comp, axis=1)
 
             min_dist = np.mean(min_dist)
             rad_dist = np.mean(rad_dist)
+            count_rad = np.mean(count_rad)
+
+            rad_dist_comp = np.mean(rad_dist_comp)
+            count_rad_comp = np.mean(count_rad_comp)
+
             proj_score = (1 / np.log(min_dist)) * (1 / np.log(rad_dist))
-            
-            return min_dist, rad_dist, proj_score
+            sym_rad_dist = (rad_dist + rad_dist_comp) / 2
+            sym_proj_score = (1 / np.log(min_dist)) * (1 / np.log(sym_rad_dist))
+
+            return min_dist, rad_dist, count_rad, rad_dist_comp, count_rad_comp, proj_score, sym_rad_dist, sym_proj_score
 
         seq_tails_train = np.empty((total_samples, njoints, (seq_len // 2), 3))
         labs_train = np.empty((total_samples,))
@@ -628,19 +644,45 @@ if __name__ == "__main__":
         # seq_tails_train_trans_nb = nb_transform(seq_tails_train_trans_dct)
         # seq_tails_val_trans_nb = nb_transform(seq_tails_val_trans_dct)
 
-        import matplotlib.pyplot as plt
+        from sklearn.neighbors import NearestNeighbors
+        knn = NearestNeighbors(n_neighbors=4, leaf_size=32, n_jobs=-1)
+        knn.fit(np.reshape(seq_tails_train, (total_samples, -1)))
 
-        fig, ax = plt.subplots()
-        for lab in sorted(set(labs_train)):
-            idxs = labs_train == lab
-            xs = seq_tails_train_trans[idxs, 0]
-            ys = seq_tails_train_trans[idxs, 1]
-            ax.scatter(xs, ys, marker='.', alpha=0.1, label=str(lab))
-        ax.legend()
-        ax.set_title('Projected samples (GT train classes)')
-        ax.grid(True)
-        fig.tight_layout()
-        plt.show(block=False)
+        knn_trans = NearestNeighbors(n_neighbors=4, leaf_size=32, n_jobs=-1)
+        knn_trans.fit(seq_tails_train_trans)
+
+        def knn_dist(seqs_a, k_model):
+            dist, _ = k_model.kneighbors(np.reshape(seqs_a, (total_samples, -1)))
+            return np.mean(dist)
+
+        # from emd import emd
+        #
+        # def emd_dist(seqs_a, seqs_b):
+        #     seqs_a = np.reshape(seqs_a, (total_samples, -1))
+        #     seqs_b = np.reshape(seqs_b, (total_samples, -1))
+        #     return emd(seqs_a, seqs_b)
+
+        # from sklearn.mixture import GaussianMixture
+        # gmm = GaussianMixture(n_components=len(set(labs_train)))
+        # gmm.fit(np.reshape(seq_tails_train, (total_samples, -1)))
+        #
+        # gmm_trans = GaussianMixture(n_components=len(set(labs_train)))
+        # gmm_trans.fit(seq_tails_train_trans)
+
+
+        # import matplotlib.pyplot as plt
+        #
+        # fig, ax = plt.subplots()
+        # for lab in sorted(set(labs_train)):
+        #     idxs = labs_train == lab
+        #     xs = seq_tails_train_trans[idxs, 0]
+        #     ys = seq_tails_train_trans[idxs, 1]
+        #     ax.scatter(xs, ys, marker='.', alpha=0.1, label=str(lab))
+        # ax.legend()
+        # ax.set_title('Projected samples (GT train classes)')
+        # ax.grid(True)
+        # fig.tight_layout()
+        # plt.show(block=False)
 
         # fig, ax = plt.subplots()
         # for lab in sorted(set(labs_val)):
@@ -654,23 +696,31 @@ if __name__ == "__main__":
         # fig.tight_layout()
         # plt.show(block=False)
 
-        fig, ax = plt.subplots()
-        ax.scatter(seq_tails_train_trans[:, 0], seq_tails_train_trans[:, 1], marker='.', alpha=0.1, label='train')
-        ax.legend()
-        ax.scatter(seq_tails_val_trans[:, 0], seq_tails_val_trans[:, 1], marker='.', alpha=0.1, label='val')
-        ax.legend()
-        ax.set_title('Projected samples (GT Splits)')
-        ax.grid(True)
-        fig.tight_layout()
-        plt.show(block=False)
+        # fig, ax = plt.subplots()
+        # ax.scatter(seq_tails_train_trans[:, 0], seq_tails_train_trans[:, 1], marker='.', alpha=0.1, label='train')
+        # ax.legend()
+        # ax.scatter(seq_tails_val_trans[:, 0], seq_tails_val_trans[:, 1], marker='.', alpha=0.1, label='val')
+        # ax.legend()
+        # ax.set_title('Projected samples (GT Splits)')
+        # ax.grid(True)
+        # fig.tight_layout()
+        # plt.show(block=False)
 
         # print('Distance intra split: ' + str(proj_dist(np.reshape(seq_tails_train, (total_samples, -1)), np.reshape(seq_tails_val, (total_samples, -1)), 'euclidean')))
         # print('Distance intra split PCA projection: ' + str(proj_dist(seq_tails_train_trans_pca, seq_tails_val_trans_pca, 'euclidean')))
         print('Distance intra split LDA projection: ' + str(proj_dist(seq_tails_train_trans, seq_tails_val_trans, 'euclidean')))
         # print('Distance intra split NB projection: ' + str(proj_dist(seq_tails_train_trans_nb, seq_tails_val_trans_nb, 'euclidean')))
 
-        # seq_kl_dist = sp.stats.entropy(seq_tails_train_trans_nb, seq_tails_val_trans_nb)
+        # seq_kl_dist = sp.stats.entropy(seq_tails_train_proba, seq_tails_val_proba)
         # print('Kullback-Leibler divergence of RF: %s, %f' % (str(seq_kl_dist), np.sum(seq_kl_dist)))
+
+        print('train knn dist: %f  /  knn dist proj :%f' % (knn_dist(seq_tails_train, knn), knn_dist(seq_tails_train_trans, knn_trans)))
+        print('val knn dist: %f  /  knn dist proj :%f' % (knn_dist(seq_tails_val, knn), knn_dist(seq_tails_val_trans, knn_trans)))
+
+        # print('emd dist proj: %f' % emd_dist(seq_tails_train_trans, seq_tails_val_trans))
+
+        # print('val gmm aic: %f  /  gmm aic proj :%f' % (gmm.aic(np.reshape(seq_tails_val, (total_samples, -1))), gmm_trans.aic(seq_tails_val_trans)))
+        # print('val gmm bic: %f  /  gmm bic proj :%f' % (gmm.bic(np.reshape(seq_tails_val, (total_samples, -1))), gmm_trans.bic(seq_tails_val_trans)))
 
         for m, _ in enumerate(model_wraps):
             print(configs[m].save_path)
@@ -680,25 +730,32 @@ if __name__ == "__main__":
             # gen_trans_nb = nb_transform(dct_transform(gen_tails_val[m]))
             # gen_trans = dct_transform(gen_tails_val[m])
 
-            fig, ax = plt.subplots()
-            ax.scatter(seq_tails_val_trans[:, 0], seq_tails_val_trans[:, 1], marker='.', alpha=0.1, label='GT')
-            ax.legend()
-            ax.scatter(gen_trans[:, 0], gen_trans[:, 1], marker='.', alpha=0.1, label=configs[m].save_path)
-            ax.legend()
-            ax.set_title('Projected samples')
-            ax.grid(True)
-            fig.tight_layout()
-            plt.show(block=False)
+            # fig, ax = plt.subplots()
+            # ax.scatter(seq_tails_val_trans[:, 0], seq_tails_val_trans[:, 1], marker='.', alpha=0.1, label='GT')
+            # ax.legend()
+            # ax.scatter(gen_trans[:, 0], gen_trans[:, 1], marker='.', alpha=0.1, label=configs[m].save_path)
+            # ax.legend()
+            # ax.set_title('Projected samples')
+            # ax.grid(True)
+            # fig.tight_layout()
+            # plt.show(block=False)
 
             # print('Distance between distributions: ' + str(proj_dist(np.reshape(seq_tails_val, (total_samples, -1)), np.reshape(gen_tails_val[m], (total_samples, -1)), 'euclidean')))
             # print('Distance between PCA projected distributions: ' + str(proj_dist(seq_tails_val_trans_pca, gen_trans_pca, 'euclidean')))
             print('Distance between LDA projected distributions: ' + str(proj_dist(seq_tails_val_trans, gen_trans, 'euclidean')))
             # print('Distance between NB projected distributions: ' + str(proj_dist(seq_tails_val_trans_nb, gen_trans_nb, 'euclidean')))
 
-            # gen_kl_dist = sp.stats.entropy(seq_tails_train_trans_nb, nb_transform(dct_transform(gen_tails_val[m])))
+            # gen_kl_dist = sp.stats.entropy(seq_tails_val_proba, gen_proba)
             # print('Kullback-Leibler divergence of projected NB: %s, %f' % (str(gen_kl_dist), np.sum(gen_kl_dist)))
 
-        plt.show()
+            print('gen knn dist: %f  /  knn dist proj:%f' % (knn_dist(gen_tails_val[m], knn), knn_dist(gen_trans, knn_trans)))
+
+            # print('emd dist proj: %f' % emd_dist(seq_tails_val_trans, gen_trans))
+
+            # print('gen gmm aic: %f  /  gmm aic proj :%f' % (gmm.aic(np.reshape(gen_tails_val[m], (total_samples, -1))), gmm_trans.aic(gen_trans)))
+            # print('gen gmm bic: %f  /  gmm bic proj :%f' % (gmm.bic(np.reshape(gen_tails_val[m], (total_samples, -1))), gmm_trans.bic(gen_trans)))
+
+        # plt.show()
 
 
 

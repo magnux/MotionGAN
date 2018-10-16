@@ -512,8 +512,8 @@ if __name__ == "__main__":
         total_samples = 2 ** 14
 
         def proj_dist(c1, c2, dist_metric):
-            c1 = np.reshape(c1, (total_samples, -1))
-            c2 = np.reshape(c2, (total_samples, -1))
+            c1 = np.reshape(c1, (c1.shape[0], -1))
+            c2 = np.reshape(c2, (c1.shape[0], -1))
 
             min_dist = np.min(sp.spatial.distance.cdist(c1, c2, metric=dist_metric), axis=1)
             rad_dist = min_dist - sp.spatial.distance.cdist(c2, c2, metric=dist_metric)
@@ -652,8 +652,17 @@ if __name__ == "__main__":
         knn_trans.fit(seq_tails_train_trans)
 
         def knn_dist(seqs_a, k_model):
-            dist, _ = k_model.kneighbors(np.reshape(seqs_a, (total_samples, -1)))
+            dist, _ = k_model.kneighbors(np.reshape(seqs_a, (seqs_a.shape[0], -1)))
             return np.mean(dist)
+
+        def BC(p, q):
+            return np.sum(np.sqrt((p * q)), axis=1)
+
+        def bhattacharyya(p, q):
+            return np.mean(-np.log(BC(p, q)))
+
+        def hellinger(p, q):
+            return np.mean(np.sqrt(1.0 - BC(p, q)))
 
         # from emd import emd
         #
@@ -708,7 +717,7 @@ if __name__ == "__main__":
 
         # print('Distance intra split: ' + str(proj_dist(np.reshape(seq_tails_train, (total_samples, -1)), np.reshape(seq_tails_val, (total_samples, -1)), 'euclidean')))
         # print('Distance intra split PCA projection: ' + str(proj_dist(seq_tails_train_trans_pca, seq_tails_val_trans_pca, 'euclidean')))
-        print('Distance intra split LDA projection: ' + str(proj_dist(seq_tails_train_trans, seq_tails_val_trans, 'euclidean')))
+        print('Distance intra split LDA projection: ' + ' '.join("%.4f" % x for x in proj_dist(seq_tails_train_trans, seq_tails_val_trans, 'euclidean')))
         # print('Distance intra split NB projection: ' + str(proj_dist(seq_tails_train_trans_nb, seq_tails_val_trans_nb, 'euclidean')))
 
         # seq_kl_dist = sp.stats.entropy(seq_tails_train_proba, seq_tails_val_proba)
@@ -717,18 +726,22 @@ if __name__ == "__main__":
         print('train knn dist: %f  /  knn dist proj :%f' % (knn_dist(seq_tails_train, knn), knn_dist(seq_tails_train_trans, knn_trans)))
         print('val knn dist: %f  /  knn dist proj :%f' % (knn_dist(seq_tails_val, knn), knn_dist(seq_tails_val_trans, knn_trans)))
 
+        train_probas = lda.predict_proba(np.reshape(seq_tails_train, (total_samples, -1)))
+        val_probas = lda.predict_proba(np.reshape(seq_tails_val, (total_samples, -1)))
+
         # print('emd dist proj: %f' % emd_dist(seq_tails_train_trans, seq_tails_val_trans))
 
         # print('val gmm aic: %f  /  gmm aic proj :%f' % (gmm.aic(np.reshape(seq_tails_val, (total_samples, -1))), gmm_trans.aic(seq_tails_val_trans)))
         # print('val gmm bic: %f  /  gmm bic proj :%f' % (gmm.bic(np.reshape(seq_tails_val, (total_samples, -1))), gmm_trans.bic(seq_tails_val_trans)))
 
-        for m, _ in enumerate(model_wraps):
-            print(configs[m].save_path)
+        # for m, _ in enumerate(model_wraps):
+            # print(configs[m].save_path)
 
             # gen_trans_pca = pca_transform(gen_tails_val[m])
-            gen_trans = lda_transform(gen_tails_val[m])
+            # gen_trans = lda_transform(gen_tails_val[m])
             # gen_trans_nb = nb_transform(dct_transform(gen_tails_val[m]))
             # gen_trans = dct_transform(gen_tails_val[m])
+            # gen_probas = lda.predict_proba(np.reshape(gen_tails_val[m], (total_samples, -1)))
 
             # fig, ax = plt.subplots()
             # ax.scatter(seq_tails_val_trans[:, 0], seq_tails_val_trans[:, 1], marker='.', alpha=0.1, label='GT')
@@ -740,15 +753,17 @@ if __name__ == "__main__":
             # fig.tight_layout()
             # plt.show(block=False)
 
-            # print('Distance between distributions: ' + str(proj_dist(np.reshape(seq_tails_val, (total_samples, -1)), np.reshape(gen_tails_val[m], (total_samples, -1)), 'euclidean')))
+            # print('Distance between distributions: ' + ' '.join("%.4f" % x for x in proj_dist(np.reshape(seq_tails_val, (total_samples, -1)), np.reshape(gen_tails_val[m], (total_samples, -1)), 'euclidean')))
             # print('Distance between PCA projected distributions: ' + str(proj_dist(seq_tails_val_trans_pca, gen_trans_pca, 'euclidean')))
-            print('Distance between LDA projected distributions: ' + str(proj_dist(seq_tails_val_trans, gen_trans, 'euclidean')))
+            # print('Distance between LDA projected distributions: ' + ' '.join("%.4f" % x for x in proj_dist(seq_tails_val_trans, gen_trans, 'euclidean')))
             # print('Distance between NB projected distributions: ' + str(proj_dist(seq_tails_val_trans_nb, gen_trans_nb, 'euclidean')))
 
             # gen_kl_dist = sp.stats.entropy(seq_tails_val_proba, gen_proba)
             # print('Kullback-Leibler divergence of projected NB: %s, %f' % (str(gen_kl_dist), np.sum(gen_kl_dist)))
 
-            print('gen knn dist: %f  /  knn dist proj:%f' % (knn_dist(gen_tails_val[m], knn), knn_dist(gen_trans, knn_trans)))
+            # print('knn dist: %f  /  knn dist proj:%f' % (knn_dist(gen_tails_val[m], knn), knn_dist(gen_trans, knn_trans)))
+
+            # print('bhattacharyya dist: %f' % (bhattacharyya(val_probas, gen_probas)))
 
             # print('emd dist proj: %f' % emd_dist(seq_tails_val_trans, gen_trans))
 
@@ -756,6 +771,31 @@ if __name__ == "__main__":
             # print('gen gmm bic: %f  /  gmm bic proj :%f' % (gmm.bic(np.reshape(gen_tails_val[m], (total_samples, -1))), gmm_trans.bic(gen_trans)))
 
         # plt.show()
+        actions = ['Directions', 'Discussion', 'Eating', 'Greeting', 'Phoning',
+                   'Posing', 'Purchases', 'Sitting', 'SittingDown', 'Smoking',
+                   'Photo', 'Waiting', 'Walking', 'WalkDog', 'WalkTogether']
+
+        gen_tails_val_trans = []
+        for m, _ in enumerate(model_wraps):
+            gen_tails_val_trans.append(lda_transform(gen_tails_val[m]))
+
+        seq_tails_val = np.reshape(seq_tails_val, (total_samples, -1))
+
+        for lab in sorted(set(labs_train)):
+            print('Action: ' + actions[int(lab)])
+            idxs = labs_val == lab
+            vals = seq_tails_val[idxs, ...]
+            vals_trans = seq_tails_val_trans[idxs, ...]
+
+            for m, _ in enumerate(model_wraps):
+                print(configs[m].save_path)
+
+                vals_gen = gen_tails_val[m][idxs, ...]
+                vals_gen_trans = gen_tails_val_trans[m][idxs, ...]
+
+                print('Distance between distributions: ' + ' '.join("%.4f" % x for x in proj_dist(vals, vals_gen, 'euclidean')))
+                print('Distance between LDA projected distributions: ' + ' '.join("%.4f" % x for x in proj_dist(vals_trans, vals_gen_trans, 'euclidean')))
+                print('knn dist: %f  /  knn dist proj:%f' % (knn_dist(vals_gen, knn), knn_dist(vals_gen_trans, knn_trans)))
 
 
 

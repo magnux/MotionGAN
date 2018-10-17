@@ -601,39 +601,43 @@ if __name__ == "__main__":
             knn_dist_1 = np.mean(knn.kneighbors(c1)[0])
             knn_dist_2 = np.mean(knn.kneighbors(c2)[0])
 
+            rad_dist = knn_dist_1 - sp.spatial.distance.cdist(c2, c2, metric=dist_metric)
+            rad_dist = np.clip(rad_dist, a_min=0, a_max=None)
+            count_rad = np.mean(np.count_nonzero(rad_dist, axis=1))
+
             knn_coeff = knn_dist_2 / knn_dist_1
             min_coeff = 1 / (np.abs(min_dist) + 1)
             pred_coeff = 1 / (np.abs(pred_dist) + 1)
 
-            return min_dist, pred_dist, knn_dist_1, knn_dist_2, min_coeff, pred_coeff, knn_coeff
+            return min_dist, pred_dist, knn_dist_1, knn_dist_2, min_coeff, pred_coeff, knn_coeff, count_rad
 
-        def rad_count_dist(c1, c2, dist_metric='euclidean'):
-            c1 = np.reshape(c1, (c1.shape[0], -1))
-            c2 = np.reshape(c2, (c2.shape[0], -1))
-
-            min_dist = np.min(sp.spatial.distance.cdist(c1, c2, metric=dist_metric), axis=1)
-            rad_dist = min_dist - sp.spatial.distance.cdist(c2, c2, metric=dist_metric)
-            rad_dist = np.clip(rad_dist, a_min=0, a_max=None)
-            count_rad = np.count_nonzero(rad_dist, axis=1)
-            rad_dist = np.sum(rad_dist, axis=1)
-
-            rad_dist_comp = min_dist - sp.spatial.distance.cdist(c1, c1, metric=dist_metric)
-            rad_dist_comp = np.clip(rad_dist_comp, a_min=0, a_max=None)
-            count_rad_comp = np.count_nonzero(rad_dist_comp, axis=1)
-            rad_dist_comp = np.sum(rad_dist_comp, axis=1)
-
-            min_dist = np.mean(min_dist)
-            rad_dist = np.mean(rad_dist)
-            count_rad = np.mean(count_rad)
-
-            rad_dist_comp = np.mean(rad_dist_comp)
-            count_rad_comp = np.mean(count_rad_comp)
-
-            proj_score = (1 / (min_dist + 1)) * (1 / (rad_dist + 1))
-            sym_rad_dist = (rad_dist + rad_dist_comp) / 2
-            sym_proj_score = (1 / (min_dist + 1)) * (1 / (sym_rad_dist + 1))
-
-            return min_dist, rad_dist, count_rad, rad_dist_comp, count_rad_comp, proj_score, sym_rad_dist, sym_proj_score
+        # def rad_count_dist(c1, c2, dist_metric='euclidean'):
+        #     c1 = np.reshape(c1, (c1.shape[0], -1))
+        #     c2 = np.reshape(c2, (c2.shape[0], -1))
+        #
+        #     min_dist = np.min(sp.spatial.distance.cdist(c1, c2, metric=dist_metric), axis=1)
+        #     rad_dist = min_dist - sp.spatial.distance.cdist(c2, c2, metric=dist_metric)
+        #     rad_dist = np.clip(rad_dist, a_min=0, a_max=None)
+        #     count_rad = np.count_nonzero(rad_dist, axis=1)
+        #     rad_dist = np.sum(rad_dist, axis=1)
+        #
+        #     rad_dist_comp = min_dist - sp.spatial.distance.cdist(c1, c1, metric=dist_metric)
+        #     rad_dist_comp = np.clip(rad_dist_comp, a_min=0, a_max=None)
+        #     count_rad_comp = np.count_nonzero(rad_dist_comp, axis=1)
+        #     rad_dist_comp = np.sum(rad_dist_comp, axis=1)
+        #
+        #     min_dist = np.mean(min_dist)
+        #     rad_dist = np.mean(rad_dist)
+        #     count_rad = np.mean(count_rad)
+        #
+        #     rad_dist_comp = np.mean(rad_dist_comp)
+        #     count_rad_comp = np.mean(count_rad_comp)
+        #
+        #     proj_score = (1 / (min_dist + 1)) * (1 / (rad_dist + 1))
+        #     sym_rad_dist = (rad_dist + rad_dist_comp) / 2
+        #     sym_proj_score = (1 / (min_dist + 1)) * (1 / (sym_rad_dist + 1))
+        #
+        #     return min_dist, rad_dist, count_rad, rad_dist_comp, count_rad_comp, proj_score, sym_rad_dist, sym_proj_score
 
         # import matplotlib.pyplot as plt
         #
@@ -672,7 +676,6 @@ if __name__ == "__main__":
         # plt.show(block=False)
 
         print('KNN-dist: ' + ' '.join("%.4f" % x for x in knn_dist(seq_tails_train_trans, seq_tails_val_trans)))
-        print('Rad-dist: ' + ' '.join("%.4f" % x for x in rad_count_dist(seq_tails_train_trans, seq_tails_val_trans)))
 
         for m, _ in enumerate(model_wraps):
             print(configs[m].save_path)
@@ -690,7 +693,6 @@ if __name__ == "__main__":
             # plt.show(block=False)
 
             print('KNN-dist: ' + ' '.join("%.4f" % x for x in knn_dist(seq_tails_val_trans, gen_trans)))
-            print('Rad-dist: ' + ' '.join("%.4f" % x for x in rad_count_dist(seq_tails_val_trans, gen_trans)))
 
         # plt.show()
         actions = ['Directions', 'Discussion', 'Eating', 'Greeting', 'Phoning',
@@ -708,7 +710,6 @@ if __name__ == "__main__":
             vals_trans = seq_tails_val_trans[idxs, ...]
 
             print('KNN-dist: ' + ' '.join("%.4f" % x for x in knn_dist(trains_trans, vals_trans)))
-            print('Rad-dist: ' + ' '.join("%.4f" % x for x in rad_count_dist(trains_trans, vals_trans)))
 
             for m, _ in enumerate(model_wraps):
                 print(configs[m].save_path)
@@ -716,7 +717,6 @@ if __name__ == "__main__":
                 vals_gen_trans = gen_tails_val_trans[m][idxs, ...]
 
                 print('KNN-dist: ' + ' '.join("%.4f" % x for x in knn_dist(vals_trans, vals_gen_trans)))
-                print('Rad-dist: ' + ' '.join("%.4f" % x for x in rad_count_dist(vals_trans, vals_gen_trans)))
 
 
 

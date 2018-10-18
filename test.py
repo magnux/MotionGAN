@@ -585,13 +585,8 @@ if __name__ == "__main__":
         seq_tails_val_trans = lda_transform(seq_tails_val)
 
         from sklearn.neighbors import NearestNeighbors
-        knn_train = NearestNeighbors(n_neighbors=4, leaf_size=32, n_jobs=-1)
-        knn_train.fit(seq_tails_train_trans)
 
-        knn_val = NearestNeighbors(n_neighbors=4, leaf_size=32, n_jobs=-1)
-        knn_val.fit(seq_tails_val_trans)
-
-        def compute_metrics(c1, c2, knn, dist_metric='euclidean'):
+        def compute_metrics(c1, c2, dist_metric='euclidean'):
             c1 = np.reshape(c1, (c1.shape[0], -1))
             c2 = np.reshape(c2, (c2.shape[0], -1))
 
@@ -601,45 +596,54 @@ if __name__ == "__main__":
 
             mean_dist_1 = np.mean(dist_mat_1)
             mean_dist_2 = np.mean(dist_mat_2)
-            median_dist_1 = np.median(dist_mat_1)
-            median_dist_2 = np.median(dist_mat_2)
-            min_dist_1 = np.mean(np.min(dist_mat_12, axis=0))
+            # min_dist_1 = np.mean(np.min(dist_mat_12, axis=0))
             min_dist_2 = np.mean(np.min(dist_mat_12, axis=1))
-            min_dist = (min_dist_1 + min_dist_2) / 2
+            # min_dist = (min_dist_1 + min_dist_2) / 2 # symmetric dist
+            min_dist = min_dist_2
 
             pred_dist = np.mean(np.diag(dist_mat_12))
 
-            knn_dist_1 = np.mean(knn.kneighbors(c1)[0])
-            knn_dist_2 = np.mean(knn.kneighbors(c2)[0])
+            # knn_1 = NearestNeighbors(n_neighbors=4, leaf_size=32, n_jobs=-1)
+            # knn_1.fit(c1)
+            # knn_2 = NearestNeighbors(n_neighbors=4, leaf_size=32, n_jobs=-1)
+            # knn_2.fit(c2)
 
-            rad_dist_1 = min_dist - dist_mat_1
-            rad_dist_1 = np.clip(rad_dist_1, a_min=0, a_max=None)
-            count_rad_1 = np.count_nonzero(rad_dist_1, axis=1)
+            # knn_dist_1 = np.mean(knn_1.kneighbors(c1)[0])
+            # knn_dist_2 = np.mean(knn_2.kneighbors(c2)[0])
 
-            rad_dist_2 = min_dist - dist_mat_2
-            rad_dist_2 = np.clip(rad_dist_2, a_min=0, a_max=None)
-            count_rad_2 = np.count_nonzero(rad_dist_2, axis=1)
+            # rad_dist_1 = pred_dist - dist_mat_1
+            # rad_dist_1 = np.clip(rad_dist_1, a_min=0, a_max=None)
+            # count_rad_1 = np.count_nonzero(rad_dist_1, axis=1)
+            #
+            # rad_dist_2 = pred_dist - dist_mat_2
+            # rad_dist_2 = np.clip(rad_dist_2, a_min=0, a_max=None)
+            # count_rad_2 = np.count_nonzero(rad_dist_2, axis=1)
 
-            rad_dist_12 = min_dist - dist_mat_12
-            rad_dist_12 = np.clip(rad_dist_12, a_min=0, a_max=None)
-            count_rad_12 = np.count_nonzero(rad_dist_12, axis=0)
+            rad_dist_12_m = min_dist - dist_mat_12
+            rad_dist_12_m = np.clip(rad_dist_12_m, a_min=0, a_max=None)
+            count_rad_12_m = np.count_nonzero(rad_dist_12_m, axis=0)
 
-            count_rad_1 = np.mean(count_rad_1)
-            count_rad_2 = np.mean(count_rad_2)
-            count_rad_12 = np.mean(count_rad_12)
+            rad_dist_12_p = pred_dist - dist_mat_12
+            rad_dist_12_p = np.clip(rad_dist_12_p, a_min=0, a_max=None)
+            count_rad_12_p = np.count_nonzero(rad_dist_12_p, axis=0)
 
-            knn_coeff = knn_dist_2 / knn_dist_1
-            count_coeff = count_rad_2 / count_rad_1
-            edm_coeff = mean_dist_2 / mean_dist_1
+            # count_rad_1 = np.mean(count_rad_1)
+            # count_rad_2 = np.mean(count_rad_2)
+            count_rad_12_m = np.mean(count_rad_12_m)
+            count_rad_12_p = np.mean(count_rad_12_p)
 
-            prec_coeff = (pred_dist / mean_dist_1) + 1
-            dist_coeff = (min_dist / mean_dist_1) + 1
+            # knn_coeff = knn_dist_2 / knn_dist_1
+            # count_coeff = count_rad_2 / count_rad_1
+            # edm_coeff = mean_dist_2 / mean_dist_1
+            #
+            # prec_coeff = (pred_dist / mean_dist_1) + 1
+            # dist_coeff = (min_dist / mean_dist_1) + 1
+            #
+            # dens_coeff = (1 / (np.abs(1 - (count_coeff * edm_coeff)) + 1))
+            # acc_coeff = (1 / (np.abs(1 - (prec_coeff * dist_coeff)) + 1))
+            # fit_coeff = dens_coeff * acc_coeff
 
-            dens_coeff = (1 / (np.abs(1 - (count_coeff * edm_coeff)) + 1))
-            acc_coeff = (1 / (np.abs(1 - (prec_coeff * dist_coeff)) + 1))
-            fit_coeff = dens_coeff * acc_coeff
-
-            return min_dist, pred_dist, knn_coeff, count_rad_1, count_rad_2, count_rad_12, mean_dist_1, mean_dist_2, median_dist_1, median_dist_2 # edm_coeff, prec_coeff, dist_coeff#, dens_coeff, acc_coeff, fit_coeff
+            return min_dist, pred_dist, count_rad_12_m, count_rad_12_p
 
         # def rad_count_dist(c1, c2, dist_metric='euclidean'):
         #     c1 = np.reshape(c1, (c1.shape[0], -1))
@@ -727,7 +731,7 @@ if __name__ == "__main__":
             # fig.tight_layout()
             # plt.show(block=False)
 
-            print('KNN-dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_val_trans, gen_trans, knn_val)))
+            print('KNN-dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_val_trans, gen_trans)))
             # print('KL: %f %f' % (np.mean(sp.stats.entropy(val_probas, gen_probas)), np.mean(sp.stats.entropy(gen_probas, val_probas))))
 
         # plt.show()

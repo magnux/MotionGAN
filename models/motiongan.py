@@ -215,9 +215,9 @@ class _MotionGAN(object):
             no_zero_frames = K.cast(K.greater_equal(K.abs(K.sum(real_seq, axis=(1, 3))), K.epsilon()), 'float32')
             no_zero_frames_edm = K.reshape(no_zero_frames, (no_zero_frames.shape[0], 1, 1, no_zero_frames.shape[1]))
 
-            if self.gan_type == 'wgan':
-                # WGAN Basic losses
-                with K.name_scope('gan_loss'):
+            with K.name_scope('gan_loss'):
+                if self.gan_type == 'wgan':
+                    # WGAN Basic losses
                     loss_real = _get_tensor(self.real_outputs, 'score_out')
                     loss_fake = _get_tensor(self.fake_outputs, 'score_out')
                     gan_losses['loss_real'] = K.mean(loss_real)  # K.mean(K.abs(loss_real))
@@ -241,9 +241,24 @@ class _MotionGAN(object):
                     gen_loss_gan = -loss_fake  # K.abs(loss_real - loss_fake) + (K.square(loss_fake) * 0.1)
                     gen_losses['gen_loss_gan'] = self.gan_scale_g * K.mean(gen_loss_gan)
 
-            elif self.gan_type == 'standard' or self.gan_type == 'no_gan':
-                # GAN Basic losses
-                with K.name_scope('gan_loss'):
+                elif self.gan_type == 'ralsgan':
+                    ### Relativistic average LSGAN
+                    Kone = K.ones((self.batch_size, 1), dtype='float32')
+                    loss_real = _get_tensor(self.real_outputs, 'score_out')
+                    loss_fake = _get_tensor(self.fake_outputs, 'score_out')
+                    gan_losses['loss_real'] = K.mean(loss_real)  # K.mean(K.abs(loss_real))
+                    gan_losses['loss_fake'] = K.mean(loss_fake)
+
+                    # Discriminator loss
+                    disc_loss_gan = (K.mean(K.square(loss_real - K.mean(loss_fake) - Kone)) + K.mean(K.square(loss_fake - K.mean(loss_real) + Kone)))/2
+                    disc_losses['disc_loss_gan'] = self.gan_scale_d * K.mean(disc_loss_gan)
+
+                    # Generator loss (You may want to resample again from real and fake data)
+                    gen_loss_gan = (K.mean(K.square(loss_fake - K.mean(loss_real) - Kone)) + K.mean(K.square(loss_real - K.mean(loss_fake) + Kone)))/2
+                    gen_losses['gen_loss_gan'] = self.gan_scale_g * K.mean(gen_loss_gan)
+
+                elif self.gan_type == 'standard' or self.gan_type == 'no_gan':
+                    # GAN Basic losses
                     Kone = K.ones((self.batch_size, 1), dtype='float32')
                     Kzero = K.zeros((self.batch_size, 1), dtype='float32')
                     loss_real = K.binary_crossentropy(Kone, _get_tensor(self.real_outputs, 'score_out'), True)

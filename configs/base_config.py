@@ -16,7 +16,7 @@
     'model_version': 'v1',
     # Dropout Rate
     'dropout': 0.0,
-    # Select GAN type: standard, wgan, no_gan (to disable GAN)
+    # Select GAN type: standard, ralsgan, wgan, no_gan (to disable GAN)
     'gan_type': 'standard',
     # Lambda for gradient penalty
     'lambda_grads': 1.0,

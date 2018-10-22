@@ -6,7 +6,7 @@ import numpy as np
 
 def Hbeta(D, beta):
     P = np.exp(-D * beta)
-    sumP = np.sum(P)
+    sumP = np.sum(P) + 1.0e-8
     H = np.log(sumP) + beta * np.sum(np.multiply(D, P)) / sumP
     P = P / sumP
     return H, P

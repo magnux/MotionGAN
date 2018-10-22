@@ -529,18 +529,20 @@ if __name__ == "__main__":
             labs_train[i * batch_size:(i+1) * batch_size] = labels[:, 0]
 
         # from layers.tsne import *
-        # from tensorflow.contrib.keras.api.keras.models import Sequential
-        # from tensorflow.contrib.keras.api.keras.layers import Dense
+        # from tensorflow.contrib.keras.api.keras.models import Model
+        # from tensorflow.contrib.keras.api.keras.layers import Input, Dense, Add
         # from tensorflow.contrib.keras.api.keras.optimizers import SGD
         #
         # X_train = np.reshape(seq_tails_train, (total_samples, -1))
-        # d = 2
+        # d = 2  # configs[0].num_actions
         #
-        # tsne_model = Sequential()
-        # tsne_model.add(Dense(512, activation='relu', input_shape=(X_train.shape[1],)))
-        # tsne_model.add(Dense(512, activation='relu'))
-        # tsne_model.add(Dense(512, activation='relu'))
-        # tsne_model.add(Dense(d))
+        # x_in = Input(shape=(X_train.shape[1],))
+        # x_out = Dense(512, activation='relu')(x_in)
+        # for i in range(2):
+        #     x_out_d = Dense(512, activation='relu')(x_out)
+        #     x_out = Add()([x_out_d, x_out])
+        # x_out = Dense(d)(x_out)
+        # tsne_model = Model(inputs=x_in, outputs=x_out)
         # tsne_model.compile(loss=build_tsne_loss(d, batch_size), optimizer=SGD(lr=0.1))
         #
         # P = compute_joint_probabilities(X_train, batch_size=batch_size, d=d, perplexity=25, tol=1e-5, verbose=0)
@@ -581,6 +583,9 @@ if __name__ == "__main__":
         def lda_transform(seqs):
             return lda.transform(np.reshape(seqs, (total_samples, -1)))
 
+        # def lda_transform(seqs):
+        #     return tsne_model.predict(np.reshape(seqs, (total_samples, -1)))
+
         seq_tails_train_trans = lda_transform(seq_tails_train)
         seq_tails_val_trans = lda_transform(seq_tails_val)
 
@@ -611,31 +616,30 @@ if __name__ == "__main__":
             # knn_dist_1 = np.mean(knn_1.kneighbors(c1)[0])
             # knn_dist_2 = np.mean(knn_2.kneighbors(c2)[0])
 
-            # rad_dist_1 = pred_dist - dist_mat_1
-            # rad_dist_1 = np.clip(rad_dist_1, a_min=0, a_max=None)
-            # count_rad_1 = np.count_nonzero(rad_dist_1, axis=1)
-            #
-            # rad_dist_2 = pred_dist - dist_mat_2
-            # rad_dist_2 = np.clip(rad_dist_2, a_min=0, a_max=None)
-            # count_rad_2 = np.count_nonzero(rad_dist_2, axis=1)
+            rad_dist_1 = (mean_dist_1 / 4) - dist_mat_1
+            rad_dist_1 = np.clip(rad_dist_1, a_min=0, a_max=None)
+            count_rad_1 = np.count_nonzero(rad_dist_1, axis=1)
+            count_rad_1 = np.mean(count_rad_1)
+
+            rad_dist_2 = (mean_dist_1 / 4) - dist_mat_2
+            rad_dist_2 = np.clip(rad_dist_2, a_min=0, a_max=None)
+            count_rad_2 = np.count_nonzero(rad_dist_2, axis=1)
+            count_rad_2 = np.mean(count_rad_2)
+
+            # rad_dist_12 = (mean_dist_1 / 4) - dist_mat_12
+            # rad_dist_12 = np.clip(rad_dist_12, a_min=0, a_max=None)
+            # count_rad_12 = np.count_nonzero(rad_dist_12, axis=0)
+            # count_rad_12 = np.mean(count_rad_12)
 
             rad_dist_12_m = min_dist - dist_mat_12
             rad_dist_12_m = np.clip(rad_dist_12_m, a_min=0, a_max=None)
             count_rad_12_m = np.count_nonzero(rad_dist_12_m, axis=0)
-
-            rad_dist_12_p = pred_dist - dist_mat_12
-            rad_dist_12_p = np.clip(rad_dist_12_p, a_min=0, a_max=None)
-            count_rad_12_p = np.count_nonzero(rad_dist_12_p, axis=0)
-
-            # count_rad_1 = np.mean(count_rad_1)
-            # count_rad_2 = np.mean(count_rad_2)
             count_rad_12_m = np.mean(count_rad_12_m)
-            count_rad_12_p = np.mean(count_rad_12_p)
 
             # knn_coeff = knn_dist_2 / knn_dist_1
-            # count_coeff = count_rad_2 / count_rad_1
-            # edm_coeff = mean_dist_2 / mean_dist_1
-            #
+            count_coeff = count_rad_2 / count_rad_1
+            edm_coeff = mean_dist_2 / mean_dist_1
+
             # prec_coeff = (pred_dist / mean_dist_1) + 1
             # dist_coeff = (min_dist / mean_dist_1) + 1
             #
@@ -643,7 +647,7 @@ if __name__ == "__main__":
             # acc_coeff = (1 / (np.abs(1 - (prec_coeff * dist_coeff)) + 1))
             # fit_coeff = dens_coeff * acc_coeff
 
-            return min_dist, pred_dist, count_rad_12_m, count_rad_12_p
+            return min_dist, pred_dist, edm_coeff, count_coeff, count_rad_12_m
 
         # def rad_count_dist(c1, c2, dist_metric='euclidean'):
         #     c1 = np.reshape(c1, (c1.shape[0], -1))
@@ -686,7 +690,7 @@ if __name__ == "__main__":
         # ax.grid(True)
         # fig.tight_layout()
         # plt.show(block=False)
-
+        #
         # fig, ax = plt.subplots()
         # for lab in sorted(set(labs_val)):
         #     idxs = labs_val == lab
@@ -698,7 +702,7 @@ if __name__ == "__main__":
         # ax.grid(True)
         # fig.tight_layout()
         # plt.show(block=False)
-
+        #
         # fig, ax = plt.subplots()
         # ax.scatter(seq_tails_train_trans[:, 0], seq_tails_train_trans[:, 1], marker='.', alpha=0.1, label='train')
         # ax.legend()
@@ -709,7 +713,7 @@ if __name__ == "__main__":
         # fig.tight_layout()
         # plt.show(block=False)
 
-        # print('KNN-dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_train_trans, seq_tails_val_trans, knn_train)))
+        print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_train_trans, seq_tails_val_trans)))
 
         # train_probas = lda.predict_proba(np.reshape(seq_tails_train, (total_samples, -1)))
         # val_probas = lda.predict_proba(np.reshape(seq_tails_val, (total_samples, -1)))
@@ -731,10 +735,11 @@ if __name__ == "__main__":
             # fig.tight_layout()
             # plt.show(block=False)
 
-            print('KNN-dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_val_trans, gen_trans)))
+            print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_val_trans, gen_trans)))
             # print('KL: %f %f' % (np.mean(sp.stats.entropy(val_probas, gen_probas)), np.mean(sp.stats.entropy(gen_probas, val_probas))))
 
         # plt.show()
+
         actions = ['Directions', 'Discussion', 'Eating', 'Greeting', 'Phoning',
                    'Posing', 'Purchases', 'Sitting', 'SittingDown', 'Smoking',
                    'Photo', 'Waiting', 'Walking', 'WalkDog', 'WalkTogether']
@@ -743,20 +748,20 @@ if __name__ == "__main__":
         for m, _ in enumerate(model_wraps):
             gen_tails_val_trans.append(lda_transform(gen_tails_val[m]))
 
-        # for lab in sorted(set(labs_train)):
-        #     print('\nAction: ' + actions[int(lab)])
-        #     idxs = labs_val == lab
-        #     trains_trans = seq_tails_train_trans[idxs, ...]
-        #     vals_trans = seq_tails_val_trans[idxs, ...]
+        for lab in sorted(set(labs_train)):
+            print('\nAction: ' + actions[int(lab)])
+            idxs = labs_val == lab
+            trains_trans = seq_tails_train_trans[idxs, ...]
+            vals_trans = seq_tails_val_trans[idxs, ...]
 
-            # print('KNN-dist: ' + ' '.join("%.4f" % x for x in compute_metrics(trains_trans, vals_trans, knn_train)))
+            print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(trains_trans, vals_trans)))
 
-            # for m, _ in enumerate(model_wraps):
-            #     print(configs[m].save_path)
-            #
-            #     vals_gen_trans = gen_tails_val_trans[m][idxs, ...]
-            #
-            #     print('KNN-dist: ' + ' '.join("%.4f" % x for x in compute_metrics(vals_trans, vals_gen_trans, knn_val)))
+            for m, _ in enumerate(model_wraps):
+                print(configs[m].save_path)
+
+                vals_gen_trans = gen_tails_val_trans[m][idxs, ...]
+
+                print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(vals_trans, vals_gen_trans)))
 
 
 

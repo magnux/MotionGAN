@@ -153,14 +153,33 @@ class DataInput(object):
         return seq_idx, subject, action, pose, plen
 
     def process_pose(self, pose):
-        plen = np.int32(pose.shape[2])
-
-        if pose.shape[1] > 3:
-            pose[:, 3, :] = (pose[:, 3, :] > 0).astype('float32')  # tracking state
-        else:
-            pose = np.concatenate([pose, np.ones((pose.shape[0], 1, pose.shape[2]))], axis=1)
+        # Remove nans
         pose[np.isnan(pose)] = 0
 
+        # Trim zero frames
+        pose_nz = pose[:, :3, :] != 0
+        plen = np.int32(pose.shape[2])
+        for f in range(plen):
+            if np.any(pose_nz[:, :, f]):
+                pose = pose[:, :, f:]
+                pose_nz = pose_nz[:, :, f:]
+                break
+
+        plen = np.int32(pose.shape[2])
+        for f in range(plen-1, 0, -1):
+            if np.any(pose_nz[:, :, f]):
+                pose = pose[:, :, :f+1]
+                break
+
+        plen = np.int32(pose.shape[2])
+
+        # Format tracking state
+        if pose.shape[1] > 3:
+            pose[:, 3, :] = (pose[:, 3, :] > 0).astype('float32')
+        else:
+            pose = np.concatenate([pose, np.ones((pose.shape[0], 1, pose.shape[2]))], axis=1)
+
+        # Dataset specific processing
         if self.data_set == 'NTURGBD':
             pose = pose[:25, :, :]  # Warning: only taking first skeleton
             pose[:, :3, :] = pose[:, :3, :] * 1.0e3  # Rescale to mm
@@ -193,7 +212,7 @@ class DataInput(object):
 
         if self.crop_len > 0:
             if self.crop_len >= plen:
-                pose = pose[:, :self.crop_len, :]
+                pose = pose[:, :self.crop_len, :]  # Warning, silent implicit 0-pad
             elif self.crop_len < plen:
                 indx = np.random.randint(0, plen - self.crop_len)
                 pose = pose[:, indx:indx + self.crop_len, :]
@@ -201,7 +220,7 @@ class DataInput(object):
 
         if self.pick_num > 0:
             if self.pick_num >= plen:
-                pose = pose[:, :self.pick_num, :]
+                pose = pose[:, :self.pick_num, :]  # Warning, silent implicit 0-pad
             elif self.pick_num < plen:
                 subplen = plen / self.pick_num
                 picks = np.random.randint(0, subplen, size=(self.pick_num)) + \
@@ -209,7 +228,7 @@ class DataInput(object):
                 pose = pose[:, picks, :]
             plen = np.int32(self.pick_num)
 
-        return pose  #, plen
+        return pose, plen
 
     def sub_sample_batch(self, batch, is_training):
         labs_batch, poses_batch = batch
@@ -220,7 +239,7 @@ class DataInput(object):
             new_labs_batch[:, :3] = labs_batch[:, :3]
             new_labs_batch[:, 3] = self.pshape[1]
             for i in range(self.batch_size):
-                new_poses_batch[i, ...] = self.sub_sample_pose(poses_batch[i, ...], labs_batch[i, 3])
+                new_poses_batch[i, ...], _new_plen = self.sub_sample_pose(poses_batch[i, ...], labs_batch[i, 3])
 
             labs_batch = new_labs_batch
             poses_batch = new_poses_batch

@@ -97,7 +97,7 @@ if __name__ == "__main__":
 
         mask_batch = poses_batch[..., 3, np.newaxis]
         mask_batch = mask_batch * gen_mask(FLAGS.mask_mode, FLAGS.keep_prob,
-                                           batch_size, njoints, seq_len, body_members, True)
+                                           batch_size, njoints, seq_len, body_members, False)
         poses_batch = poses_batch[..., :3]
 
         gen_inputs = [poses_batch, mask_batch]
@@ -111,7 +111,7 @@ if __name__ == "__main__":
             labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
 
             gen_outputs = []
-            proc_gen_outputs = []
+            # proc_gen_outputs = []
             for m, model_wrap in enumerate(model_wraps):
                 if configs[m].action_cond:
                     gen_inputs.append(labels)
@@ -119,14 +119,14 @@ if __name__ == "__main__":
                 if configs[m].action_cond:
                     gen_inputs.pop(-1)
                 proc_gen_output = np.empty_like(gen_output)
-                for j in range(batch_size):
-                    proc_gen_output[j, ...] = post_process(poses_batch[j, ...], gen_output[j, ...],
-                                                      mask_batch[j, ...], body_members)
+                # for j in range(batch_size):
+                #     proc_gen_output[j, ...] = post_process(poses_batch[j, ...], gen_output[j, ...],
+                #                                       mask_batch[j, ...], body_members)
                 if configs[m].normalize_data:
                     gen_output = data_input.unnormalize_poses(gen_output)
                     proc_gen_output = data_input.unnormalize_poses(proc_gen_output)
                 gen_outputs.append(gen_output)
-                proc_gen_outputs.append(proc_gen_output)
+                # proc_gen_outputs.append(proc_gen_output)
 
             if configs[0].normalize_data:
                 poses_batch = data_input.unnormalize_poses(poses_batch)
@@ -150,16 +150,16 @@ if __name__ == "__main__":
                     figwidth = 768
                     figheight = 384 * 3
 
-                linear_seq =\
-                    linear_baseline(poses_batch[seq_idx, ...], mask_batch[seq_idx, ...])
-                linear_seq = np.expand_dims(linear_seq, 0)
-                burke_seq = \
-                    burke_baseline(poses_batch[seq_idx, ...], mask_batch[seq_idx, ...])
-                burke_seq = np.expand_dims(burke_seq, 0)
+                # linear_seq =\
+                #     linear_baseline(poses_batch[seq_idx, ...], mask_batch[seq_idx, ...])
+                # linear_seq = np.expand_dims(linear_seq, 0)
+                # burke_seq = \
+                #     burke_baseline(poses_batch[seq_idx, ...], mask_batch[seq_idx, ...])
+                # burke_seq = np.expand_dims(burke_seq, 0)
 
-                plot_func(np.concatenate([poses_batch[np.newaxis, seq_idx, ...], linear_seq, burke_seq] +
-                                         [gen_output[np.newaxis, seq_idx, ...] for gen_output in gen_outputs] +
-                                         [proc_gen_output[np.newaxis, seq_idx, ...] for proc_gen_output in proc_gen_outputs]),
+                plot_func(np.concatenate([poses_batch[np.newaxis, seq_idx, ...]] + # [poses_batch[np.newaxis, seq_idx, ...], linear_seq, burke_seq]
+                                         [gen_output[np.newaxis, seq_idx, ...] for gen_output in gen_outputs] ) # +
+                                         , #  [proc_gen_output[np.newaxis, seq_idx, ...] for proc_gen_output in proc_gen_outputs])
                           labs_batch[seq_idx, ...],
                           configs[0].data_set,
                           seq_masks=mask_batch[seq_idx, ...],
@@ -520,7 +520,7 @@ if __name__ == "__main__":
             mask_batch = poses_batch[..., 3, np.newaxis]
             mask_batch = mask_batch * gen_mask(FLAGS.mask_mode, FLAGS.keep_prob,
                                                batch_size, njoints, seq_len,
-                                               body_members, True)
+                                               body_members, False)
             poses_batch = poses_batch[..., :3]
 
             labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
@@ -647,7 +647,12 @@ if __name__ == "__main__":
             # acc_coeff = (1 / (np.abs(1 - (prec_coeff * dist_coeff)) + 1))
             # fit_coeff = dens_coeff * acc_coeff
 
-            return min_dist, pred_dist, edm_coeff, count_coeff, count_rad_12_m
+            # p_corr, p_corr_pval = sp.stats.pearsonr(c1, c2)
+            s_corr, s_corr_pval = sp.stats.spearmanr(c1, c2)
+            s_corr = np.sum(np.diag(s_corr))
+            s_corr_pval = np.sum(np.diag(s_corr_pval))
+
+            return min_dist, pred_dist, edm_coeff, count_coeff, count_rad_12_m, s_corr, s_corr_pval
 
         # def rad_count_dist(c1, c2, dist_metric='euclidean'):
         #     c1 = np.reshape(c1, (c1.shape[0], -1))
@@ -740,28 +745,28 @@ if __name__ == "__main__":
 
         # plt.show()
 
-        actions = ['Directions', 'Discussion', 'Eating', 'Greeting', 'Phoning',
-                   'Posing', 'Purchases', 'Sitting', 'SittingDown', 'Smoking',
-                   'Photo', 'Waiting', 'Walking', 'WalkDog', 'WalkTogether']
-
-        gen_tails_val_trans = []
-        for m, _ in enumerate(model_wraps):
-            gen_tails_val_trans.append(lda_transform(gen_tails_val[m]))
-
-        for lab in sorted(set(labs_train)):
-            print('\nAction: ' + actions[int(lab)])
-            idxs = labs_val == lab
-            trains_trans = seq_tails_train_trans[idxs, ...]
-            vals_trans = seq_tails_val_trans[idxs, ...]
-
-            print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(trains_trans, vals_trans)))
-
-            for m, _ in enumerate(model_wraps):
-                print(configs[m].save_path)
-
-                vals_gen_trans = gen_tails_val_trans[m][idxs, ...]
-
-                print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(vals_trans, vals_gen_trans)))
+        # actions = ['Directions', 'Discussion', 'Eating', 'Greeting', 'Phoning',
+        #            'Posing', 'Purchases', 'Sitting', 'SittingDown', 'Smoking',
+        #            'Photo', 'Waiting', 'Walking', 'WalkDog', 'WalkTogether']
+        #
+        # gen_tails_val_trans = []
+        # for m, _ in enumerate(model_wraps):
+        #     gen_tails_val_trans.append(lda_transform(gen_tails_val[m]))
+        #
+        # for lab in sorted(set(labs_train)):
+        #     print('\nAction: ' + actions[int(lab)])
+        #     idxs = labs_val == lab
+        #     trains_trans = seq_tails_train_trans[idxs, ...]
+        #     vals_trans = seq_tails_val_trans[idxs, ...]
+        #
+        #     print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(trains_trans, vals_trans)))
+        #
+        #     for m, _ in enumerate(model_wraps):
+        #         print(configs[m].save_path)
+        #
+        #         vals_gen_trans = gen_tails_val_trans[m][idxs, ...]
+        #
+        #         print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(vals_trans, vals_gen_trans)))
 
 
 

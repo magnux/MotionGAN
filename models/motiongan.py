@@ -59,7 +59,7 @@ class _MotionGAN(object):
         self.gan_type = config.gan_type
         self.gan_scale_d = 10.0 * config.loss_factor
         self.gan_scale_g = 10.0 * config.loss_factor * (0.0 if self.gan_type == 'no_gan' else 1.0)
-        self.rec_scale = 1.0   # if 'expmaps' not in self.data_set else 10.0
+        self.rec_scale = config.rec_scale
         self.latent_cond_dim = config.latent_cond_dim
         self.latent_scale_d = 10.0
         self.latent_scale_g = 1.0
@@ -70,7 +70,7 @@ class _MotionGAN(object):
         self.coherence_loss = config.coherence_loss
         self.coherence_scale = 1.0
         self.shape_loss = config.shape_loss
-        self.shape_scale = 1.0
+        self.shape_scale = config.shape_scale
         self.smoothing_loss = config.smoothing_loss
         self.smoothing_scale = 20.0
         self.smoothing_basis = 5

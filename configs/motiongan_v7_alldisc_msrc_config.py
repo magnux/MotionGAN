@@ -11,6 +11,12 @@
     'shape_loss': True,
     # Shape loss factor
     'shape_scale': 0.05,
+    # Coherence on generated sequences loss
+    # 'coherence_loss': True,
+    # Translate sequence starting point to 0,0,0
+    'translate_start': True,
+    # Rotate sequence starting point
+    # 'rotate_start': True,
     # Augment data on training
     'augment_data': True,
     # Activate dmnn discriminator

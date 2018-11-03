@@ -182,11 +182,13 @@ class DataInput(object):
         # Dataset specific processing
         if self.data_set == 'NTURGBD':
             pose = pose[:25, :, :]  # Warning: only taking first skeleton
+            pose[:, :3, :] -= pose[0, np.newaxis, :3, 0, np.newaxis]  # Recentering sequence by hip start position
             pose[:, :3, :] = pose[:, :3, :] * 1.0e3  # Rescale to mm
             pose_1 = pose[:, 1, :].copy()
             pose[:, 1, :] = pose[:, 2, :]  # Swapping Y-Z coords
             pose[:, 2, :] = pose_1
         elif self.data_set == 'MSRC12':
+            pose[:, :3, :] -= pose[0, np.newaxis, :3, 0, np.newaxis]  # Recentering sequence by hip start position
             pose[:, :3, :] = pose[:, :3, :] * 1.0e3  # Rescale to mm
             pose_1 = pose[:, 1, :].copy()
             pose[:, 1, :] = pose[:, 2, :]  # Swapping Y-Z coords

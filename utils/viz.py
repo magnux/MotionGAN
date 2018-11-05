@@ -325,7 +325,7 @@ def plot_seq_pano(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pa
     obs = []
     for i in range(n_seqs):
         ax = fig.add_subplot(n_rows, n_cols, i + 1, projection='3d')
-        ax.view_init(elev=30, azim=-30)
+        ax.view_init(elev=0, azim=-90)
         ob = Ax3DPose(ax, data_set)
         axs.append(ax)
         obs.append(ob)
@@ -341,10 +341,10 @@ def plot_seq_pano(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pa
         axs[i].set_xlabel("time")
         axs[i].set_ylabel("y")
         axs[i].set_zlabel("z")
-        r = 1
+        r = 1000
 
-        yroot, zroot = 0, seqs[i, 0, 0, 0]
-        axs[i].set_xlim3d([-r, r + pano_len])
+        yroot, zroot = 0, seqs[i, 0, 0, 2]
+        axs[i].set_xlim3d([0, r * pano_len])
         axs[i].set_zlim3d([-r + zroot, r + zroot])
         axs[i].set_ylim3d([-r + yroot, r + yroot])
         axs[i].set_aspect('equal')
@@ -358,7 +358,7 @@ def plot_seq_pano(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pa
 
         for f in range(seq_len):
             x_hip = seqs[i, 0, f, 0]
-            f_pos = (f / seq_len) * pano_len
+            f_pos = (f / seq_len) * pano_len * r
 
             for member in body_members.values():
                 for j in range(len(member['joints']) - 1):

@@ -143,12 +143,12 @@ if __name__ == "__main__":
 
                 if FLAGS.images_mode == "gif":
                     plot_func = plot_seq_gif
-                    figwidth = 384 * 3
-                    figheight = 384 * (len(configs) + 1)
+                    figwidth = 256 * (len(configs) + 1)
+                    figheight = 256
                 elif FLAGS.images_mode == "png":
                     plot_func = plot_seq_pano
                     figwidth = 768
-                    figheight = 384 * 3
+                    figheight = 256 * (len(configs) + 1)
 
                 # linear_seq =\
                 #     linear_baseline(poses_batch[seq_idx, ...], mask_batch[seq_idx, ...])

@@ -649,8 +649,8 @@ if __name__ == "__main__":
 
             # p_corr, p_corr_pval = sp.stats.pearsonr(c1, c2)
             s_corr, s_corr_pval = sp.stats.spearmanr(c1, c2)
-            s_corr = np.sum(np.diag(s_corr))
-            s_corr_pval = np.sum(np.diag(s_corr_pval))
+            s_corr = np.sum(np.diag(s_corr, k=(s_corr.shape[1]//2)))
+            s_corr_pval = np.sum(np.diag(s_corr_pval, k=(s_corr_pval.shape[1]//2)))
 
             return min_dist, pred_dist, edm_coeff, count_coeff, count_rad_12_m, s_corr, s_corr_pval
 
@@ -718,7 +718,7 @@ if __name__ == "__main__":
         # fig.tight_layout()
         # plt.show(block=False)
 
-        print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_train_trans, seq_tails_val_trans)))
+        print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_val_trans, seq_tails_val_trans)))
 
         # train_probas = lda.predict_proba(np.reshape(seq_tails_train, (total_samples, -1)))
         # val_probas = lda.predict_proba(np.reshape(seq_tails_val, (total_samples, -1)))

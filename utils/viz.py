@@ -258,6 +258,8 @@ def plot_seq_gif(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pat
         fig.text(0.1, 0.1, extra_text)
 
     def update(frame):
+        if frame >= seq_len:
+            return
         for i in range(n_seqs):
             mask = None
             if seq_masks is not None:
@@ -275,7 +277,7 @@ def plot_seq_gif(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pat
         frame_counter.set_text('frame: %d' % frame)
         frame_counter.set_color('red' if frame > seq_len // 2 else 'blue')
 
-    anim = FuncAnimation(fig, update, frames=np.arange(0, seq_len), interval=100, repeat_delay=1000)
+    anim = FuncAnimation(fig, update, frames=np.arange(0, seq_len + 10), interval=100, repeat_delay=1000)
     if save_path is not None:
         anim.save(save_path, dpi=dpi, writer='imagemagick')
     else:

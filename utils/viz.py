@@ -213,12 +213,13 @@ def plot_seq_gif(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pat
 
     actions_l, njoints, body_members = select_dataset(data_set)
 
-    if len(labs.shape) > 1 and labs.shape[0] == seqs.shape[0]:
-        labs_mode = "multi"
-    else:
-        assert labs.shape[0] == 4, \
-            "seqs and labs len must match or be a single lab"
-        labs_mode = "single"
+    if labs is not None:
+        if len(labs.shape) > 1 and labs.shape[0] == seqs.shape[0]:
+            labs_mode = "multi"
+        else:
+            assert labs.shape[0] == 4, \
+                "seqs and labs len must match or be a single lab"
+            labs_mode = "single"
 
     if seq_masks is not None:
         if len(seq_masks.shape) > 3 and seq_masks.shape[0] == seqs.shape[0]:
@@ -234,12 +235,13 @@ def plot_seq_gif(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pat
 
     fig = plt.figure(figsize=(figwidth / dpi, figheight / dpi), dpi=dpi)
 
-    title = 'Plotting samples from %s dataset' % data_set
-    if labs_mode == "single":
-        seq_idx, subject, action, plen = labs
-        title += "\n action: %s  subject: %d  seq_idx: %d  length: %d" % \
-                  (actions_l[action], subject, seq_idx, plen)
-    fig.suptitle(title)
+    if labs is not None:
+        title = 'Plotting samples from %s dataset' % data_set
+        if labs_mode == "single":
+            seq_idx, subject, action, plen = labs
+            title += "\n action: %s  subject: %d  seq_idx: %d  length: %d" % \
+                      (actions_l[action], subject, seq_idx, plen)
+        fig.suptitle(title)
 
     axs = []
     obs = []
@@ -251,7 +253,7 @@ def plot_seq_gif(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pat
         obs.append(ob)
 
     seq_len = seqs.shape[2]
-    frame_counter = fig.text(0.9, 0.1, 'frame: 0')
+    frame_counter = fig.text(0.9 if labs is not None else 0.05, 0.1 if labs is not None else 0.95, 'frame: 0')
     if extra_text is not None:
         fig.text(0.1, 0.1, extra_text)
 
@@ -264,13 +266,16 @@ def plot_seq_gif(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pat
                 elif mask_mode == "multi":
                     mask = seq_masks[i, :, frame, 0]
             obs[i].update(seqs[i, :, frame, :], mask)
-            if labs_mode == "multi":
-                seq_idx, subject, action, plen = labs[i, ...]
-                axs[i].set_xlabel('idx: %d \n act: %s' % (seq_idx, actions_l[action]))
+            if labs is not None:
+                if labs_mode == "multi":
+                    seq_idx, subject, action, plen = labs[i, ...]
+                    axs[i].set_xlabel('idx: %d \n act: %s' % (seq_idx, actions_l[action]))
+            else:
+                axs[i].set_xlabel('sequence %d' % i)
         frame_counter.set_text('frame: %d' % frame)
         frame_counter.set_color('red' if frame > seq_len // 2 else 'blue')
 
-    anim = FuncAnimation(fig, update, frames=np.arange(0, seq_len), interval=100)
+    anim = FuncAnimation(fig, update, frames=np.arange(0, seq_len), interval=100, repeat_delay=1000)
     if save_path is not None:
         anim.save(save_path, dpi=dpi, writer='imagemagick')
     else:
@@ -293,12 +298,13 @@ def plot_seq_pano(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pa
 
     actions_l, njoints, body_members = select_dataset(data_set)
 
-    if labs.shape[0] == seqs.shape[0]:
-        labs_mode = "multi"
-    else:
-        assert labs.shape[0] == 4, \
-            "seqs and labs len must match or be a single lab"
-        labs_mode = "single"
+    if labs is not None:
+        if labs.shape[0] == seqs.shape[0]:
+            labs_mode = "multi"
+        else:
+            assert labs.shape[0] == 4, \
+                "seqs and labs len must match or be a single lab"
+            labs_mode = "single"
 
     if seq_masks is not None:
         if seq_masks.shape[0] == seqs.shape[0]:
@@ -314,12 +320,13 @@ def plot_seq_pano(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pa
 
     fig = plt.figure(figsize=(figwidth / dpi, figheight / dpi), dpi=dpi, tight_layout={'pad':0, 'h_pad':0, 'w_pad':0})
 
-    title = 'Plotting samples from %s dataset' % data_set
-    if labs_mode == "single":
-        seq_idx, subject, action, plen = labs
-        title += "\n action: %s  subject: %d  seq_idx: %d  length: %d" % \
-                  (actions_l[action], subject, seq_idx, plen)
-    fig.suptitle(title)
+    if labs is not None:
+        title = 'Plotting samples from %s dataset' % data_set
+        if labs_mode == "single":
+            seq_idx, subject, action, plen = labs
+            title += "\n action: %s  subject: %d  seq_idx: %d  length: %d" % \
+                      (actions_l[action], subject, seq_idx, plen)
+        fig.suptitle(title)
 
     axs = []
     obs = []

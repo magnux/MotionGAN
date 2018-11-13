@@ -9,7 +9,7 @@ from models.motiongan import get_model
 from models.dmnn import DMNNv1
 from utils.restore_keras_model import restore_keras_model
 from utils.viz import plot_seq_gif, plot_seq_pano
-from utils.seq_utils import MASK_MODES, gen_mask, linear_baseline, burke_baseline, post_process, seq_to_angles_transformer, get_angles_mask, gen_latent_noise
+from utils.seq_utils import MASK_MODES, gen_mask, linear_baseline, burke_baseline, post_process, seq_to_angles_transformer, get_angles_mask, gen_latent_noise, _some_variables, fkl
 import h5py as h5
 from tqdm import trange
 from collections import OrderedDict
@@ -37,8 +37,12 @@ def _reset_rand_seed():
 if __name__ == "__main__":
     _reset_rand_seed()
     # Config stuff
-    batch_size = 1 if ((not "dmnn_score" in FLAGS.test_mode) and
-                       (not "dist_compare" in FLAGS.test_mode)) else 256
+    batch_size = 1
+    if "dmnn_score" in FLAGS.test_mode or "dist_compare" in FLAGS.test_mode:
+        batch_size = 256
+    elif "plot_survey" in FLAGS.test_mode:
+        batch_size = 120
+
     configs = []
     model_wraps = []
     # Hacks to fill undefined, but necessary flags
@@ -81,9 +85,9 @@ if __name__ == "__main__":
     val_batches = data_input.val_epoch_size
     val_generator = data_input.batch_generator(False)
 
-    if FLAGS.test_mode == "write_images":
+    if FLAGS.test_mode == "write_images" or FLAGS.test_mode == "plot_survey":
         images_path = "%s_test_images_%s/" % \
-                      ('_'.join(FLAGS.model_path), FLAGS.images_mode)
+                      (configs[0].save_path, FLAGS.images_mode)
         if not tf.gfile.Exists(images_path):
             tf.gfile.MkDir(images_path)
 
@@ -118,13 +122,13 @@ if __name__ == "__main__":
                 gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
                 if configs[m].action_cond:
                     gen_inputs.pop(-1)
-                proc_gen_output = np.empty_like(gen_output)
+                # proc_gen_output = np.empty_like(gen_output)
                 # for j in range(batch_size):
                 #     proc_gen_output[j, ...] = post_process(poses_batch[j, ...], gen_output[j, ...],
                 #                                       mask_batch[j, ...], body_members)
                 if configs[m].normalize_data:
                     gen_output = data_input.unnormalize_poses(gen_output)
-                    proc_gen_output = data_input.unnormalize_poses(proc_gen_output)
+                    # proc_gen_output = data_input.unnormalize_poses(proc_gen_output)
                 gen_outputs.append(gen_output)
                 # proc_gen_outputs.append(proc_gen_output)
 
@@ -575,6 +579,25 @@ if __name__ == "__main__":
             seq_tails_val[i * batch_size:(i+1) * batch_size, ...] = poses_batch[:, :, seq_len // 2:, :]
             labs_val[i * batch_size:(i+1) * batch_size] = labels[:, 0]
 
+
+        # def edm(x, y=None):
+        #     y = x if y is None else y
+        #     x = np.expand_dims(x, axis=1)
+        #     y = np.expand_dims(y, axis=2)
+        #     return np.sqrt(np.sum(np.square(x - y), axis=-1))
+        #
+        # def flat_edm(x):
+        #     idxs = np.triu_indices(x.shape[1], k=1)
+        #     x_edm = edm(x)
+        #     x_edm = x_edm[:, idxs[0], idxs[1], :]
+        #     # x_edm = x_edm[:, :, 1:] - x_edm[:, :, :-1]  # To work on diffs
+        #     x_edm = np.reshape(x_edm, (total_samples, -1))
+        #     return x_edm
+        #
+        #
+        # seq_tails_train_edm = flat_edm(seq_tails_train)
+        # seq_tails_val_edm = flat_edm(seq_tails_val)
+
         from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
         lda = LinearDiscriminantAnalysis()
         lda.fit(np.reshape(seq_tails_train, (total_samples, -1)), labs_train)
@@ -649,8 +672,8 @@ if __name__ == "__main__":
 
             # p_corr, p_corr_pval = sp.stats.pearsonr(c1, c2)
             s_corr, s_corr_pval = sp.stats.spearmanr(c1, c2)
-            s_corr = np.sum(np.diag(s_corr, k=(s_corr.shape[1]//2)))
-            s_corr_pval = np.sum(np.diag(s_corr_pval, k=(s_corr_pval.shape[1]//2)))
+            s_corr = np.mean(np.diag(s_corr, k=(s_corr.shape[1]//2)))
+            s_corr_pval = np.mean(np.diag(s_corr_pval, k=(s_corr_pval.shape[1]//2)))
 
             return min_dist, pred_dist, edm_coeff, count_coeff, count_rad_12_m, s_corr, s_corr_pval
 
@@ -718,6 +741,7 @@ if __name__ == "__main__":
         # fig.tight_layout()
         # plt.show(block=False)
 
+        # Checking sanity of metric
         print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_val_trans, seq_tails_val_trans)))
 
         # train_probas = lda.predict_proba(np.reshape(seq_tails_train, (total_samples, -1)))
@@ -767,6 +791,141 @@ if __name__ == "__main__":
         #         vals_gen_trans = gen_tails_val_trans[m][idxs, ...]
         #
         #         print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(vals_trans, vals_gen_trans)))
+
+    elif FLAGS.test_mode == "plot_survey":
+
+        print('models loaded in the following order:')
+        for config in configs:
+            print(config.save_path)
+
+        print('expecting nogan baseline as 0 and complex model as 1')
+
+        from utils.human36_expmaps_to_h5 import actions
+        h36_coords_used_joints = [0, 1, 2, 3, 6, 7, 8, 12, 13, 14, 15, 17, 18, 19, 25, 26, 27]
+        parent, offset, rotInd, expmapInd = _some_variables()
+
+        def subsample(seq):
+            return seq[range(0, int(seq.shape[0]), 5), :]
+
+        def to_coords(seq_angles):
+            seq_coords = np.empty((1, len(h36_coords_used_joints), seq_angles.shape[0], 3))
+            for i in range(seq_angles.shape[0]):
+                frame_coords = fkl(seq_angles[i, :], parent, offset, rotInd, expmapInd)
+                seq_coords[0, :, i, :] = frame_coords[h36_coords_used_joints, :]
+            seq_coords[..., 1] = seq_coords[..., 1] * -1  # Inverting y axis for visualization purposes
+            return seq_coords
+
+        def gen_batch(mask_mode, keep_prob):
+            FLAGS.mask_mode = mask_mode
+            FLAGS.keep_prob = keep_prob
+
+            labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
+            labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
+
+            gen_outputs = []
+            for m, model_wrap in enumerate(model_wraps):
+                if configs[m].action_cond:
+                    gen_inputs.append(labels)
+                gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
+                if configs[m].action_cond:
+                    gen_inputs.pop(-1)
+                if configs[m].normalize_data:
+                    gen_output = data_input.unnormalize_poses(gen_output)
+                gen_outputs.append(gen_output)
+
+            if configs[0].normalize_data:
+                poses_batch = data_input.unnormalize_poses(poses_batch)
+
+            return poses_batch, mask_batch, gen_outputs
+
+        print("plotting survey 0")
+        # Generating Martinez etal baseline
+
+        order = np.random.binomial(1, 0.5, size=batch_size)
+        np.savetxt(images_path + "survey_0_order.csv", order, delimiter=",")
+
+        with h5.File('../human-motion-prediction/samples.h5', "r") as sample_file:
+            for act_idx, action in enumerate(actions):
+                pred_len = seq_len // 2
+                mean_errors_hmp = np.zeros((8, pred_len))
+                mean_errors_mg = np.zeros((8, pred_len))
+                for i in np.arange(8):
+                    seq_idx = (act_idx * 8) + i
+
+                    encoder_inputs = np.array(sample_file['expmap/encoder_inputs/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    decoder_inputs = np.array(sample_file['expmap/decoder_inputs/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    # decoder_outputs = np.array(sample_file['expmap/decoder_outputs/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    input_seeds_sact = np.int32(sample_file['expmap/input_seeds_sact/{1}_{0}'.format(i, action)])
+                    input_seeds_idx = np.int32(sample_file['expmap/input_seeds_idx/{1}_{0}'.format(i, action)])
+                    input_seeds_seqlen = np.int32(sample_file['expmap/input_seeds_seqlen/{1}_{0}'.format(i, action)])
+
+                    seq_angles = np.concatenate([encoder_inputs, decoder_inputs[np.newaxis, 0, :]], axis=0)
+                    # seq_angles = np.concatenate([encoder_inputs, decoder_inputs[np.newaxis, 0, :], decoder_outputs], axis=0)
+                    # seq_angles = subsample(seq_angles)
+                    # seq_angles = seq_angles[10 - pred_len:10 + pred_len, :]
+
+                    expmap_gt = np.array(sample_file['expmap/gt/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    expmap_gt = np.concatenate([seq_angles, expmap_gt], axis=0)
+                    expmap_gt = subsample(expmap_gt)
+                    expmap_gt = expmap_gt[10 - pred_len:10 + pred_len, :]
+                    coords_gt = to_coords(expmap_gt)
+
+                    expmap_hmp = np.array(sample_file['expmap/preds/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    expmap_hmp = np.concatenate([seq_angles, expmap_hmp], axis=0)
+                    expmap_hmp = subsample(expmap_hmp)
+                    expmap_hmp = expmap_hmp[10 - pred_len:10 + pred_len, :]
+                    coords_gen = to_coords(expmap_hmp)
+
+                    # labs_batch = np.array([input_seeds_idx, 6, act_idx, input_seeds_seqlen])
+
+                    if order[seq_idx] == 0:
+                        coords = np.concatenate([coords_gt, coords_gen])
+                    else:
+                        coords = np.concatenate([coords_gen, coords_gt])
+                    save_path = images_path + ("survey_0_%03d.gif" % seq_idx)
+                    plot_seq_gif(coords, None, configs[0].data_set, save_path=save_path, figwidth=512, figheight=256)
+
+        print("plotting survey 1")
+        order = np.random.binomial(1, 0.5, size=batch_size)
+        np.savetxt(images_path + "survey_1_order.csv", order, delimiter=",")
+
+        coords_gt, _, gen_outputs = gen_batch(1, 0.5)
+
+        coords_gt = coords_gt - coords_gt[:, 0, np.newaxis, :, :]
+        coords_gen = gen_outputs[1] - gen_outputs[1][:, 0, np.newaxis, :, :]
+
+        for seq_idx in range(len(actions) * 8):
+            save_path = images_path + ("survey_1_%03d.gif" % seq_idx)
+            if order[seq_idx] == 0:
+                coords = np.concatenate([coords_gt[np.newaxis, seq_idx, ...], coords_gen[np.newaxis, seq_idx, ...]])
+            else:
+                coords = np.concatenate([coords_gen[np.newaxis, seq_idx, ...], coords_gt[np.newaxis, seq_idx, ...]])
+            plot_seq_gif(coords, None, configs[0].data_set, save_path=save_path, figwidth=512, figheight=256)
+
+
+        print("plotting survey 2 and 3")
+        order = np.random.binomial(1, 0.5, size=batch_size)
+        np.savetxt(images_path + "survey_2_order.csv", order, delimiter=",")
+        np.savetxt(images_path + "survey_3_order.csv", order, delimiter=",")
+
+        coords_gt, _, gen_outputs = gen_batch(1, 0.5)
+
+        coords_gen_0 = gen_outputs[0]
+        coords_gen_1 = gen_outputs[1]
+
+        for seq_idx in range(len(actions) * 8):
+            save_path_0 = images_path + ("survey_2_%03d.gif" % seq_idx)
+            save_path_1 = images_path + ("survey_3_%03d.gif" % seq_idx)
+
+            if order[seq_idx] == 0:
+                coords_0 = np.concatenate([coords_gt[np.newaxis, seq_idx, ...], coords_gen_0[np.newaxis, seq_idx, ...]])
+                coords_1 = np.concatenate([coords_gt[np.newaxis, seq_idx, ...], coords_gen_1[np.newaxis, seq_idx, ...]])
+            else:
+                coords_0 = np.concatenate([coords_gen_0[np.newaxis, seq_idx, ...], coords_gt[np.newaxis, seq_idx, ...]])
+                coords_1 = np.concatenate([coords_gen_1[np.newaxis, seq_idx, ...], coords_gt[np.newaxis, seq_idx, ...]])
+
+            plot_seq_gif(coords_0, None, configs[0].data_set, save_path=save_path_0, figwidth=512, figheight=256)
+            plot_seq_gif(coords_1, None, configs[0].data_set, save_path=save_path_1, figwidth=512, figheight=256)
 
 
 

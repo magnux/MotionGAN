@@ -309,8 +309,9 @@ def fkl(angles, parent, offset, rotInd, expmapInd):
     xyz = np.array(xyz).squeeze()
     xyz = xyz[:, [0, 2, 1]]
     # xyz = xyz[:,[2,0,1]]
+    # xyz = np.reshape(xyz, [-1])
 
-    return np.reshape(xyz, [-1])
+    return xyz
 
 
 def revert_coordinate_space(channels, R0, T0):

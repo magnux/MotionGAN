@@ -43,16 +43,16 @@ def rotate_vector_by_quaternion(q, v, q_ndims=None, v_ndims=None):
     q = q / qnorm
     w = q[..., 0]
     q_xyz = q[..., 1:]
-    if q_xyz.shape.ndims is not None:
-        q_ndims = q_xyz.shape.ndims
-    if v.shape.ndims is not None:
-        v_ndims = v.shape.ndims
+    if q_xyz.ndim is not None:
+        q_ndims = q_xyz.ndim
+    if v.ndim is not None:
+        v_ndims = v.ndim
     for _ in range(v_ndims - q_ndims):
         q_xyz = np.expand_dims(q_xyz, axis=0)
     for _ in range(q_ndims - v_ndims):
         v = np.expand_dims(v, axis=0) + np.zeros_like(q_xyz)
-    q_xyz += np.zeros_like(v)
-    v += np.zeros_like(q_xyz)
+    q_xyz = q_xyz + np.zeros_like(v)
+    v = v + np.zeros_like(q_xyz)
     t = 2 * np.cross(q_xyz, v)
     return v + np.expand_dims(w, axis=-1) * t + np.cross(q_xyz, t)
 

@@ -9,7 +9,7 @@ from models.motiongan import get_model
 from models.dmnn import DMNNv1
 from utils.restore_keras_model import restore_keras_model
 from utils.viz import plot_seq_gif, plot_seq_pano
-from utils.seq_utils import MASK_MODES, gen_mask, linear_baseline, burke_baseline, post_process, seq_to_angles_transformer, get_angles_mask, gen_latent_noise, _some_variables, fkl
+from utils.seq_utils import MASK_MODES, gen_mask, linear_baseline, burke_baseline, post_process, seq_to_angles_transformer, get_angles_mask, gen_latent_noise, _some_variables, fkl, rotate_start
 import h5py as h5
 from tqdm import trange
 from collections import OrderedDict
@@ -23,8 +23,8 @@ flags.DEFINE_multi_string("model_path", None, "Model output directory")
 flags.DEFINE_string("test_mode", "show_images", "Test modes: show_images, write_images, write_data, dmnn_score, dmnn_score_table, hmp_compare, dist_compare")
 flags.DEFINE_string("dmnn_path", None, "Path to trained DMNN model")
 flags.DEFINE_string("images_mode", "gif", "Image modes: gif, png")
-flags.DEFINE_integer("mask_mode", 3, "Mask modes: " + ' '.join(['%d:%s' % tup for tup in enumerate(MASK_MODES)]))
-flags.DEFINE_float("keep_prob", 0.8, "Probability of keeping input data. (1 == Keep All)")
+flags.DEFINE_integer("mask_mode", 1, "Mask modes: " + ' '.join(['%d:%s' % tup for tup in enumerate(MASK_MODES)]))
+flags.DEFINE_float("keep_prob", 0.5, "Probability of keeping input data. (1 == Keep All)")
 FLAGS = flags.FLAGS
 
 
@@ -372,13 +372,39 @@ if __name__ == "__main__":
             return npangles.rotmat_to_euler(npangles.expmap_to_rotmat(a))
 
         def euc_error(x, y):
-            return np.sqrt(np.sum(np.square(x - y), 1))
+            x = np.reshape(x, (x.shape[0], -1))
+            y = np.reshape(y, (y.shape[0], -1))
+            return np.sqrt(np.sum(np.square(x - y), 1)) / x.shape[1]
 
         def motion_error(x, y):
             return euc_error(x[1:, :] - x[:-1, :], y[1:, :] - y[:-1, :])
 
         def subsample(seq):
             return seq[range(0, int(seq.shape[0]), 5), :]
+
+        h36_coords_used_joints = [0, 1, 2, 3, 6, 7, 8, 12, 13, 14, 15, 17, 18, 19, 25, 26, 27]
+        parent, offset, rotInd, expmapInd = _some_variables()
+
+        def to_coords(seq_angles):
+            seq_coords = np.empty((1, len(h36_coords_used_joints), seq_angles.shape[0], 3))
+            for i in range(seq_angles.shape[0]):
+                frame_coords = fkl(seq_angles[i, :], parent, offset, rotInd, expmapInd)
+                seq_coords[0, :, i, :] = frame_coords[h36_coords_used_joints, :]
+            seq_coords[..., 1] = seq_coords[..., 1] * -1  # Inverting y axis for visualization purposes
+            return seq_coords
+
+        def edm(x, y=None):
+            y = x if y is None else y
+            x = np.expand_dims(x, axis=1)
+            y = np.expand_dims(y, axis=2)
+            return np.sqrt(np.sum(np.square(x - y), axis=-1))
+
+        def flat_edm(x):
+            idxs = np.triu_indices(x.shape[1], k=1)
+            x_edm = edm(x)
+            x_edm = x_edm[:, idxs[0], idxs[1], :]
+            x_edm = np.transpose(np.squeeze(x_edm, 0), (1, 0))
+            return x_edm
 
         with h5.File('../human-motion-prediction/samples.h5', "r") as sample_file:
             for act_idx, action in enumerate(actions):
@@ -396,13 +422,15 @@ if __name__ == "__main__":
                     # print(input_seeds_sact, input_seeds_idx)
 
                     expmap_gt = np.array(sample_file['expmap/gt/{1}_{0}'.format(i, action)], dtype=np.float32)
-                    # expmap_gt = expmap_gt[4:, ...]  # Our model predicts every 200ms, first frames are not compared
-                    # expmap_gt = subsample(expmap_gt)
+                    if 'expmaps' not in configs[0].data_set:
+                        expmap_gt = expmap_gt[4:, ...]  # Our model predicts every 200ms, first frames are not compared
+                        expmap_gt = subsample(expmap_gt)
                     expmap_gt = expmap_gt[:pred_len, ...]
 
                     expmap_hmp = np.array(sample_file['expmap/preds/{1}_{0}'.format(i, action)], dtype=np.float32)
-                    # expmap_hmp = expmap_hmp[4:, ...]
-                    # expmap_hmp = subsample(expmap_hmp)
+                    if 'expmaps' not in configs[0].data_set:
+                        expmap_hmp = expmap_hmp[4:, ...]
+                        expmap_hmp = subsample(expmap_hmp)
                     expmap_hmp = expmap_hmp[:pred_len, ...]
 
                     poses_batch = None
@@ -417,9 +445,9 @@ if __name__ == "__main__":
                             if np.int32(data_input.h5file[key + '/Action']) - 1 == act_idx:
                                 pose = np.array(data_input.h5file[key + '/Pose'], dtype=np.float32)
                                 pose, plen = data_input.process_pose(pose)
-                                if plen == input_seeds_seqlen:
-                                    pose = pose[:, input_seeds_idx:input_seeds_idx+100, :]
-                                    pose = pose[:, range(0, 100, 5), :]
+                                if np.ceil(plen / 2) == input_seeds_seqlen:
+                                    pose = pose[:, input_seeds_idx:input_seeds_idx+200, :]
+                                    pose = pose[:, range(0, 200, 10), :]
                                     poses_batch = np.reshape(pose, [batch_size] + data_input.pshape)
                                     poses_batch = poses_batch[..., :3]
                                     break
@@ -462,47 +490,55 @@ if __name__ == "__main__":
                         expmap_mg = angle_trans(gen_output)
                         expmap_pb = angle_trans(poses_batch)
 
-                    expmap_gt = np.reshape(expmap_gt, (pred_len, 33, 3))
-                    expmap_hmp = np.reshape(expmap_hmp, (pred_len, 33, 3))
-                    expmap_mg = np.squeeze(np.transpose(expmap_mg, (0, 2, 1, 3)), axis=0)
-                    expmap_pb = np.squeeze(np.transpose(expmap_pb, (0, 2, 1, 3)), axis=0)
-
-                    eul_gt = em2eul(expmap_gt)
-                    eul_hmp = em2eul(expmap_hmp)
-                    eul_mg = em2eul(expmap_mg)
-                    eul_pb = em2eul(expmap_pb)
-
-                    eul_gt = np.reshape(eul_gt, (pred_len, 99))
-                    eul_hmp = np.reshape(eul_hmp, (pred_len, 99))
-                    eul_mg = np.reshape(eul_mg, (pred_len * 2, int(eul_mg.shape[1]) * 3))
-                    eul_pb = np.reshape(eul_pb, (pred_len * 2, int(eul_pb.shape[1]) * 3))
-
-                    eul_hmp[:, 0:6] = 0
-                    idx_to_use = np.where(np.std(eul_hmp, 0) > 1e-4)[0]
-
-                    eul_gt = eul_gt[:, idx_to_use]
-                    eul_hmp = eul_hmp[:, idx_to_use]
-                    if 'expmaps' in configs[0].data_set:
-                        eul_mg = eul_mg[:, idx_to_use]
-                        eul_pb = eul_pb[:, idx_to_use]
+                    # expmap_gt = np.reshape(expmap_gt, (pred_len, 33, 3))
+                    # expmap_hmp = np.reshape(expmap_hmp, (pred_len, 33, 3))
+                    # expmap_mg = np.squeeze(np.transpose(expmap_mg, (0, 2, 1, 3)), axis=0)
+                    # expmap_pb = np.squeeze(np.transpose(expmap_pb, (0, 2, 1, 3)), axis=0)
+                    #
+                    # eul_gt = em2eul(expmap_gt)
+                    # eul_hmp = em2eul(expmap_hmp)
+                    # eul_mg = em2eul(expmap_mg)
+                    # eul_pb = em2eul(expmap_pb)
+                    #
+                    # eul_gt = np.reshape(eul_gt, (pred_len, 99))
+                    # eul_hmp = np.reshape(eul_hmp, (pred_len, 99))
+                    # eul_mg = np.reshape(eul_mg, (pred_len * 2, int(eul_mg.shape[1]) * 3))
+                    # eul_pb = np.reshape(eul_pb, (pred_len * 2, int(eul_pb.shape[1]) * 3))
+                    #
+                    # eul_hmp[:, 0:6] = 0
+                    # idx_to_use = np.where(np.std(eul_hmp, 0) > 1e-4)[0]
+                    #
+                    # eul_gt = eul_gt[:, idx_to_use]
+                    # eul_hmp = eul_hmp[:, idx_to_use]
+                    # if 'expmaps' in configs[0].data_set:
+                    #     eul_mg = eul_mg[:, idx_to_use]
+                    #     eul_pb = eul_pb[:, idx_to_use]
 
                         # gt_diff = np.sum(np.abs(eul_gt - eul_pb[pred_len:, :]))
                         # if gt_diff > 1e-4:
                         #     print("WARNING: gt differs more than it should : ", gt_diff)
 
-                    mean_errors_hmp[i, :] = euc_error(eul_gt, eul_hmp)
-                    mean_errors_mg[i, :] = euc_error(eul_pb[pred_len:, :], eul_mg[pred_len:, :])
+                    # mean_errors_hmp[i, :] = euc_error(eul_gt, eul_hmp)
+                    # mean_errors_mg[i, :] = euc_error(eul_pb[pred_len:, :], eul_mg[pred_len:, :])
 
-                rec_mean_mean_error = np.array(sample_file['mean_{0}_error'.format(action)], dtype=np.float32)
+                    coords_gt = flat_edm(to_coords(expmap_gt))
+                    coords_hmp = flat_edm(to_coords(expmap_hmp))
+                    coords_pb = flat_edm(poses_batch[:, :, pred_len:, :])
+                    coords_mg = flat_edm(gen_output[:, :, pred_len:, :])
+
+                    mean_errors_hmp[i, :] = euc_error(coords_gt, coords_hmp)
+                    mean_errors_mg[i, :] = euc_error(coords_pb, coords_mg)
+
+                # rec_mean_mean_error = np.array(sample_file['mean_{0}_error'.format(action)], dtype=np.float32)
                 # rec_mean_mean_error = rec_mean_mean_error[range(4, np.int(rec_mean_mean_error.shape[0]), 5)]
                 mean_mean_errors_hmp = np.mean(mean_errors_hmp, 0)
                 mean_mean_errors_mg = np.mean(mean_errors_mg, 0)
 
                 print(action)
-                err_strs = [(Fore.BLUE if np.mean(np.abs(err1 - err2)) < 1e-4 else Fore.YELLOW) + str(np.mean(err2))
-                            for err1, err2 in zip(rec_mean_mean_error, mean_mean_errors_hmp)]
+                # err_strs = [(Fore.BLUE if np.mean(np.abs(err1 - err2)) < 1e-4 else Fore.YELLOW) + str(np.mean(err1)) + ', ' + str(np.mean(err2))
+                #             for err1, err2 in zip(rec_mean_mean_error, mean_mean_errors_hmp)]
 
-                err_strs += [(Fore.GREEN if np.mean((err1 > err2).astype('float32')) > 0.5 else Fore.RED) + str(np.mean(err2))
+                err_strs = [(Fore.GREEN if np.mean((err1 > err2).astype('float32')) > 0.5 else Fore.RED) + str(np.mean(err1)) + ', ' + str(np.mean(err2))
                              for err1, err2 in zip(mean_mean_errors_hmp, mean_mean_errors_mg)]
 
                 for err_str in err_strs:
@@ -580,23 +616,25 @@ if __name__ == "__main__":
             labs_val[i * batch_size:(i+1) * batch_size] = labels[:, 0]
 
 
-        # def edm(x, y=None):
-        #     y = x if y is None else y
-        #     x = np.expand_dims(x, axis=1)
-        #     y = np.expand_dims(y, axis=2)
-        #     return np.sqrt(np.sum(np.square(x - y), axis=-1))
-        #
-        # def flat_edm(x):
-        #     idxs = np.triu_indices(x.shape[1], k=1)
-        #     x_edm = edm(x)
-        #     x_edm = x_edm[:, idxs[0], idxs[1], :]
-        #     # x_edm = x_edm[:, :, 1:] - x_edm[:, :, :-1]  # To work on diffs
-        #     x_edm = np.reshape(x_edm, (total_samples, -1))
-        #     return x_edm
-        #
-        #
-        # seq_tails_train_edm = flat_edm(seq_tails_train)
-        # seq_tails_val_edm = flat_edm(seq_tails_val)
+        def edm(x, y=None):
+            y = x if y is None else y
+            x = np.expand_dims(x, axis=1)
+            y = np.expand_dims(y, axis=2)
+            return np.sqrt(np.sum(np.square(x - y), axis=-1))
+
+        def flat_edm(x):
+            idxs = np.triu_indices(x.shape[1], k=1)
+            x_edm = edm(x)
+            x_edm = x_edm[:, idxs[0], idxs[1], :]
+            # x_edm = x_edm[:, :, 1:] - x_edm[:, :, :-1]  # To work on diffs
+            x_edm = np.reshape(x_edm, (x.shape[0], -1))
+            return x_edm
+
+        def translate_seq(seq):
+            return seq - seq[:, 0, np.newaxis, :, :]
+
+        # seq_tails_train, _ = rotate_start(seq_tails_train, body_members)
+        # seq_tails_val, _ = rotate_start(seq_tails_val, body_members)
 
         from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
         lda = LinearDiscriminantAnalysis()
@@ -604,7 +642,7 @@ if __name__ == "__main__":
         print(lda.explained_variance_ratio_)
 
         def lda_transform(seqs):
-            return lda.transform(np.reshape(seqs, (total_samples, -1)))
+            return lda.transform(np.reshape(seqs, (seqs.shape[0], -1)))
 
         # def lda_transform(seqs):
         #     return tsne_model.predict(np.reshape(seqs, (total_samples, -1)))
@@ -617,6 +655,11 @@ if __name__ == "__main__":
         def compute_metrics(c1, c2, dist_metric='euclidean'):
             c1 = np.reshape(c1, (c1.shape[0], -1))
             c2 = np.reshape(c2, (c2.shape[0], -1))
+
+            if c1.shape[0] > c2.shape[0]:
+                c1 = c1[:c2.shape[0], ...]
+            elif c2.shape[0] > c1.shape[0]:
+                c2 = c2[:c1.shape[0], ...]
 
             dist_mat_1 = sp.spatial.distance.cdist(c1, c1, metric=dist_metric)
             dist_mat_2 = sp.spatial.distance.cdist(c2, c2, metric=dist_metric)
@@ -743,6 +786,40 @@ if __name__ == "__main__":
 
         # Checking sanity of metric
         print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_val_trans, seq_tails_val_trans)))
+
+
+        # Baseline metric
+        from utils.human36_expmaps_to_h5 import actions
+
+        h36_coords_used_joints = [0, 1, 2, 3, 6, 7, 8, 12, 13, 14, 15, 17, 18, 19, 25, 26, 27]
+        parent, offset, rotInd, expmapInd = _some_variables()
+
+        def to_coords(seq_angles):
+            seq_coords = np.empty((1, len(h36_coords_used_joints), seq_angles.shape[0], 3))
+            for i in range(seq_angles.shape[0]):
+                frame_coords = fkl(seq_angles[i, :], parent, offset, rotInd, expmapInd)
+                seq_coords[0, :, i, :] = frame_coords[h36_coords_used_joints, :]
+            seq_coords[..., 1] = seq_coords[..., 1] * -1  # Inverting y axis for visualization purposes
+            return seq_coords
+
+        def subsample(seq):
+            return seq[range(0, int(seq.shape[0]), 5), :]
+
+        gen_tails_hmp = np.empty((len(actions) * 8, njoints, (seq_len // 2), 3))
+        with h5.File('../human-motion-prediction/samples.h5', "r") as sample_file:
+            for act_idx, action in enumerate(actions):
+                pred_len = seq_len // 2
+                mean_errors_hmp = np.zeros((8, pred_len))
+                mean_errors_mg = np.zeros((8, pred_len))
+                for i in np.arange(8):
+                    expmap_hmp = np.array(sample_file['expmap/preds/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    expmap_hmp = subsample(expmap_hmp)
+                    expmap_hmp = expmap_hmp[:10, :]
+                    gen_tails_hmp[(act_idx * 8) + i, ...] = to_coords(expmap_hmp)
+
+        gen_tails_hmp_trans = lda_transform(gen_tails_hmp)
+        print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_val_trans, gen_tails_hmp_trans)))
+
 
         # train_probas = lda.predict_proba(np.reshape(seq_tails_train, (total_samples, -1)))
         # val_probas = lda.predict_proba(np.reshape(seq_tails_val, (total_samples, -1)))

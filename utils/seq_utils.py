@@ -2,7 +2,7 @@ from __future__ import absolute_import, division, print_function
 import numpy as np
 import time
 import copy
-from utils.npangles import quaternion_between, quaternion_to_expmap, expmap_to_rotmat, rotmat_to_euler, rotmat_to_quaternion
+from utils.npangles import quaternion_between, quaternion_to_expmap, expmap_to_rotmat, rotmat_to_euler, rotmat_to_quaternion, rotate_vector_by_quaternion
 
 MASK_MODES = ('No mask', 'Future Prediction', 'Missing Frames', 'Occlusion Simulation', 'Structured Occlusion', 'Noisy Transmission')
 
@@ -422,3 +422,28 @@ def _some_variables():
     expmapInd = np.split(np.arange(4, 100) - 1, 32)
 
     return parent, offset, rotInd, expmapInd
+
+
+def rotate_start(x, body_members):
+    left_shoulder = body_members['left_arm']['joints'][1]
+    right_shoulder = body_members['right_arm']['joints'][1]
+    hip = body_members['torso']['joints'][0]
+    head_top = body_members['head']['joints'][-1]
+
+    base_shape = [int(d) for d in x.shape]
+    base_shape[1] = 1
+    base_shape[2] = 1
+
+    coords_list = np.split(x[:, :, 0, :], x.shape[1], axis=1)
+    torso_rot = np.cross(coords_list[left_shoulder] - coords_list[hip],
+                         coords_list[right_shoulder] - coords_list[hip])
+    side_rot = np.reshape(np.cross(coords_list[head_top] - coords_list[hip], torso_rot), base_shape)
+    theta_diff = ((np.pi / 2) - np.arctan2(side_rot[..., 1], side_rot[..., 0])) / 2
+    cos_theta_diff = np.cos(theta_diff)
+    sin_theta_diff = np.sin(theta_diff)
+    zeros_theta = np.zeros_like(sin_theta_diff)
+    start_rotation = np.stack([cos_theta_diff, zeros_theta, zeros_theta, sin_theta_diff], axis=-1)
+
+    x = rotate_vector_by_quaternion(start_rotation, x)
+    
+    return x, start_rotation

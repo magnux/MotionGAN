@@ -256,6 +256,8 @@ def get_angles_mask(coord_masks, body_members):
         return angles_mask
 
     angles_mask = _get_angle_mask_for_joint(0, [])
+    fixed_angles = len(body_graph[0])
+    angles_mask = angles_mask[fixed_angles:]
     return np.stack(angles_mask, axis=1)
 
 

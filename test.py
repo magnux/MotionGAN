@@ -8,7 +8,7 @@ from data_input import DataInput
 from models.motiongan import get_model
 from models.dmnn import DMNNv1
 from utils.restore_keras_model import restore_keras_model
-from utils.viz import plot_seq_gif, plot_seq_pano
+from utils.viz import plot_seq_gif, plot_seq_pano, plot_seq_frozen
 from utils.seq_utils import MASK_MODES, gen_mask, linear_baseline, burke_baseline, post_process, seq_to_angles_transformer, get_angles_mask, gen_latent_noise, _some_variables, fkl, rotate_start
 import h5py as h5
 from tqdm import trange
@@ -85,11 +85,11 @@ if __name__ == "__main__":
     val_batches = data_input.val_epoch_size
     val_generator = data_input.batch_generator(False)
 
-    if FLAGS.test_mode == "write_images" or FLAGS.test_mode == "plot_survey":
-        images_path = "%s_test_images_%s/" % \
-                      (configs[0].save_path, FLAGS.images_mode)
-        if not tf.gfile.Exists(images_path):
-            tf.gfile.MkDir(images_path)
+    # if FLAGS.test_mode == "write_images" or FLAGS.test_mode == "plot_survey":
+    images_path = "%s_test_images_%s/" % \
+                  (configs[0].save_path, FLAGS.images_mode)
+    if not tf.gfile.Exists(images_path):
+        tf.gfile.MkDir(images_path)
 
     njoints = configs[0].njoints
     seq_len = model_wraps[0].seq_len
@@ -101,7 +101,7 @@ if __name__ == "__main__":
 
         mask_batch = poses_batch[..., 3, np.newaxis]
         mask_batch = mask_batch * gen_mask(FLAGS.mask_mode, FLAGS.keep_prob,
-                                           batch_size, njoints, seq_len, body_members, False)
+                                           batch_size, njoints, seq_len, body_members, True)
         poses_batch = poses_batch[..., :3]
 
         gen_inputs = [poses_batch, mask_batch]
@@ -144,13 +144,15 @@ if __name__ == "__main__":
                 save_path = None
                 if FLAGS.test_mode == "write_images":
                     save_path = images_path + ("%d_%d.%s" % (i, j, FLAGS.images_mode))
+                    np.save(images_path + ("%d_%d_gt.npy" % (i, j)), poses_batch[np.newaxis, seq_idx, ...])
+                    np.save(images_path + ("%d_%d_gen.npy" % (i, j)), gen_output[np.newaxis, seq_idx, ...])
 
                 if FLAGS.images_mode == "gif":
                     plot_func = plot_seq_gif
                     figwidth = 256 * (len(configs) + 1)
                     figheight = 256
                 elif FLAGS.images_mode == "png":
-                    plot_func = plot_seq_pano
+                    plot_func = plot_seq_frozen  # plot_seq_pano
                     figwidth = 768
                     figheight = 256 * (len(configs) + 1)
 
@@ -341,7 +343,8 @@ if __name__ == "__main__":
 
         if FLAGS.test_mode == "dmnn_score_table":
 
-            PROBS = np.arange(0.0, 1.1, 0.1)
+            # PROBS = np.arange(0.0, 1.1, 0.1)
+            PROBS = [0.2]
 
             for m in range(1, len(MASK_MODES)):
                 accs_table = np.zeros((len(PROBS), len(model_wraps) + 3))
@@ -374,7 +377,7 @@ if __name__ == "__main__":
         def euc_error(x, y):
             x = np.reshape(x, (x.shape[0], -1))
             y = np.reshape(y, (y.shape[0], -1))
-            return np.sqrt(np.sum(np.square(x - y), 1)) / x.shape[1]
+            return np.sqrt(np.sum(np.square(x - y), 1))
 
         def motion_error(x, y):
             return euc_error(x[1:, :] - x[:-1, :], y[1:, :] - y[:-1, :])
@@ -600,7 +603,7 @@ if __name__ == "__main__":
             mask_batch = poses_batch[..., 3, np.newaxis]
             mask_batch = mask_batch * gen_mask(FLAGS.mask_mode, FLAGS.keep_prob,
                                                batch_size, njoints, seq_len,
-                                               body_members, True)
+                                               body_members, False)
             poses_batch = poses_batch[..., :3]
 
             labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
@@ -713,12 +716,18 @@ if __name__ == "__main__":
             # acc_coeff = (1 / (np.abs(1 - (prec_coeff * dist_coeff)) + 1))
             # fit_coeff = dens_coeff * acc_coeff
 
-            # p_corr, p_corr_pval = sp.stats.pearsonr(c1, c2)
+            p_corrs = np.empty(c1.shape[1])
+            p_corr_pvals = np.empty(c1.shape[1])
+            for i in range(c1.shape[1]):
+                p_corrs[i], p_corr_pvals[i] = sp.stats.pearsonr(c1[:, i], c2[:, i])
+
+            p_corr = np.mean(p_corrs)
+            p_corr_pval = np.mean(p_corr_pvals)
             s_corr, s_corr_pval = sp.stats.spearmanr(c1, c2)
             s_corr = np.mean(np.diag(s_corr, k=(s_corr.shape[1]//2)))
             s_corr_pval = np.mean(np.diag(s_corr_pval, k=(s_corr_pval.shape[1]//2)))
 
-            return min_dist, pred_dist, edm_coeff, count_coeff, count_rad_12_m, s_corr, s_corr_pval
+            return min_dist, pred_dist, edm_coeff, count_coeff, count_rad_12_m, s_corr, s_corr_pval, p_corr, p_corr_pval
 
         # def rad_count_dist(c1, c2, dist_metric='euclidean'):
         #     c1 = np.reshape(c1, (c1.shape[0], -1))
@@ -748,8 +757,14 @@ if __name__ == "__main__":
         #
         #     return min_dist, rad_dist, count_rad, rad_dist_comp, count_rad_comp, proj_score, sym_rad_dist, sym_proj_score
 
-        # import matplotlib.pyplot as plt
-        #
+        import matplotlib
+        matplotlib.use('Agg')
+        actions = ['directions', 'discussion', 'eating', 'greeting', 'phoning',
+                   'posing', 'purchases', 'sitting', 'sitting down', 'smoking',
+                   'taking photo', 'waiting', 'walking', 'walking dog', 'walking together']
+
+        import matplotlib.pyplot as plt
+
         # fig, ax = plt.subplots()
         # for lab in sorted(set(labs_train)):
         #     idxs = labs_train == lab
@@ -761,19 +776,22 @@ if __name__ == "__main__":
         # ax.grid(True)
         # fig.tight_layout()
         # plt.show(block=False)
-        #
-        # fig, ax = plt.subplots()
-        # for lab in sorted(set(labs_val)):
-        #     idxs = labs_val == lab
-        #     xs = seq_tails_val_trans[idxs, 0]
-        #     ys = seq_tails_val_trans[idxs, 1]
-        #     ax.scatter(xs, ys, marker='.', alpha=0.1, label=str(lab))
-        # ax.legend()
-        # ax.set_title('Projected samples (GT val classes)')
-        # ax.grid(True)
-        # fig.tight_layout()
+
+        fig, ax = plt.subplots()
+        for lab in sorted(set(labs_val)):
+            idxs = labs_val == lab
+            xs = seq_tails_val_trans[idxs, 0]
+            ys = seq_tails_val_trans[idxs, 1]
+            ax.scatter(xs, ys, marker='.', alpha=0.1, label=actions[int(lab)]) #str(lab))
+            ax.set_xlim([-4, 10])
+            ax.set_ylim([-5, 5])
+        ax.legend()
+        ax.set_title('Projected Samples (GT Val Classes)')
+        ax.grid(True)
+        fig.tight_layout()
         # plt.show(block=False)
-        #
+        fig.savefig(images_path+"val_plot.png", dpi=80)
+
         # fig, ax = plt.subplots()
         # ax.scatter(seq_tails_train_trans[:, 0], seq_tails_train_trans[:, 1], marker='.', alpha=0.1, label='train')
         # ax.legend()
@@ -820,6 +838,8 @@ if __name__ == "__main__":
         gen_tails_hmp_trans = lda_transform(gen_tails_hmp)
         print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_val_trans, gen_tails_hmp_trans)))
 
+        teaser_0 = lda_transform(data_input.normalize_poses(np.load("save/motiongan_v7_action_nogan_fp_h36_test_images_gif/survey_3_026.npy"))[:, :, seq_len // 2:, :])
+        teaser_1 = lda_transform(data_input.normalize_poses(np.load("save/motiongan_v7_action_nogan_fp_h36_test_images_gif/survey_3_029.npy"))[:, :, seq_len // 2:, :])
 
         # train_probas = lda.predict_proba(np.reshape(seq_tails_train, (total_samples, -1)))
         # val_probas = lda.predict_proba(np.reshape(seq_tails_val, (total_samples, -1)))
@@ -831,15 +851,41 @@ if __name__ == "__main__":
             gen_trans = lda_transform(gen_tails_val[m])
             # gen_probas = lda.predict_proba(np.reshape(gen_tails_val[m], (total_samples, -1)))
 
-            # fig, ax = plt.subplots()
-            # ax.scatter(seq_tails_val_trans[:, 0], seq_tails_val_trans[:, 1], marker='.', alpha=0.1, label='GT')
+            fig, ax = plt.subplots()
+            ax.scatter(seq_tails_val_trans[:, 0], seq_tails_val_trans[:, 1], marker='.', alpha=0.1, label='GT')
+            ax.legend()
+            ax.scatter(gen_trans[:, 0], gen_trans[:, 1], marker='.', alpha=0.1, label="STMI-GAN")#configs[m].save_path)
+            ax.legend()
+
+            # ax.scatter(seq_tails_val_trans[2001, np.newaxis, 0], seq_tails_val_trans[2001, np.newaxis, 1], marker='x', alpha=1.0, label='GT seq#2001')
             # ax.legend()
-            # ax.scatter(gen_trans[:, 0], gen_trans[:, 1], marker='.', alpha=0.1, label=configs[m].save_path)
+            # ax.scatter(gen_trans[2001, np.newaxis, 0], gen_trans[2001, np.newaxis, 1], marker='x', alpha=1.0, label="STMI-GAN seq#2001")#configs[m].save_path)
             # ax.legend()
-            # ax.set_title('Projected samples')
-            # ax.grid(True)
-            # fig.tight_layout()
+            #
+            # print("seq#2001 pred dist:", np.sqrt(np.sum(np.square(gen_trans[2001, :] - seq_tails_val_trans[2001, :]))))
+
+            ax.scatter(teaser_0[0, np.newaxis, 0], teaser_0[0, np.newaxis, 1], marker='x', alpha=1.0, label='teaser GT')
+            ax.legend()
+            ax.scatter(teaser_0[1, np.newaxis, 0], teaser_0[1, np.newaxis, 1], marker='x', alpha=1.0, label='teaser Gen')
+            ax.legend()
+
+            print("teaser0 pred dist:", np.sqrt(np.sum(np.square(teaser_0[0, :] - teaser_0[1, :]))))
+
+            # ax.scatter(teaser_1[0, np.newaxis, 0], teaser_1[0, np.newaxis, 1], marker='x', alpha=1.0, label='teaser 1 GT')
+            # ax.legend()
+            # ax.scatter(teaser_1[1, np.newaxis, 0], teaser_1[1, np.newaxis, 1], marker='x', alpha=1.0, label='teaser 1 Gen')
+            # ax.legend()
+            #
+            # print("teaser1 pred dist:", np.sqrt(np.sum(np.square(teaser_1[0, :] - teaser_1[1, :]))))
+
+            ax.set_title('Projected Samples')
+            ax.grid(True)
+            ax.set_xlim([-4, 10])
+            ax.set_ylim([-5, 5])
+
+            fig.tight_layout()
             # plt.show(block=False)
+            fig.savefig(images_path + ("gen_plot_%d.png" % m), dpi=320)
 
             print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_val_trans, gen_trans)))
             # print('KL: %f %f' % (np.mean(sp.stats.entropy(val_probas, gen_probas)), np.mean(sp.stats.entropy(gen_probas, val_probas))))
@@ -992,7 +1038,8 @@ if __name__ == "__main__":
 
         for seq_idx in range(len(actions) * 8):
             save_path_0 = images_path + ("survey_2_%03d.gif" % seq_idx)
-            save_path_1 = images_path + ("survey_3_%03d.gif" % seq_idx)
+            # save_path_1 = images_path + ("survey_3_%03d.gif" % seq_idx)
+            save_path_1 = images_path + ("survey_3_%03d.png" % seq_idx)
 
             if order[seq_idx] == 0:
                 coords_0 = np.concatenate([coords_gt[np.newaxis, seq_idx, ...], coords_gen_0[np.newaxis, seq_idx, ...]])
@@ -1002,8 +1049,9 @@ if __name__ == "__main__":
                 coords_1 = np.concatenate([coords_gen_1[np.newaxis, seq_idx, ...], coords_gt[np.newaxis, seq_idx, ...]])
 
             plot_seq_gif(coords_0, None, configs[0].data_set, save_path=save_path_0, figwidth=512, figheight=256)
-            plot_seq_gif(coords_1, None, configs[0].data_set, save_path=save_path_1, figwidth=512, figheight=256)
-
+            # plot_seq_gif(coords_1, None, configs[0].data_set, save_path=save_path_1, figwidth=512, figheight=256)
+            plot_seq_frozen(coords_1, None, configs[0].data_set, save_path=save_path_1, figwidth=512, figheight=256)
+            np.save(images_path + ("survey_3_%03d.npy" % seq_idx), coords_1)
 
 
 

@@ -402,6 +402,115 @@ def plot_seq_pano(seqs, labs, data_set, seq_masks=None, extra_text=None, save_pa
     return fig_size
 
 
+def plot_seq_frozen(seqs, labs, data_set, seq_masks=None, extra_text=None, save_path=None, figwidth=768, figheight=768, dpi=80):
+    import matplotlib
+    if save_path is not None:
+        matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    actions_l, njoints, body_members = select_dataset(data_set)
+
+    if labs is not None:
+        if labs.shape[0] == seqs.shape[0]:
+            labs_mode = "multi"
+        else:
+            assert labs.shape[0] == 4, \
+                "seqs and labs len must match or be a single lab"
+            labs_mode = "single"
+
+    if seq_masks is not None:
+        if seq_masks.shape[0] == seqs.shape[0]:
+            mask_mode = "multi"
+        else:
+            assert seq_masks.shape[0] == njoints, \
+                "seqs and labs len must match or be a single lab"
+            mask_mode = "single"
+
+    n_seqs = seqs.shape[0]
+    n_rows = np.int(np.ceil(np.sqrt(n_seqs) * figheight / figwidth))
+    n_cols = np.int(np.ceil(n_seqs / n_rows))
+
+    fig = plt.figure(figsize=(figwidth / dpi, figheight / dpi), dpi=dpi, tight_layout={'pad':0, 'h_pad':0, 'w_pad':0})
+
+    # if labs is not None:
+    #     title = 'Plotting samples from %s dataset' % data_set
+    #     if labs_mode == "single":
+    #         seq_idx, subject, action, plen = labs
+    #         title += "\n action: %s  subject: %d  seq_idx: %d  length: %d" % \
+    #                   (actions_l[action], subject, seq_idx, plen)
+    #     fig.suptitle(title)
+
+    axs = []
+    obs = []
+    for i in range(n_seqs):
+        ax = fig.add_subplot(n_rows, n_cols, i + 1, projection='3d')
+        ax.view_init(elev=30, azim=-30)
+        ob = Ax3DPose(ax, data_set)
+        axs.append(ax)
+        obs.append(ob)
+
+    seq_len = seqs.shape[2]
+    # if extra_text is not None:
+    #     fig.text(0.1, 0.1, extra_text)
+
+    lcolor = "#3498db"
+    rcolor = "#e74c3c"
+    for i in range(n_seqs):
+        axs[i].set_xlabel("x")
+        axs[i].set_ylabel("y")
+        axs[i].set_zlabel("z")
+        r = 1000
+        axs[i].set_xlim3d([np.mean(seqs[:, :, :, 0])-r, np.mean(seqs[:, :, :, 0])+r])
+        axs[i].set_ylim3d([np.mean(seqs[:, :, :, 1])-r, np.mean(seqs[:, :, :, 1])+r])
+        axs[i].set_zlim3d([np.mean(seqs[:, :, :, 2])-r, np.mean(seqs[:, :, :, 2])+r])
+        axs[i].set_aspect('equal')
+
+        mask = None
+        if seq_masks is not None:
+            if mask_mode == "single" and i == 0:
+                mask = seq_masks[:, :, 0]
+            elif mask_mode == "multi":
+                mask = seq_masks[i, :, :, 0]
+
+        # def color_blend(f, color_a, color_b):
+        #     return ((color_b[0]/255 * f/seq_len) + (color_a[0]/255*(1-(f/seq_len))),
+        #             (color_b[1]/255 * f/seq_len) + (color_a[1]/255*(1-(f/seq_len))),
+        #             (color_b[2]/255 * f/seq_len) + (color_a[2]/255*(1-(f/seq_len))), 1.0)
+        cmap = matplotlib.cm.get_cmap('jet')
+
+        for f in range(seq_len):
+            for member in body_members.values():
+                for j in range(len(member['joints']) - 1):
+                    j_idx_start = member['joints'][j]
+                    j_idx_end = member['joints'][j + 1]
+                    x = np.array([seqs[i, j_idx_start, f, 0], seqs[i, j_idx_end, f, 0]])
+                    y = np.array([seqs[i, j_idx_start, f, 1], seqs[i, j_idx_end, f, 1]])
+                    z = np.array([seqs[i, j_idx_start, f, 2], seqs[i, j_idx_end, f, 2]])
+                    axs[i].plot(x, y, z, lw=4 if f == (seq_len // 2)-1 else 2, c=(0, 0, 0, 1) if f == (seq_len // 2)-1 else cmap(f / seq_len))
+
+            # if mask is not None:
+            #     for j in range(njoints):
+            #         x = np.array([seqs[i, j, f, 0]])
+            #         y = np.array([seqs[i, j, f, 1]])
+            #         z = np.array([seqs[i, j, f, 2]])
+            #         axs[i].plot(x, y, z, lw=2, c='black', markersize=8,
+            #                     marker='o', linestyle='dashed',
+            #                     visible=True if mask[j, f] == 0 else False)
+
+    if save_path is not None:
+        fig.savefig(save_path, dpi=dpi)
+    else:
+        try:
+            plt.show()
+        except (KeyboardInterrupt, AttributeError):
+            pass
+
+    fig_size = (int(fig.get_figheight()), int(fig.get_figwidth()))
+    plt.close(fig)
+
+    return fig_size
+
+
 def plot_seq_emb(seq_emb, save_path):
     seq_emb = (seq_emb - np.min(seq_emb)) / (np.max(seq_emb) - np.min(seq_emb))
     seq_emb = (seq_emb * 255).astype(np.uint8)

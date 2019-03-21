@@ -3,6 +3,7 @@ from __future__ import absolute_import, division, print_function
 import tensorflow as tf
 import numpy as np
 import scipy as sp
+from scipy import signal
 from config import get_config
 from data_input import DataInput
 from models.motiongan import get_model
@@ -28,8 +29,7 @@ flags.DEFINE_float("keep_prob", 0.5, "Probability of keeping input data. (1 == K
 FLAGS = flags.FLAGS
 
 
-def _reset_rand_seed():
-    seed = 42
+def _reset_rand_seed(seed=42):
     np.random.seed(seed)
     tf.set_random_seed(seed)
 
@@ -38,7 +38,9 @@ if __name__ == "__main__":
     _reset_rand_seed()
     # Config stuff
     batch_size = 1
-    if "dmnn_score" in FLAGS.test_mode or "dist_compare" in FLAGS.test_mode:
+    if "dmnn_score" in FLAGS.test_mode or \
+        "dist_compare" in FLAGS.test_mode or \
+        "alternate_seq_dist" in FLAGS.test_mode:
         batch_size = 256
     elif "plot_survey" in FLAGS.test_mode:
         batch_size = 120
@@ -62,8 +64,10 @@ if __name__ == "__main__":
         if FLAGS.verbose:
             print('Discriminator model:')
             print(model_wrap.disc_model.summary())
+            print(len(model_wrap.disc_model.layers))
             print('Generator model:')
             print(model_wrap.gen_model.summary())
+            print(len(model_wrap.gen_model.layers))
             print('GAN model:')
             print(model_wrap.gan_model.summary())
 
@@ -101,27 +105,27 @@ if __name__ == "__main__":
 
         mask_batch = poses_batch[..., 3, np.newaxis]
         mask_batch = mask_batch * gen_mask(FLAGS.mask_mode, FLAGS.keep_prob,
-                                           batch_size, njoints, seq_len, body_members, True)
+                                           batch_size, njoints, seq_len, body_members, False)
         poses_batch = poses_batch[..., :3]
 
-        gen_inputs = [poses_batch, mask_batch]
-
-        return labs_batch, poses_batch, mask_batch, gen_inputs
+        return labs_batch, poses_batch, mask_batch
 
     if "images" in FLAGS.test_mode:
 
         for i in trange(val_batches):
-            labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
+            labs_batch, poses_batch, mask_batch = get_inputs()
             labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
 
             gen_outputs = []
             # proc_gen_outputs = []
             for m, model_wrap in enumerate(model_wraps):
+                gen_inputs = [poses_batch, mask_batch]
                 if configs[m].action_cond:
                     gen_inputs.append(labels)
+                if configs[m].latent_cond_dim > 0:
+                    latent_noise = gen_latent_noise(batch_size, configs[m].latent_cond_dim)
+                    gen_inputs.append(latent_noise)
                 gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
-                if configs[m].action_cond:
-                    gen_inputs.pop(-1)
                 # proc_gen_output = np.empty_like(gen_output)
                 # for j in range(batch_size):
                 #     proc_gen_output[j, ...] = post_process(poses_batch[j, ...], gen_output[j, ...],
@@ -182,15 +186,17 @@ if __name__ == "__main__":
 
         for _ in trange(val_batches):
 
-            labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
-            labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
+            labs_batch, poses_batch, mask_batch = get_inputs()
 
             for m, model_wrap in enumerate(model_wraps):
+                gen_inputs = [poses_batch, mask_batch]
                 if configs[m].action_cond:
+                    labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
                     gen_inputs.append(labels)
+                if configs[m].latent_cond_dim > 0:
+                    latent_noise = gen_latent_noise(batch_size, configs[m].latent_cond_dim)
+                    gen_inputs.append(latent_noise)
                 gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
-                if configs[m].action_cond:
-                    gen_inputs.pop(-1)
                 for j in range(batch_size):
                     gen_output[j, ...] = post_process(poses_batch[j, ...], gen_output[j, ...],
                                                       mask_batch[j, ...], body_members)
@@ -269,8 +275,7 @@ if __name__ == "__main__":
             t = trange(val_batches)
             for i in t:
 
-                labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
-                labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
+                labs_batch, poses_batch, mask_batch = get_inputs()
 
                 unorm_poses_batch = unnormalize_batch(poses_batch)
                 unorm_poses_batch_edm = edm(unorm_poses_batch)
@@ -283,11 +288,14 @@ if __name__ == "__main__":
                 angles_occ_num = np.sum(1.0 - angles_mask_batch) + 1e-8
 
                 for m, model_wrap in enumerate(model_wraps):
+                    gen_inputs = [poses_batch, mask_batch]
                     if configs[m].action_cond:
+                        labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
                         gen_inputs.append(labels)
+                    if configs[m].latent_cond_dim > 0:
+                        latent_noise = gen_latent_noise(batch_size, configs[m].latent_cond_dim)
+                        gen_inputs.append(latent_noise)
                     gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
-                    if configs[m].action_cond:
-                        gen_inputs.pop(-1)
                     # for j in range(batch_size):
                     #     gen_output[j, ...] = post_process(poses_batch[j, ...], gen_output[j, ...],
                     #                                       mask_batch[j, ...], body_members)
@@ -549,10 +557,10 @@ if __name__ == "__main__":
 
                 print(Style.RESET_ALL)
 
-
     elif FLAGS.test_mode == "dist_compare":
 
         total_samples = 2 ** 14
+        test_mode = False
 
         seq_tails_train = np.empty((total_samples, njoints, (seq_len // 2), 3))
         labs_train = np.empty((total_samples,))
@@ -563,7 +571,7 @@ if __name__ == "__main__":
             mask_batch = poses_batch[..., 3, np.newaxis]
             mask_batch = mask_batch * gen_mask(FLAGS.mask_mode, FLAGS.keep_prob,
                                                batch_size, njoints, seq_len,
-                                               body_members, False)
+                                               body_members, test_mode)
             poses_batch = poses_batch[..., :3]
 
             labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
@@ -603,7 +611,7 @@ if __name__ == "__main__":
             mask_batch = poses_batch[..., 3, np.newaxis]
             mask_batch = mask_batch * gen_mask(FLAGS.mask_mode, FLAGS.keep_prob,
                                                batch_size, njoints, seq_len,
-                                               body_members, False)
+                                               body_members, test_mode)
             poses_batch = poses_batch[..., :3]
 
             labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
@@ -612,6 +620,9 @@ if __name__ == "__main__":
                 gen_inputs = [poses_batch, mask_batch]
                 if configs[m].action_cond:
                     gen_inputs.append(labels)
+                if configs[m].latent_cond_dim > 0:
+                    latent_noise = gen_latent_noise(batch_size, configs[m].latent_cond_dim)
+                    gen_inputs.append(latent_noise)
                 gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
                 gen_tails_val[m][i * batch_size:(i+1) * batch_size, ...] = gen_output[:, :, seq_len // 2:, :]
 
@@ -636,22 +647,30 @@ if __name__ == "__main__":
         def translate_seq(seq):
             return seq - seq[:, 0, np.newaxis, :, :]
 
-        # seq_tails_train, _ = rotate_start(seq_tails_train, body_members)
-        # seq_tails_val, _ = rotate_start(seq_tails_val, body_members)
+        def rotate_seq(seq):
+            for f in range(seq.shape[2]):
+                seq[:, :, f, :] = rotate_start(seq[:,:,f,np.newaxis,:], body_members)[0][:,:,0,:]
+            return seq
 
-        from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-        lda = LinearDiscriminantAnalysis()
-        lda.fit(np.reshape(seq_tails_train, (total_samples, -1)), labs_train)
-        print(lda.explained_variance_ratio_)
+        # Making relative the sequences to allow us to compare with HMP baseline
+        # seq_tails_train = rotate_seq(translate_seq(seq_tails_train))
+        # seq_tails_val = rotate_seq(translate_seq(seq_tails_val))
+        # for m, model_wrap in enumerate(model_wraps):
+        #     gen_tails_val[m] = rotate_seq(translate_seq(gen_tails_val[m]))
 
-        def lda_transform(seqs):
-            return lda.transform(np.reshape(seqs, (seqs.shape[0], -1)))
+        # from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+        # lda = LinearDiscriminantAnalysis()
+        # lda.fit(np.reshape(seq_tails_train, (total_samples, -1)), labs_train)
+        # print(lda.explained_variance_ratio_)
+
+        # def lda_transform(seqs):
+        #     return lda.transform(np.reshape(seqs, (seqs.shape[0], -1)))
 
         # def lda_transform(seqs):
         #     return tsne_model.predict(np.reshape(seqs, (total_samples, -1)))
 
-        seq_tails_train_trans = lda_transform(seq_tails_train)
-        seq_tails_val_trans = lda_transform(seq_tails_val)
+        # seq_tails_train_trans = lda_transform(seq_tails_train)
+        # seq_tails_val_trans = lda_transform(seq_tails_val)
 
         from sklearn.neighbors import NearestNeighbors
 
@@ -685,17 +704,17 @@ if __name__ == "__main__":
             # knn_dist_1 = np.mean(knn_1.kneighbors(c1)[0])
             # knn_dist_2 = np.mean(knn_2.kneighbors(c2)[0])
 
-            rad_dist_1 = (mean_dist_1 / 4) - dist_mat_1
+            rad_dist_1 = mean_dist_1 - dist_mat_1
             rad_dist_1 = np.clip(rad_dist_1, a_min=0, a_max=None)
             count_rad_1 = np.count_nonzero(rad_dist_1, axis=1)
             count_rad_1 = np.mean(count_rad_1)
 
-            rad_dist_2 = (mean_dist_1 / 4) - dist_mat_2
+            rad_dist_2 = mean_dist_1 - dist_mat_2
             rad_dist_2 = np.clip(rad_dist_2, a_min=0, a_max=None)
             count_rad_2 = np.count_nonzero(rad_dist_2, axis=1)
             count_rad_2 = np.mean(count_rad_2)
 
-            # rad_dist_12 = (mean_dist_1 / 4) - dist_mat_12
+            # rad_dist_12 = mean_dist_1 - dist_mat_12
             # rad_dist_12 = np.clip(rad_dist_12, a_min=0, a_max=None)
             # count_rad_12 = np.count_nonzero(rad_dist_12, axis=0)
             # count_rad_12 = np.mean(count_rad_12)
@@ -727,43 +746,89 @@ if __name__ == "__main__":
             s_corr = np.mean(np.diag(s_corr, k=(s_corr.shape[1]//2)))
             s_corr_pval = np.mean(np.diag(s_corr_pval, k=(s_corr_pval.shape[1]//2)))
 
-            return min_dist, pred_dist, edm_coeff, count_coeff, count_rad_12_m, s_corr, s_corr_pval, p_corr, p_corr_pval
+            mean_seq = np.mean(c1, axis=1, keepdims=True)
+            cent_c2 = c2 - mean_seq
+            mean_cent_c2 = np.mean(np.abs(cent_c2))
+            std_cent_c2 = np.std(cent_c2)
 
-        # def rad_count_dist(c1, c2, dist_metric='euclidean'):
-        #     c1 = np.reshape(c1, (c1.shape[0], -1))
-        #     c2 = np.reshape(c2, (c2.shape[0], -1))
-        #
-        #     min_dist = np.min(sp.spatial.distance.cdist(c1, c2, metric=dist_metric), axis=1)
-        #     rad_dist = min_dist - sp.spatial.distance.cdist(c2, c2, metric=dist_metric)
-        #     rad_dist = np.clip(rad_dist, a_min=0, a_max=None)
-        #     count_rad = np.count_nonzero(rad_dist, axis=1)
-        #     rad_dist = np.sum(rad_dist, axis=1)
-        #
-        #     rad_dist_comp = min_dist - sp.spatial.distance.cdist(c1, c1, metric=dist_metric)
-        #     rad_dist_comp = np.clip(rad_dist_comp, a_min=0, a_max=None)
-        #     count_rad_comp = np.count_nonzero(rad_dist_comp, axis=1)
-        #     rad_dist_comp = np.sum(rad_dist_comp, axis=1)
-        #
-        #     min_dist = np.mean(min_dist)
-        #     rad_dist = np.mean(rad_dist)
-        #     count_rad = np.mean(count_rad)
-        #
-        #     rad_dist_comp = np.mean(rad_dist_comp)
-        #     count_rad_comp = np.mean(count_rad_comp)
-        #
-        #     proj_score = (1 / (min_dist + 1)) * (1 / (rad_dist + 1))
-        #     sym_rad_dist = (rad_dist + rad_dist_comp) / 2
-        #     sym_proj_score = (1 / (min_dist + 1)) * (1 / (sym_rad_dist + 1))
-        #
-        #     return min_dist, rad_dist, count_rad, rad_dist_comp, count_rad_comp, proj_score, sym_rad_dist, sym_proj_score
+            return min_dist, pred_dist, edm_coeff, count_coeff, count_rad_12_m, s_corr, s_corr_pval, p_corr, p_corr_pval, mean_cent_c2, std_cent_c2
+
+        def compute_ent_metrics(gt_seqs, seqs, format='coords'):
+            if format == 'coords':
+                gt_cent_seqs = gt_seqs - gt_seqs[:, 0, np.newaxis, :, :]
+                gt_angle_expmaps = angle_trans(gt_cent_seqs)
+                cent_seqs = seqs - seqs[:, 0, np.newaxis, :, :]
+                angle_expmaps = angle_trans(cent_seqs)
+            elif format == 'expmaps':
+                gt_angle_expmaps = gt_seqs
+                angle_expmaps = seqs
+
+            gt_angle_seqs = npangles.rotmat_to_euler(npangles.expmap_to_rotmat(gt_angle_expmaps))
+            angle_seqs = npangles.rotmat_to_euler(npangles.expmap_to_rotmat(angle_expmaps))
+
+            # for i in range(1, 4):
+            #     print(np.mean(np.abs(angle_seqs[:,:,:-i,:] - angle_seqs[:,:,i:,:])))
+
+            gt_seqs_fft = np.fft.fft(gt_angle_seqs, axis=2)
+            gt_seqs_ps = np.abs(gt_seqs_fft) ** 2
+
+            gt_seqs_ps_global = gt_seqs_ps.sum(axis=0) + 1e-8
+            gt_seqs_ps_global /= gt_seqs_ps_global.sum(axis=1, keepdims=True)
+
+            # gt_seqs_ps_per_sample = gt_seqs_ps + 1e-8
+            # gt_seqs_ps_per_sample /= gt_seqs_ps_per_sample.sum(axis=2, keepdims=True)
+
+            seqs_fft = np.fft.fft(angle_seqs, axis=2)
+            seqs_ps = np.abs(seqs_fft) ** 2
+
+            seqs_ps_global = seqs_ps.sum(axis=0) + 1e-8
+            seqs_ps_global /= seqs_ps_global.sum(axis=1, keepdims=True)
+
+            # seqs_ps_per_sample = seqs_ps + 1e-8
+            # seqs_ps_per_sample /= seqs_ps_per_sample.sum(axis=2, keepdims=True)
+
+            seqs_ent_global = -np.sum(seqs_ps_global * np.log(seqs_ps_global), axis=1)
+            print("PS Entropy global: ", seqs_ent_global.mean())
+            # seqs_ent_per_sample = -np.sum(seqs_ps_per_sample * np.log(seqs_ps_per_sample), axis=2)
+            # print("PS Entropy per sample: ", seqs_ent_per_sample.mean())
+
+            seqs_kl_gen_gt = np.sum(seqs_ps_global * np.log(seqs_ps_global / gt_seqs_ps_global), axis=1)
+            print("PS KL(Gen|GT): ", seqs_kl_gen_gt.mean())
+            seqs_kl_gt_gen = np.sum(gt_seqs_ps_global * np.log(gt_seqs_ps_global / seqs_ps_global), axis=1)
+            print("PS KL(GT|Gen): ", seqs_kl_gt_gen.mean())
+
+            # seqs_fft_diff = np.abs(gt_seqs_fft - seqs_fft)
+            # print("FFT diff:", seqs_fft_diff.mean())
+            # seqs_ps_diff = np.abs(gt_seqs_ps - seqs_ps)
+            # print("PS diff:", seqs_ps_diff.mean())
+
+            # emd = np.zeros((angle_seqs.shape[0], angle_seqs.shape[1], angle_seqs.shape[3]))
+            # for s in range(angle_seqs.shape[0]):
+            #     for j in range(angle_seqs.shape[1]):
+            #         for a in range(angle_seqs.shape[3]):
+            #             emd[s, j, a] = sp.stats.wasserstein_distance(gt_seqs_ps_per_sample[s, j, :, a], seqs_ps_per_sample[s, j, :, a])
+            #
+            # emd = np.expand_dims(emd, axis=2)
+            # npss = np.sum(seqs_ps_per_sample * emd) / np.sum(seqs_ps_per_sample)
+            # npss *= seqs_ps_per_sample
+            # print("NPSS:", npss.sum(axis=2).mean())
+            
+            # emd = np.zeros((angle_seqs.shape[1], angle_seqs.shape[3]))
+            # for j in range(angle_seqs.shape[1]):
+            #     for a in range(angle_seqs.shape[3]):
+            #         emd[j, a] = sp.stats.wasserstein_distance(gt_seqs_ps_global[j, :, a],
+            #                                                   seqs_ps_global[j, :, a])
+            #
+            # print("GNPSS:", emd.mean())
+
 
         import matplotlib
-        matplotlib.use('Agg')
+        # matplotlib.use('Agg')
         actions = ['directions', 'discussion', 'eating', 'greeting', 'phoning',
                    'posing', 'purchases', 'sitting', 'sitting down', 'smoking',
                    'taking photo', 'waiting', 'walking', 'walking dog', 'walking together']
 
-        import matplotlib.pyplot as plt
+        # import matplotlib.pyplot as plt
 
         # fig, ax = plt.subplots()
         # for lab in sorted(set(labs_train)):
@@ -777,20 +842,20 @@ if __name__ == "__main__":
         # fig.tight_layout()
         # plt.show(block=False)
 
-        fig, ax = plt.subplots()
-        for lab in sorted(set(labs_val)):
-            idxs = labs_val == lab
-            xs = seq_tails_val_trans[idxs, 0]
-            ys = seq_tails_val_trans[idxs, 1]
-            ax.scatter(xs, ys, marker='.', alpha=0.1, label=actions[int(lab)]) #str(lab))
-            ax.set_xlim([-4, 10])
-            ax.set_ylim([-5, 5])
-        ax.legend()
-        ax.set_title('Projected Samples (GT Val Classes)')
-        ax.grid(True)
-        fig.tight_layout()
-        # plt.show(block=False)
-        fig.savefig(images_path+"val_plot.png", dpi=80)
+        # fig, ax = plt.subplots()
+        # for lab in sorted(set(labs_val)):
+        #     idxs = labs_val == lab
+        #     xs = seq_tails_val_trans[idxs, 0]
+        #     ys = seq_tails_val_trans[idxs, 1]
+        #     ax.scatter(xs, ys, marker='.', alpha=0.1, label=actions[int(lab)]) #str(lab))
+        #     ax.set_xlim([-4, 10])
+        #     ax.set_ylim([-5, 5])
+        # ax.legend()
+        # ax.set_title('Projected Samples (GT Val Classes)')
+        # ax.grid(True)
+        # fig.tight_layout()
+        # # plt.show(block=False)
+        # fig.savefig(images_path+"val_plot.png", dpi=80)
 
         # fig, ax = plt.subplots()
         # ax.scatter(seq_tails_train_trans[:, 0], seq_tails_train_trans[:, 1], marker='.', alpha=0.1, label='train')
@@ -803,7 +868,8 @@ if __name__ == "__main__":
         # plt.show(block=False)
 
         # Checking sanity of metric
-        print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_val_trans, seq_tails_val_trans)))
+        # print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_val_trans, seq_tails_val_trans)))
+        compute_ent_metrics(seq_tails_val, seq_tails_val)
 
 
         # Baseline metric
@@ -823,23 +889,25 @@ if __name__ == "__main__":
         def subsample(seq):
             return seq[range(0, int(seq.shape[0]), 5), :]
 
-        gen_tails_hmp = np.empty((len(actions) * 8, njoints, (seq_len // 2), 3))
-        with h5.File('../human-motion-prediction/samples.h5', "r") as sample_file:
-            for act_idx, action in enumerate(actions):
-                pred_len = seq_len // 2
-                mean_errors_hmp = np.zeros((8, pred_len))
-                mean_errors_mg = np.zeros((8, pred_len))
-                for i in np.arange(8):
-                    expmap_hmp = np.array(sample_file['expmap/preds/{1}_{0}'.format(i, action)], dtype=np.float32)
-                    expmap_hmp = subsample(expmap_hmp)
-                    expmap_hmp = expmap_hmp[:10, :]
-                    gen_tails_hmp[(act_idx * 8) + i, ...] = to_coords(expmap_hmp)
+        ### Compute comparison with HMP dataset, only valid for h36 models
+        # gen_tails_hmp = np.empty((len(actions) * 8, njoints, (seq_len // 2), 3))
+        # with h5.File('../human-motion-prediction/samples.h5', "r") as sample_file:
+        #     for act_idx, action in enumerate(actions):
+        #         pred_len = seq_len // 2
+        #         mean_errors_hmp = np.zeros((8, pred_len))
+        #         mean_errors_mg = np.zeros((8, pred_len))
+        #         for i in np.arange(8):
+        #             expmap_hmp = np.array(sample_file['expmap/preds/{1}_{0}'.format(i, action)], dtype=np.float32)
+        #             expmap_hmp = subsample(expmap_hmp)
+        #             expmap_hmp = expmap_hmp[:10, :]
+        #             gen_tails_hmp[(act_idx * 8) + i, ...] = data_input.normalize_poses(to_coords(expmap_hmp))
+        #
+        # gen_tails_hmp = rotate_seq(translate_seq(gen_tails_hmp))
+        # gen_tails_hmp_trans = lda_transform(gen_tails_hmp)
+        # print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_val_trans, gen_tails_hmp_trans)))
 
-        gen_tails_hmp_trans = lda_transform(gen_tails_hmp)
-        print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_val_trans, gen_tails_hmp_trans)))
-
-        teaser_0 = lda_transform(data_input.normalize_poses(np.load("save/motiongan_v7_action_nogan_fp_h36_test_images_gif/survey_3_026.npy"))[:, :, seq_len // 2:, :])
-        teaser_1 = lda_transform(data_input.normalize_poses(np.load("save/motiongan_v7_action_nogan_fp_h36_test_images_gif/survey_3_029.npy"))[:, :, seq_len // 2:, :])
+        # teaser_0 = lda_transform(data_input.normalize_poses(np.load("save/motiongan_v7_action_nogan_fp_h36_test_images_gif/survey_3_026.npy"))[:, :, seq_len // 2:, :])
+        # teaser_1 = lda_transform(data_input.normalize_poses(np.load("save/motiongan_v7_action_nogan_fp_h36_test_images_gif/survey_3_029.npy"))[:, :, seq_len // 2:, :])
 
         # train_probas = lda.predict_proba(np.reshape(seq_tails_train, (total_samples, -1)))
         # val_probas = lda.predict_proba(np.reshape(seq_tails_val, (total_samples, -1)))
@@ -848,14 +916,14 @@ if __name__ == "__main__":
         for m, _ in enumerate(model_wraps):
             print(configs[m].save_path)
 
-            gen_trans = lda_transform(gen_tails_val[m])
+            # gen_trans = lda_transform(gen_tails_val[m])
             # gen_probas = lda.predict_proba(np.reshape(gen_tails_val[m], (total_samples, -1)))
 
-            fig, ax = plt.subplots()
-            ax.scatter(seq_tails_val_trans[:, 0], seq_tails_val_trans[:, 1], marker='.', alpha=0.1, label='GT')
-            ax.legend()
-            ax.scatter(gen_trans[:, 0], gen_trans[:, 1], marker='.', alpha=0.1, label="STMI-GAN")#configs[m].save_path)
-            ax.legend()
+            # fig, ax = plt.subplots()
+            # ax.scatter(seq_tails_val_trans[:, 0], seq_tails_val_trans[:, 1], marker='.', alpha=0.1, label='GT')
+            # ax.legend()
+            # ax.scatter(gen_trans[:, 0], gen_trans[:, 1], marker='.', alpha=0.1, label="STMI-GAN")#configs[m].save_path)
+            # ax.legend()
 
             # ax.scatter(seq_tails_val_trans[2001, np.newaxis, 0], seq_tails_val_trans[2001, np.newaxis, 1], marker='x', alpha=1.0, label='GT seq#2001')
             # ax.legend()
@@ -864,30 +932,31 @@ if __name__ == "__main__":
             #
             # print("seq#2001 pred dist:", np.sqrt(np.sum(np.square(gen_trans[2001, :] - seq_tails_val_trans[2001, :]))))
 
-            ax.scatter(teaser_0[0, np.newaxis, 0], teaser_0[0, np.newaxis, 1], marker='x', alpha=1.0, label='teaser GT')
-            ax.legend()
-            ax.scatter(teaser_0[1, np.newaxis, 0], teaser_0[1, np.newaxis, 1], marker='x', alpha=1.0, label='teaser Gen')
-            ax.legend()
+            # ax.scatter(teaser_0[0, np.newaxis, 0], teaser_0[0, np.newaxis, 1], marker='x', alpha=1.0, label='teaser GT')
+            # ax.legend()
+            # ax.scatter(teaser_0[1, np.newaxis, 0], teaser_0[1, np.newaxis, 1], marker='x', alpha=1.0, label='teaser Gen')
+            # ax.legend()
 
-            print("teaser0 pred dist:", np.sqrt(np.sum(np.square(teaser_0[0, :] - teaser_0[1, :]))))
+            # print("teaser0 pred dist:", np.sqrt(np.sum(np.square(teaser_0[0, :] - teaser_0[1, :]))))
 
             # ax.scatter(teaser_1[0, np.newaxis, 0], teaser_1[0, np.newaxis, 1], marker='x', alpha=1.0, label='teaser 1 GT')
             # ax.legend()
             # ax.scatter(teaser_1[1, np.newaxis, 0], teaser_1[1, np.newaxis, 1], marker='x', alpha=1.0, label='teaser 1 Gen')
             # ax.legend()
-            #
+
             # print("teaser1 pred dist:", np.sqrt(np.sum(np.square(teaser_1[0, :] - teaser_1[1, :]))))
 
-            ax.set_title('Projected Samples')
-            ax.grid(True)
-            ax.set_xlim([-4, 10])
-            ax.set_ylim([-5, 5])
+            # ax.set_title('Projected Samples')
+            # ax.grid(True)
+            # ax.set_xlim([-4, 10])
+            # ax.set_ylim([-5, 5])
 
-            fig.tight_layout()
+            # fig.tight_layout()
             # plt.show(block=False)
-            fig.savefig(images_path + ("gen_plot_%d.png" % m), dpi=320)
+            # fig.savefig(images_path + ("gen_plot_%d.png" % m), dpi=320)
 
-            print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_val_trans, gen_trans)))
+            # print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_val_trans, gen_trans)))
+            compute_ent_metrics(seq_tails_val, gen_tails_val[m])
             # print('KL: %f %f' % (np.mean(sp.stats.entropy(val_probas, gen_probas)), np.mean(sp.stats.entropy(gen_probas, val_probas))))
 
         # plt.show()
@@ -942,16 +1011,18 @@ if __name__ == "__main__":
             FLAGS.mask_mode = mask_mode
             FLAGS.keep_prob = keep_prob
 
-            labs_batch, poses_batch, mask_batch, gen_inputs = get_inputs()
-            labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
+            labs_batch, poses_batch, mask_batch = get_inputs()
 
             gen_outputs = []
             for m, model_wrap in enumerate(model_wraps):
+                gen_inputs = [poses_batch, mask_batch]
                 if configs[m].action_cond:
+                    labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
                     gen_inputs.append(labels)
+                if configs[m].latent_cond_dim > 0:
+                    latent_noise = gen_latent_noise(batch_size, configs[m].latent_cond_dim)
+                    gen_inputs.append(latent_noise)
                 gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
-                if configs[m].action_cond:
-                    gen_inputs.pop(-1)
                 if configs[m].normalize_data:
                     gen_output = data_input.unnormalize_poses(gen_output)
                 gen_outputs.append(gen_output)
@@ -1053,9 +1124,90 @@ if __name__ == "__main__":
             plot_seq_frozen(coords_1, None, configs[0].data_set, save_path=save_path_1, figwidth=512, figheight=256)
             np.save(images_path + ("survey_3_%03d.npy" % seq_idx), coords_1)
 
+    elif FLAGS.test_mode == "alternate_seq_dist":
 
+        n_futures = 32
+        total_samples = 2 ** 10
 
+        PROBS = np.arange(0.0, 1.1, 0.2)
 
+        dist_table = np.zeros((len(PROBS), total_samples // batch_size, len(model_wraps)))
+        for p, prob in enumerate(PROBS):
+            FLAGS.mask_mode = 1
+            FLAGS.keep_prob = prob
+
+            for b in trange(total_samples // batch_size):
+                labs_batch, poses_batch, mask_batch = get_inputs()
+
+                for m, model_wrap in enumerate(model_wraps):
+                    gen_outputs = []
+                    l2diffs = []
+                    for f in range(n_futures):
+                        gen_inputs = [poses_batch, mask_batch]
+                        if configs[m].action_cond:
+                            labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
+                            gen_inputs.append(labels)
+                        if configs[m].latent_cond_dim > 0:
+                            latent_noise = gen_latent_noise(batch_size, configs[m].latent_cond_dim)
+                            gen_inputs.append(latent_noise)
+                        gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
+                        if configs[m].normalize_data:
+                            gen_output = data_input.unnormalize_poses(gen_output)
+                        gen_outputs.append(gen_output.reshape((batch_size * njoints * seq_len, 3)))
+                        if f > 0:
+                            for g in range(f):
+                                l2diff = np.mean(np.sqrt(np.sum((gen_outputs[g] - gen_outputs[f]) ** 2, -1)))
+                                l2diffs.append(l2diff)
+
+                    dist_table[p, b, m] = np.mean(l2diffs)
+
+        print(dist_table.mean(1))
+
+    elif FLAGS.test_mode == "alternate_seq_im":
+
+        n_futures = 8
+
+        for i in trange(val_batches):
+            labs_batch, poses_batch, mask_batch = get_inputs()
+
+            gen_outputs = []
+            for m, model_wrap in enumerate(model_wraps):
+                for f in range(n_futures):
+                    gen_inputs = [poses_batch, mask_batch]
+                    if configs[m].action_cond:
+                        labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
+                        gen_inputs.append(labels)
+                    if configs[m].latent_cond_dim > 0:
+                        latent_noise = gen_latent_noise(batch_size, configs[m].latent_cond_dim)
+                        gen_inputs.append(latent_noise)
+                    gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
+                    if configs[m].normalize_data:
+                        gen_output = data_input.unnormalize_poses(gen_output)
+                    gen_outputs.append(gen_output)
+
+            if configs[0].normalize_data:
+                poses_batch = data_input.unnormalize_poses(poses_batch)
+
+            for j in range(batch_size):
+                seq_idx = j
+
+                if FLAGS.images_mode == "gif":
+                    plot_func = plot_seq_gif
+                    figwidth = 512 * (len(configs) + 1)
+                    figheight = 512
+                elif FLAGS.images_mode == "png":
+                    plot_func = plot_seq_frozen  # plot_seq_pano
+                    figwidth = 768
+                    figheight = 256 * (len(configs) + 1)
+
+                save_path = images_path + ("%d_%d.%s" % (i, j, FLAGS.images_mode))
+                plot_func(np.concatenate([poses_batch[np.newaxis, seq_idx, ...]] +
+                                         [gen_output[np.newaxis, seq_idx, ...] for gen_output in gen_outputs] ),
+                          labs_batch[seq_idx, ...],
+                          configs[0].data_set,
+                          seq_masks=mask_batch[seq_idx, ...],
+                          extra_text='mask mode: %s keep prob: %s' % (MASK_MODES[FLAGS.mask_mode], FLAGS.keep_prob),
+                          save_path=save_path, figwidth=figwidth, figheight=figheight)
 
 
 

@@ -20,6 +20,7 @@ from layers.seq_transform import remove_hip_in, remove_hip_out, translate_start_
 from layers.relational_memory import RelationalMemoryRNN
 from layers.causal_conv import CausalConv1D, CausalConv2D
 from layers.normalization import InstanceNormalization
+from layers.noise import NoiseInjection
 from layers.cudnn_recurrent import CuDNNLSTM
 from collections import OrderedDict
 from utils.scoping import Scoping
@@ -972,6 +973,60 @@ class MotionGANV7(_MotionGAN):
                     pi = x
                     for i, factor in enumerate(block_factors):
                         with scope.name_scope('block_%d' % i):
+                            n_filters = n_hidden * factor
+                            if i < (u_blocks // 2):
+                                conv_func = Conv2D
+                                u_skips.append(pi)
+                            else:
+                                conv_func = Conv2DTranspose
+
+                            with scope.name_scope('pi'):
+                                pi = _conv_block(pi, n_filters, 2, 3, 2, conv_func)
+
+                            if (u_blocks // 2) <= i < u_blocks:
+                                skip_pi = u_skips.pop()
+                                if skip_pi.shape[1] != pi.shape[1] or skip_pi.shape[2] != pi.shape[2]:
+                                    pi = Cropping2D(((0, int(pi.shape[1] - skip_pi.shape[1])),
+                                                    (0, int(pi.shape[2] - skip_pi.shape[2]))),
+                                                     name=scope+'crop_pi')(pi)
+                                pi = Concatenate(name=scope+'cat_skip')([skip_pi, pi])
+                                with scope.name_scope('skip_pi'):
+                                    pi = _conv_block(pi, n_filters, 2, 3, 1, conv_func)
+
+                    x = Add(name=scope+'add')([x, pi])
+        return x
+
+
+class MotionGANV7n(_MotionGAN):
+    # DMNN + ResNet Discriminator, ResNet + UNet Generator 4 STACK
+
+    def discriminator(self, x):
+        return composite_disc(x, self.add_dmnn_disc, self.add_motion_disc)
+
+    def generator(self, x):
+        scope = Scoping.get_global_scope()
+        with scope.name_scope('generator'):
+            n_hidden = 32
+            u_blocks = 0
+            min_dim = min(int(x.shape[1]), int(x.shape[2]))
+            while min_dim > 4:
+                min_dim //= 2
+                u_blocks += 1
+            u_blocks = min(u_blocks, 4)
+            u_blocks = u_blocks * 2
+            block_factors = range(1, (u_blocks // 2) + 1) + range(u_blocks // 2, 0, -1)
+            macro_blocks = 4
+
+            u_skips = []
+            for k in range(macro_blocks):
+                with scope.name_scope('macro_block_%d' % k):
+                    x = Conv2D(n_hidden, 1, 1, name=scope+'conv_in', **CONV2D_ARGS)(x)
+                    pi = x
+                    for i, factor in enumerate(block_factors):
+                        with scope.name_scope('block_%d' % i):
+                            # pi = InstanceNormalization(axis=-1, name=scope+'inorm')(pi)
+                            pi = NoiseInjection(name=scope+'noise_inject')(pi)
+
                             n_filters = n_hidden * factor
                             if i < (u_blocks // 2):
                                 conv_func = Conv2D

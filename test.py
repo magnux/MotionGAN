@@ -21,7 +21,7 @@ logging = tf.logging
 flags = tf.flags
 flags.DEFINE_bool("verbose", False, "To talk or not to talk")
 flags.DEFINE_multi_string("model_path", None, "Model output directory")
-flags.DEFINE_string("test_mode", "show_images", "Test modes: show_images, write_images, write_data, dmnn_score, dmnn_score_table, hmp_compare, dist_compare")
+flags.DEFINE_string("test_mode", "show_images", "Test modes: show_images, write_images, write_data, dmnn_score, dmnn_score_table, hmp_l2_comp, paper_metrics")
 flags.DEFINE_string("dmnn_path", None, "Path to trained DMNN model")
 flags.DEFINE_string("images_mode", "gif", "Image modes: gif, png")
 flags.DEFINE_integer("mask_mode", 1, "Mask modes: " + ' '.join(['%d:%s' % tup for tup in enumerate(MASK_MODES)]))
@@ -39,7 +39,7 @@ if __name__ == "__main__":
     # Config stuff
     batch_size = 1
     if "dmnn_score" in FLAGS.test_mode or \
-        "dist_compare" in FLAGS.test_mode or \
+        "paper_metrics" in FLAGS.test_mode or \
         "alternate_seq_dist" in FLAGS.test_mode:
         batch_size = 256
     elif "plot_survey" in FLAGS.test_mode:
@@ -54,7 +54,7 @@ if __name__ == "__main__":
     for save_path in FLAGS.model_path:
         FLAGS.save_path = save_path
         config = get_config(FLAGS)
-        config.only_val = True if not "dist_compare" in FLAGS.test_mode else False
+        config.only_val = True if not "paper_metrics" in FLAGS.test_mode else False
         config.batch_size = batch_size
 
         # Model building
@@ -376,7 +376,7 @@ if __name__ == "__main__":
 
         else:
             run_dmnn_score()
-    elif FLAGS.test_mode == "hmp_compare":
+    elif FLAGS.test_mode == "hmp_l2_comp":
         from utils.human36_expmaps_to_h5 import actions
 
         def em2eul(a):
@@ -557,10 +557,13 @@ if __name__ == "__main__":
 
                 print(Style.RESET_ALL)
 
-    elif FLAGS.test_mode == "dist_compare":
+    elif FLAGS.test_mode == "paper_metrics":
 
         total_samples = 2 ** 14
         test_mode = False
+
+        if FLAGS.mask_mode != 1 or FLAGS.keep_prob != 0.5:
+            print("Warning: this test was designed to work with: -mask_mode 1 -keep_prob 0.5")
 
         seq_tails_train = np.empty((total_samples, njoints, (seq_len // 2), 3))
         labs_train = np.empty((total_samples,))
@@ -623,34 +626,34 @@ if __name__ == "__main__":
                 if configs[m].latent_cond_dim > 0:
                     latent_noise = gen_latent_noise(batch_size, configs[m].latent_cond_dim)
                     gen_inputs.append(latent_noise)
-                gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
+                gen_output = model_wraps[0].gen_model.predict(gen_inputs, batch_size)
                 gen_tails_val[m][i * batch_size:(i+1) * batch_size, ...] = gen_output[:, :, seq_len // 2:, :]
 
             seq_tails_val[i * batch_size:(i+1) * batch_size, ...] = poses_batch[:, :, seq_len // 2:, :]
             labs_val[i * batch_size:(i+1) * batch_size] = labels[:, 0]
 
 
-        def edm(x, y=None):
-            y = x if y is None else y
-            x = np.expand_dims(x, axis=1)
-            y = np.expand_dims(y, axis=2)
-            return np.sqrt(np.sum(np.square(x - y), axis=-1))
+        # def edm(x, y=None):
+        #     y = x if y is None else y
+        #     x = np.expand_dims(x, axis=1)
+        #     y = np.expand_dims(y, axis=2)
+        #     return np.sqrt(np.sum(np.square(x - y), axis=-1))
+        # 
+        # def flat_edm(x):
+        #     idxs = np.triu_indices(x.shape[1], k=1)
+        #     x_edm = edm(x)
+        #     x_edm = x_edm[:, idxs[0], idxs[1], :]
+        #     # x_edm = x_edm[:, :, 1:] - x_edm[:, :, :-1]  # To work on diffs
+        #     x_edm = np.reshape(x_edm, (x.shape[0], -1))
+        #     return x_edm
 
-        def flat_edm(x):
-            idxs = np.triu_indices(x.shape[1], k=1)
-            x_edm = edm(x)
-            x_edm = x_edm[:, idxs[0], idxs[1], :]
-            # x_edm = x_edm[:, :, 1:] - x_edm[:, :, :-1]  # To work on diffs
-            x_edm = np.reshape(x_edm, (x.shape[0], -1))
-            return x_edm
-
-        def translate_seq(seq):
-            return seq - seq[:, 0, np.newaxis, :, :]
-
-        def rotate_seq(seq):
-            for f in range(seq.shape[2]):
-                seq[:, :, f, :] = rotate_start(seq[:,:,f,np.newaxis,:], body_members)[0][:,:,0,:]
-            return seq
+        # def translate_seq(seq):
+        #     return seq - seq[:, 0, np.newaxis, :, :]
+        # 
+        # def rotate_seq(seq):
+        #     for f in range(seq.shape[2]):
+        #         seq[:, :, f, :] = rotate_start(seq[:,:,f,np.newaxis,:], body_members)[0][:,:,0,:]
+        #     return seq
 
         # Making relative the sequences to allow us to compare with HMP baseline
         # seq_tails_train = rotate_seq(translate_seq(seq_tails_train))
@@ -674,84 +677,84 @@ if __name__ == "__main__":
 
         from sklearn.neighbors import NearestNeighbors
 
-        def compute_metrics(c1, c2, dist_metric='euclidean'):
-            c1 = np.reshape(c1, (c1.shape[0], -1))
-            c2 = np.reshape(c2, (c2.shape[0], -1))
-
-            if c1.shape[0] > c2.shape[0]:
-                c1 = c1[:c2.shape[0], ...]
-            elif c2.shape[0] > c1.shape[0]:
-                c2 = c2[:c1.shape[0], ...]
-
-            dist_mat_1 = sp.spatial.distance.cdist(c1, c1, metric=dist_metric)
-            dist_mat_2 = sp.spatial.distance.cdist(c2, c2, metric=dist_metric)
-            dist_mat_12 = sp.spatial.distance.cdist(c1, c2, metric=dist_metric)
-
-            mean_dist_1 = np.mean(dist_mat_1)
-            mean_dist_2 = np.mean(dist_mat_2)
-            # min_dist_1 = np.mean(np.min(dist_mat_12, axis=0))
-            min_dist_2 = np.mean(np.min(dist_mat_12, axis=1))
-            # min_dist = (min_dist_1 + min_dist_2) / 2 # symmetric dist
-            min_dist = min_dist_2
-
-            pred_dist = np.mean(np.diag(dist_mat_12))
-
-            # knn_1 = NearestNeighbors(n_neighbors=4, leaf_size=32, n_jobs=-1)
-            # knn_1.fit(c1)
-            # knn_2 = NearestNeighbors(n_neighbors=4, leaf_size=32, n_jobs=-1)
-            # knn_2.fit(c2)
-
-            # knn_dist_1 = np.mean(knn_1.kneighbors(c1)[0])
-            # knn_dist_2 = np.mean(knn_2.kneighbors(c2)[0])
-
-            rad_dist_1 = mean_dist_1 - dist_mat_1
-            rad_dist_1 = np.clip(rad_dist_1, a_min=0, a_max=None)
-            count_rad_1 = np.count_nonzero(rad_dist_1, axis=1)
-            count_rad_1 = np.mean(count_rad_1)
-
-            rad_dist_2 = mean_dist_1 - dist_mat_2
-            rad_dist_2 = np.clip(rad_dist_2, a_min=0, a_max=None)
-            count_rad_2 = np.count_nonzero(rad_dist_2, axis=1)
-            count_rad_2 = np.mean(count_rad_2)
-
-            # rad_dist_12 = mean_dist_1 - dist_mat_12
-            # rad_dist_12 = np.clip(rad_dist_12, a_min=0, a_max=None)
-            # count_rad_12 = np.count_nonzero(rad_dist_12, axis=0)
-            # count_rad_12 = np.mean(count_rad_12)
-
-            rad_dist_12_m = min_dist - dist_mat_12
-            rad_dist_12_m = np.clip(rad_dist_12_m, a_min=0, a_max=None)
-            count_rad_12_m = np.count_nonzero(rad_dist_12_m, axis=0)
-            count_rad_12_m = np.mean(count_rad_12_m)
-
-            # knn_coeff = knn_dist_2 / knn_dist_1
-            count_coeff = count_rad_2 / count_rad_1
-            edm_coeff = mean_dist_2 / mean_dist_1
-
-            # prec_coeff = (pred_dist / mean_dist_1) + 1
-            # dist_coeff = (min_dist / mean_dist_1) + 1
-            #
-            # dens_coeff = (1 / (np.abs(1 - (count_coeff * edm_coeff)) + 1))
-            # acc_coeff = (1 / (np.abs(1 - (prec_coeff * dist_coeff)) + 1))
-            # fit_coeff = dens_coeff * acc_coeff
-
-            p_corrs = np.empty(c1.shape[1])
-            p_corr_pvals = np.empty(c1.shape[1])
-            for i in range(c1.shape[1]):
-                p_corrs[i], p_corr_pvals[i] = sp.stats.pearsonr(c1[:, i], c2[:, i])
-
-            p_corr = np.mean(p_corrs)
-            p_corr_pval = np.mean(p_corr_pvals)
-            s_corr, s_corr_pval = sp.stats.spearmanr(c1, c2)
-            s_corr = np.mean(np.diag(s_corr, k=(s_corr.shape[1]//2)))
-            s_corr_pval = np.mean(np.diag(s_corr_pval, k=(s_corr_pval.shape[1]//2)))
-
-            mean_seq = np.mean(c1, axis=1, keepdims=True)
-            cent_c2 = c2 - mean_seq
-            mean_cent_c2 = np.mean(np.abs(cent_c2))
-            std_cent_c2 = np.std(cent_c2)
-
-            return min_dist, pred_dist, edm_coeff, count_coeff, count_rad_12_m, s_corr, s_corr_pval, p_corr, p_corr_pval, mean_cent_c2, std_cent_c2
+        # def compute_metrics(c1, c2, dist_metric='euclidean'):
+        #     c1 = np.reshape(c1, (c1.shape[0], -1))
+        #     c2 = np.reshape(c2, (c2.shape[0], -1))
+        # 
+        #     if c1.shape[0] > c2.shape[0]:
+        #         c1 = c1[:c2.shape[0], ...]
+        #     elif c2.shape[0] > c1.shape[0]:
+        #         c2 = c2[:c1.shape[0], ...]
+        # 
+        #     dist_mat_1 = sp.spatial.distance.cdist(c1, c1, metric=dist_metric)
+        #     dist_mat_2 = sp.spatial.distance.cdist(c2, c2, metric=dist_metric)
+        #     dist_mat_12 = sp.spatial.distance.cdist(c1, c2, metric=dist_metric)
+        # 
+        #     mean_dist_1 = np.mean(dist_mat_1)
+        #     mean_dist_2 = np.mean(dist_mat_2)
+        #     # min_dist_1 = np.mean(np.min(dist_mat_12, axis=0))
+        #     min_dist_2 = np.mean(np.min(dist_mat_12, axis=1))
+        #     # min_dist = (min_dist_1 + min_dist_2) / 2 # symmetric dist
+        #     min_dist = min_dist_2
+        # 
+        #     pred_dist = np.mean(np.diag(dist_mat_12))
+        # 
+        #     # knn_1 = NearestNeighbors(n_neighbors=4, leaf_size=32, n_jobs=-1)
+        #     # knn_1.fit(c1)
+        #     # knn_2 = NearestNeighbors(n_neighbors=4, leaf_size=32, n_jobs=-1)
+        #     # knn_2.fit(c2)
+        # 
+        #     # knn_dist_1 = np.mean(knn_1.kneighbors(c1)[0])
+        #     # knn_dist_2 = np.mean(knn_2.kneighbors(c2)[0])
+        # 
+        #     rad_dist_1 = mean_dist_1 - dist_mat_1
+        #     rad_dist_1 = np.clip(rad_dist_1, a_min=0, a_max=None)
+        #     count_rad_1 = np.count_nonzero(rad_dist_1, axis=1)
+        #     count_rad_1 = np.mean(count_rad_1)
+        # 
+        #     rad_dist_2 = mean_dist_1 - dist_mat_2
+        #     rad_dist_2 = np.clip(rad_dist_2, a_min=0, a_max=None)
+        #     count_rad_2 = np.count_nonzero(rad_dist_2, axis=1)
+        #     count_rad_2 = np.mean(count_rad_2)
+        # 
+        #     # rad_dist_12 = mean_dist_1 - dist_mat_12
+        #     # rad_dist_12 = np.clip(rad_dist_12, a_min=0, a_max=None)
+        #     # count_rad_12 = np.count_nonzero(rad_dist_12, axis=0)
+        #     # count_rad_12 = np.mean(count_rad_12)
+        # 
+        #     rad_dist_12_m = min_dist - dist_mat_12
+        #     rad_dist_12_m = np.clip(rad_dist_12_m, a_min=0, a_max=None)
+        #     count_rad_12_m = np.count_nonzero(rad_dist_12_m, axis=0)
+        #     count_rad_12_m = np.mean(count_rad_12_m)
+        # 
+        #     # knn_coeff = knn_dist_2 / knn_dist_1
+        #     count_coeff = count_rad_2 / count_rad_1
+        #     edm_coeff = mean_dist_2 / mean_dist_1
+        # 
+        #     # prec_coeff = (pred_dist / mean_dist_1) + 1
+        #     # dist_coeff = (min_dist / mean_dist_1) + 1
+        #     #
+        #     # dens_coeff = (1 / (np.abs(1 - (count_coeff * edm_coeff)) + 1))
+        #     # acc_coeff = (1 / (np.abs(1 - (prec_coeff * dist_coeff)) + 1))
+        #     # fit_coeff = dens_coeff * acc_coeff
+        # 
+        #     p_corrs = np.empty(c1.shape[1])
+        #     p_corr_pvals = np.empty(c1.shape[1])
+        #     for i in range(c1.shape[1]):
+        #         p_corrs[i], p_corr_pvals[i] = sp.stats.pearsonr(c1[:, i], c2[:, i])
+        # 
+        #     p_corr = np.mean(p_corrs)
+        #     p_corr_pval = np.mean(p_corr_pvals)
+        #     s_corr, s_corr_pval = sp.stats.spearmanr(c1, c2)
+        #     s_corr = np.mean(np.diag(s_corr, k=(s_corr.shape[1]//2)))
+        #     s_corr_pval = np.mean(np.diag(s_corr_pval, k=(s_corr_pval.shape[1]//2)))
+        # 
+        #     mean_seq = np.mean(c1, axis=1, keepdims=True)
+        #     cent_c2 = c2 - mean_seq
+        #     mean_cent_c2 = np.mean(np.abs(cent_c2))
+        #     std_cent_c2 = np.std(cent_c2)
+        # 
+        #     return min_dist, pred_dist, edm_coeff, count_coeff, count_rad_12_m, s_corr, s_corr_pval, p_corr, p_corr_pval, mean_cent_c2, std_cent_c2
 
         def compute_ent_metrics(gt_seqs, seqs, format='coords'):
             if format == 'coords':
@@ -875,33 +878,46 @@ if __name__ == "__main__":
         # Baseline metric
         from utils.human36_expmaps_to_h5 import actions
 
-        h36_coords_used_joints = [0, 1, 2, 3, 6, 7, 8, 12, 13, 14, 15, 17, 18, 19, 25, 26, 27]
-        parent, offset, rotInd, expmapInd = _some_variables()
-
-        def to_coords(seq_angles):
-            seq_coords = np.empty((1, len(h36_coords_used_joints), seq_angles.shape[0], 3))
-            for i in range(seq_angles.shape[0]):
-                frame_coords = fkl(seq_angles[i, :], parent, offset, rotInd, expmapInd)
-                seq_coords[0, :, i, :] = frame_coords[h36_coords_used_joints, :]
-            seq_coords[..., 1] = seq_coords[..., 1] * -1  # Inverting y axis for visualization purposes
-            return seq_coords
+        # h36_coords_used_joints = [0, 1, 2, 3, 6, 7, 8, 12, 13, 14, 15, 17, 18, 19, 25, 26, 27]
+        # parent, offset, rotInd, expmapInd = _some_variables()
+        # 
+        # def to_coords(seq_angles):
+        #     seq_coords = np.empty((1, len(h36_coords_used_joints), seq_angles.shape[0], 3))
+        #     for i in range(seq_angles.shape[0]):
+        #         frame_coords = fkl(seq_angles[i, :], parent, offset, rotInd, expmapInd)
+        #         seq_coords[0, :, i, :] = frame_coords[h36_coords_used_joints, :]
+        #     seq_coords[..., 1] = seq_coords[..., 1] * -1  # Inverting y axis for visualization purposes
+        #     return seq_coords
 
         def subsample(seq):
             return seq[range(0, int(seq.shape[0]), 5), :]
 
+        def prepare_expmap(expmap):
+            expmap = subsample(expmap)
+            # expmap = expmap[:int(seq_len * (1 - FLAGS.keep_prob)), :]
+            expmap = expmap.reshape((expmap.shape[0], 33, 3))
+            ex_std = expmap.std(0)
+            dim_to_use = np.where((ex_std >= 1e-4).all(axis=-1))[0]
+            expmap = expmap[:, dim_to_use, :]
+            expmap = expmap.transpose((1, 0, 2))
+            return expmap
+
+
         ### Compute comparison with HMP dataset, only valid for h36 models
-        # gen_tails_hmp = np.empty((len(actions) * 8, njoints, (seq_len // 2), 3))
-        # with h5.File('../human-motion-prediction/samples.h5', "r") as sample_file:
-        #     for act_idx, action in enumerate(actions):
-        #         pred_len = seq_len // 2
-        #         mean_errors_hmp = np.zeros((8, pred_len))
-        #         mean_errors_mg = np.zeros((8, pred_len))
-        #         for i in np.arange(8):
-        #             expmap_hmp = np.array(sample_file['expmap/preds/{1}_{0}'.format(i, action)], dtype=np.float32)
-        #             expmap_hmp = subsample(expmap_hmp)
-        #             expmap_hmp = expmap_hmp[:10, :]
-        #             gen_tails_hmp[(act_idx * 8) + i, ...] = data_input.normalize_poses(to_coords(expmap_hmp))
-        #
+        print("HMP Baseline")
+        # gen_tails_hmp = np.empty((len(actions) * 8, njoints, pred_len, 3))
+        expmaps_hmp_gt = []
+        expmaps_hmp = []
+        with h5.File('../human-motion-prediction/samples.h5', "r") as sample_file:
+            for act_idx, action in enumerate(actions):
+                for i in np.arange(8):
+                    expmap_hmp_gt = np.array(sample_file['expmap/gt/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    expmaps_hmp_gt.append(prepare_expmap(expmap_hmp_gt))
+                    expmap_hmp = np.array(sample_file['expmap/preds/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    expmaps_hmp.append(prepare_expmap(expmap_hmp))
+
+        compute_ent_metrics(np.stack(expmaps_hmp_gt, 0), np.stack(expmaps_hmp, 0), 'expmaps')
+
         # gen_tails_hmp = rotate_seq(translate_seq(gen_tails_hmp))
         # gen_tails_hmp_trans = lda_transform(gen_tails_hmp)
         # print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_val_trans, gen_tails_hmp_trans)))

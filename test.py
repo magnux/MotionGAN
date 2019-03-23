@@ -41,7 +41,7 @@ if __name__ == "__main__":
     if "dmnn_score" in FLAGS.test_mode or \
         "paper_metrics" in FLAGS.test_mode or \
         "alternate_seq_dist" in FLAGS.test_mode:
-        batch_size = 256
+        batch_size = 128
     elif "plot_survey" in FLAGS.test_mode:
         batch_size = 120
 
@@ -54,7 +54,7 @@ if __name__ == "__main__":
     for save_path in FLAGS.model_path:
         FLAGS.save_path = save_path
         config = get_config(FLAGS)
-        config.only_val = True if not "paper_metrics" in FLAGS.test_mode else False
+        config.only_val = True if "paper_metrics" not in FLAGS.test_mode else False
         config.batch_size = batch_size
 
         # Model building
@@ -82,6 +82,9 @@ if __name__ == "__main__":
         model_wraps.append(model_wrap)
 
     # TODO: assert all configs are for the same dataset
+    if "paper_metrics" in FLAGS.test_mode:
+        configs[0].crop_len = (configs[0].crop_len // 2) + configs[0].crop_len
+        configs[0].pick_num = (configs[0].pick_num // 2) + configs[0].pick_num
     data_input = DataInput(configs[0])
     _reset_rand_seed()
     train_batches = data_input.train_epoch_size
@@ -565,275 +568,105 @@ if __name__ == "__main__":
         if FLAGS.mask_mode != 1 or FLAGS.keep_prob != 0.5:
             print("Warning: this test was designed to work with: -mask_mode 1 -keep_prob 0.5")
 
-        seq_tails_train = np.empty((total_samples, njoints, (seq_len // 2), 3))
+        seq_tails_train = np.empty((total_samples, njoints, seq_len, 3))
         labs_train = np.empty((total_samples,))
         t = trange(total_samples // batch_size)
         for i in t:
             labs_batch, poses_batch = train_generator.next()
 
-            mask_batch = poses_batch[..., 3, np.newaxis]
-            mask_batch = mask_batch * gen_mask(FLAGS.mask_mode, FLAGS.keep_prob,
-                                               batch_size, njoints, seq_len,
-                                               body_members, test_mode)
             poses_batch = poses_batch[..., :3]
-
             labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
 
             seq_tails_train[i * batch_size:(i+1) * batch_size, ...] = poses_batch[:, :, seq_len // 2:, :]
             labs_train[i * batch_size:(i+1) * batch_size] = labels[:, 0]
 
-        # from layers.tsne import *
-        # from tensorflow.contrib.keras.api.keras.models import Model
-        # from tensorflow.contrib.keras.api.keras.layers import Input, Dense, Add
-        # from tensorflow.contrib.keras.api.keras.optimizers import SGD
-        #
-        # X_train = np.reshape(seq_tails_train, (total_samples, -1))
-        # d = 2  # configs[0].num_actions
-        #
-        # x_in = Input(shape=(X_train.shape[1],))
-        # x_out = Dense(512, activation='relu')(x_in)
-        # for i in range(2):
-        #     x_out_d = Dense(512, activation='relu')(x_out)
-        #     x_out = Add()([x_out_d, x_out])
-        # x_out = Dense(d)(x_out)
-        # tsne_model = Model(inputs=x_in, outputs=x_out)
-        # tsne_model.compile(loss=build_tsne_loss(d, batch_size), optimizer=SGD(lr=0.1))
-        #
-        # P = compute_joint_probabilities(X_train, batch_size=batch_size, d=d, perplexity=25, tol=1e-5, verbose=0)
-        # Y_train = P.reshape(X_train.shape[0], -1)
-        #
-        # tsne_model.fit(X_train, Y_train, batch_size=batch_size, epochs=1024, shuffle=False, verbose=0)
-
-        seq_tails_val = np.empty((total_samples, njoints, (seq_len // 2), 3))
-        gen_tails_val = [np.empty((total_samples, njoints, (seq_len // 2), 3)) for _ in range(len(model_wraps))]
+        seq_tails_val = np.empty((total_samples, njoints, seq_len, 3))
+        gen_tails_val = [np.empty((total_samples, njoints, seq_len, 3)) for _ in range(len(model_wraps))]
         labs_val = np.empty((total_samples,))
         t = trange(total_samples // batch_size)
         for i in t:
             labs_batch, poses_batch = val_generator.next()
 
-            mask_batch = poses_batch[..., 3, np.newaxis]
-            mask_batch = mask_batch * gen_mask(FLAGS.mask_mode, FLAGS.keep_prob,
-                                               batch_size, njoints, seq_len,
-                                               body_members, test_mode)
+            # mask_batch = poses_batch[..., 3, np.newaxis]
+            mask_batch = gen_mask(FLAGS.mask_mode, FLAGS.keep_prob,batch_size, njoints, seq_len, body_members, test_mode)
             poses_batch = poses_batch[..., :3]
-
             labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
 
             for m, model_wrap in enumerate(model_wraps):
-                gen_inputs = [poses_batch, mask_batch]
-                if configs[m].action_cond:
-                    gen_inputs.append(labels)
-                if configs[m].latent_cond_dim > 0:
-                    latent_noise = gen_latent_noise(batch_size, configs[m].latent_cond_dim)
-                    gen_inputs.append(latent_noise)
-                gen_output = model_wraps[0].gen_model.predict(gen_inputs, batch_size)
-                gen_tails_val[m][i * batch_size:(i+1) * batch_size, ...] = gen_output[:, :, seq_len // 2:, :]
+                gen_output = np.zeros((batch_size, njoints, seq_len, 3))
+                for p in range(2):
+                    if p == 0:
+                        poses_batch_chunk = poses_batch[:, :, :seq_len, :].copy()
+                    else:
+                        poses_batch_chunk = gen_output.copy()
+                    gen_inputs = [poses_batch_chunk, mask_batch]
+                    if configs[m].action_cond:
+                        gen_inputs.append(labels)
+                    if configs[m].latent_cond_dim > 0:
+                        latent_noise = gen_latent_noise(batch_size, configs[m].latent_cond_dim)
+                        gen_inputs.append(latent_noise)
+                    gen_output[:, :, p * (seq_len // 2):(p+1) * (seq_len // 2), :] = \
+                        model_wrap.gen_model.predict(gen_inputs, batch_size)[:, :, seq_len // 2:, :]
+                gen_tails_val[m][i * batch_size:(i+1) * batch_size, ...] = gen_output
 
             seq_tails_val[i * batch_size:(i+1) * batch_size, ...] = poses_batch[:, :, seq_len // 2:, :]
             labs_val[i * batch_size:(i+1) * batch_size] = labels[:, 0]
 
-
-        # def edm(x, y=None):
-        #     y = x if y is None else y
-        #     x = np.expand_dims(x, axis=1)
-        #     y = np.expand_dims(y, axis=2)
-        #     return np.sqrt(np.sum(np.square(x - y), axis=-1))
-        # 
-        # def flat_edm(x):
-        #     idxs = np.triu_indices(x.shape[1], k=1)
-        #     x_edm = edm(x)
-        #     x_edm = x_edm[:, idxs[0], idxs[1], :]
-        #     # x_edm = x_edm[:, :, 1:] - x_edm[:, :, :-1]  # To work on diffs
-        #     x_edm = np.reshape(x_edm, (x.shape[0], -1))
-        #     return x_edm
-
-        # def translate_seq(seq):
-        #     return seq - seq[:, 0, np.newaxis, :, :]
-        # 
-        # def rotate_seq(seq):
-        #     for f in range(seq.shape[2]):
-        #         seq[:, :, f, :] = rotate_start(seq[:,:,f,np.newaxis,:], body_members)[0][:,:,0,:]
-        #     return seq
-
-        # Making relative the sequences to allow us to compare with HMP baseline
-        # seq_tails_train = rotate_seq(translate_seq(seq_tails_train))
-        # seq_tails_val = rotate_seq(translate_seq(seq_tails_val))
-        # for m, model_wrap in enumerate(model_wraps):
-        #     gen_tails_val[m] = rotate_seq(translate_seq(gen_tails_val[m]))
-
-        # from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-        # lda = LinearDiscriminantAnalysis()
-        # lda.fit(np.reshape(seq_tails_train, (total_samples, -1)), labs_train)
-        # print(lda.explained_variance_ratio_)
-
-        # def lda_transform(seqs):
-        #     return lda.transform(np.reshape(seqs, (seqs.shape[0], -1)))
-
-        # def lda_transform(seqs):
-        #     return tsne_model.predict(np.reshape(seqs, (total_samples, -1)))
-
-        # seq_tails_train_trans = lda_transform(seq_tails_train)
-        # seq_tails_val_trans = lda_transform(seq_tails_val)
-
-        from sklearn.neighbors import NearestNeighbors
-
-        # def compute_metrics(c1, c2, dist_metric='euclidean'):
-        #     c1 = np.reshape(c1, (c1.shape[0], -1))
-        #     c2 = np.reshape(c2, (c2.shape[0], -1))
-        # 
-        #     if c1.shape[0] > c2.shape[0]:
-        #         c1 = c1[:c2.shape[0], ...]
-        #     elif c2.shape[0] > c1.shape[0]:
-        #         c2 = c2[:c1.shape[0], ...]
-        # 
-        #     dist_mat_1 = sp.spatial.distance.cdist(c1, c1, metric=dist_metric)
-        #     dist_mat_2 = sp.spatial.distance.cdist(c2, c2, metric=dist_metric)
-        #     dist_mat_12 = sp.spatial.distance.cdist(c1, c2, metric=dist_metric)
-        # 
-        #     mean_dist_1 = np.mean(dist_mat_1)
-        #     mean_dist_2 = np.mean(dist_mat_2)
-        #     # min_dist_1 = np.mean(np.min(dist_mat_12, axis=0))
-        #     min_dist_2 = np.mean(np.min(dist_mat_12, axis=1))
-        #     # min_dist = (min_dist_1 + min_dist_2) / 2 # symmetric dist
-        #     min_dist = min_dist_2
-        # 
-        #     pred_dist = np.mean(np.diag(dist_mat_12))
-        # 
-        #     # knn_1 = NearestNeighbors(n_neighbors=4, leaf_size=32, n_jobs=-1)
-        #     # knn_1.fit(c1)
-        #     # knn_2 = NearestNeighbors(n_neighbors=4, leaf_size=32, n_jobs=-1)
-        #     # knn_2.fit(c2)
-        # 
-        #     # knn_dist_1 = np.mean(knn_1.kneighbors(c1)[0])
-        #     # knn_dist_2 = np.mean(knn_2.kneighbors(c2)[0])
-        # 
-        #     rad_dist_1 = mean_dist_1 - dist_mat_1
-        #     rad_dist_1 = np.clip(rad_dist_1, a_min=0, a_max=None)
-        #     count_rad_1 = np.count_nonzero(rad_dist_1, axis=1)
-        #     count_rad_1 = np.mean(count_rad_1)
-        # 
-        #     rad_dist_2 = mean_dist_1 - dist_mat_2
-        #     rad_dist_2 = np.clip(rad_dist_2, a_min=0, a_max=None)
-        #     count_rad_2 = np.count_nonzero(rad_dist_2, axis=1)
-        #     count_rad_2 = np.mean(count_rad_2)
-        # 
-        #     # rad_dist_12 = mean_dist_1 - dist_mat_12
-        #     # rad_dist_12 = np.clip(rad_dist_12, a_min=0, a_max=None)
-        #     # count_rad_12 = np.count_nonzero(rad_dist_12, axis=0)
-        #     # count_rad_12 = np.mean(count_rad_12)
-        # 
-        #     rad_dist_12_m = min_dist - dist_mat_12
-        #     rad_dist_12_m = np.clip(rad_dist_12_m, a_min=0, a_max=None)
-        #     count_rad_12_m = np.count_nonzero(rad_dist_12_m, axis=0)
-        #     count_rad_12_m = np.mean(count_rad_12_m)
-        # 
-        #     # knn_coeff = knn_dist_2 / knn_dist_1
-        #     count_coeff = count_rad_2 / count_rad_1
-        #     edm_coeff = mean_dist_2 / mean_dist_1
-        # 
-        #     # prec_coeff = (pred_dist / mean_dist_1) + 1
-        #     # dist_coeff = (min_dist / mean_dist_1) + 1
-        #     #
-        #     # dens_coeff = (1 / (np.abs(1 - (count_coeff * edm_coeff)) + 1))
-        #     # acc_coeff = (1 / (np.abs(1 - (prec_coeff * dist_coeff)) + 1))
-        #     # fit_coeff = dens_coeff * acc_coeff
-        # 
-        #     p_corrs = np.empty(c1.shape[1])
-        #     p_corr_pvals = np.empty(c1.shape[1])
-        #     for i in range(c1.shape[1]):
-        #         p_corrs[i], p_corr_pvals[i] = sp.stats.pearsonr(c1[:, i], c2[:, i])
-        # 
-        #     p_corr = np.mean(p_corrs)
-        #     p_corr_pval = np.mean(p_corr_pvals)
-        #     s_corr, s_corr_pval = sp.stats.spearmanr(c1, c2)
-        #     s_corr = np.mean(np.diag(s_corr, k=(s_corr.shape[1]//2)))
-        #     s_corr_pval = np.mean(np.diag(s_corr_pval, k=(s_corr_pval.shape[1]//2)))
-        # 
-        #     mean_seq = np.mean(c1, axis=1, keepdims=True)
-        #     cent_c2 = c2 - mean_seq
-        #     mean_cent_c2 = np.mean(np.abs(cent_c2))
-        #     std_cent_c2 = np.std(cent_c2)
-        # 
-        #     return min_dist, pred_dist, edm_coeff, count_coeff, count_rad_12_m, s_corr, s_corr_pval, p_corr, p_corr_pval, mean_cent_c2, std_cent_c2
+        if configs[0].normalize_data:
+            seq_tails_train = data_input.unnormalize_poses(seq_tails_train)
+            seq_tails_val = data_input.unnormalize_poses(seq_tails_val)
+            for m in range(len(model_wraps)):
+                gen_tails_val[m] = data_input.unnormalize_poses(gen_tails_val[m])
 
         def compute_ent_metrics(gt_seqs, seqs, format='coords'):
-            if format == 'coords':
-                gt_cent_seqs = gt_seqs - gt_seqs[:, 0, np.newaxis, :, :]
-                gt_angle_expmaps = angle_trans(gt_cent_seqs)
-                cent_seqs = seqs - seqs[:, 0, np.newaxis, :, :]
-                angle_expmaps = angle_trans(cent_seqs)
-            elif format == 'expmaps':
-                gt_angle_expmaps = gt_seqs
-                angle_expmaps = seqs
+            for seq_start, seq_end in [(s * (seq_len // 4), (s+1) * (seq_len // 4)) for s in range(4)] + [(0, seq_len)]:
+                gt_seqs_tmp = gt_seqs[:, :, seq_start:seq_end, :]
+                seqs_tmp = seqs[:, :, seq_start:seq_end, :]
+                if format == 'coords':
+                    gt_cent_seqs = gt_seqs_tmp - gt_seqs_tmp[:, 0, np.newaxis, :, :]
+                    gt_angle_expmaps = angle_trans(gt_cent_seqs)
+                    cent_seqs = seqs_tmp - seqs_tmp[:, 0, np.newaxis, :, :]
+                    angle_expmaps = angle_trans(cent_seqs)
+                elif format == 'expmaps':
+                    gt_angle_expmaps = gt_seqs_tmp
+                    angle_expmaps = seqs_tmp
 
-            gt_angle_seqs = npangles.rotmat_to_euler(npangles.expmap_to_rotmat(gt_angle_expmaps))
-            angle_seqs = npangles.rotmat_to_euler(npangles.expmap_to_rotmat(angle_expmaps))
+                gt_angle_seqs = npangles.rotmat_to_euler(npangles.expmap_to_rotmat(gt_angle_expmaps))
+                angle_seqs = npangles.rotmat_to_euler(npangles.expmap_to_rotmat(angle_expmaps))
 
-            # for i in range(1, 4):
-            #     print(np.mean(np.abs(angle_seqs[:,:,:-i,:] - angle_seqs[:,:,i:,:])))
+                gt_seqs_fft = np.fft.fft(gt_angle_seqs, axis=2)
+                gt_seqs_ps = np.abs(gt_seqs_fft) ** 2
 
-            gt_seqs_fft = np.fft.fft(gt_angle_seqs, axis=2)
-            gt_seqs_ps = np.abs(gt_seqs_fft) ** 2
+                gt_seqs_ps_global = gt_seqs_ps.sum(axis=0) + 1e-8
+                gt_seqs_ps_global /= gt_seqs_ps_global.sum(axis=1, keepdims=True)
 
-            gt_seqs_ps_global = gt_seqs_ps.sum(axis=0) + 1e-8
-            gt_seqs_ps_global /= gt_seqs_ps_global.sum(axis=1, keepdims=True)
+                seqs_fft = np.fft.fft(angle_seqs, axis=2)
+                seqs_ps = np.abs(seqs_fft) ** 2
 
-            # gt_seqs_ps_per_sample = gt_seqs_ps + 1e-8
-            # gt_seqs_ps_per_sample /= gt_seqs_ps_per_sample.sum(axis=2, keepdims=True)
+                seqs_ps_global = seqs_ps.sum(axis=0) + 1e-8
+                seqs_ps_global /= seqs_ps_global.sum(axis=1, keepdims=True)
 
-            seqs_fft = np.fft.fft(angle_seqs, axis=2)
-            seqs_ps = np.abs(seqs_fft) ** 2
+                seqs_ent_global = -np.sum(seqs_ps_global * np.log(seqs_ps_global), axis=1)
+                # print("PS Entropy: ", seqs_ent_global.mean())
 
-            seqs_ps_global = seqs_ps.sum(axis=0) + 1e-8
-            seqs_ps_global /= seqs_ps_global.sum(axis=1, keepdims=True)
+                seqs_kl_gen_gt = np.sum(seqs_ps_global * np.log(seqs_ps_global / gt_seqs_ps_global), axis=1)
+                # print("PS KL(Gen|GT): ", seqs_kl_gen_gt.mean())
+                seqs_kl_gt_gen = np.sum(gt_seqs_ps_global * np.log(gt_seqs_ps_global / seqs_ps_global), axis=1)
+                # print("PS KL(GT|Gen): ", seqs_kl_gt_gen.mean())
 
-            # seqs_ps_per_sample = seqs_ps + 1e-8
-            # seqs_ps_per_sample /= seqs_ps_per_sample.sum(axis=2, keepdims=True)
-
-            seqs_ent_global = -np.sum(seqs_ps_global * np.log(seqs_ps_global), axis=1)
-            print("PS Entropy global: ", seqs_ent_global.mean())
-            # seqs_ent_per_sample = -np.sum(seqs_ps_per_sample * np.log(seqs_ps_per_sample), axis=2)
-            # print("PS Entropy per sample: ", seqs_ent_per_sample.mean())
-
-            seqs_kl_gen_gt = np.sum(seqs_ps_global * np.log(seqs_ps_global / gt_seqs_ps_global), axis=1)
-            print("PS KL(Gen|GT): ", seqs_kl_gen_gt.mean())
-            seqs_kl_gt_gen = np.sum(gt_seqs_ps_global * np.log(gt_seqs_ps_global / seqs_ps_global), axis=1)
-            print("PS KL(GT|Gen): ", seqs_kl_gt_gen.mean())
-
-            # seqs_fft_diff = np.abs(gt_seqs_fft - seqs_fft)
-            # print("FFT diff:", seqs_fft_diff.mean())
-            # seqs_ps_diff = np.abs(gt_seqs_ps - seqs_ps)
-            # print("PS diff:", seqs_ps_diff.mean())
-
-            # emd = np.zeros((angle_seqs.shape[0], angle_seqs.shape[1], angle_seqs.shape[3]))
-            # for s in range(angle_seqs.shape[0]):
-            #     for j in range(angle_seqs.shape[1]):
-            #         for a in range(angle_seqs.shape[3]):
-            #             emd[s, j, a] = sp.stats.wasserstein_distance(gt_seqs_ps_per_sample[s, j, :, a], seqs_ps_per_sample[s, j, :, a])
-            #
-            # emd = np.expand_dims(emd, axis=2)
-            # npss = np.sum(seqs_ps_per_sample * emd) / np.sum(seqs_ps_per_sample)
-            # npss *= seqs_ps_per_sample
-            # print("NPSS:", npss.sum(axis=2).mean())
-            
-            # emd = np.zeros((angle_seqs.shape[1], angle_seqs.shape[3]))
-            # for j in range(angle_seqs.shape[1]):
-            #     for a in range(angle_seqs.shape[3]):
-            #         emd[j, a] = sp.stats.wasserstein_distance(gt_seqs_ps_global[j, :, a],
-            #                                                   seqs_ps_global[j, :, a])
-            #
-            # print("GNPSS:", emd.mean())
+                print(#"frames: ", (seq_start, seq_end),
+                      "%.5f & %.5f & %.5f" % (seqs_ent_global.mean(), seqs_kl_gen_gt.mean(), seqs_kl_gt_gen.mean()))
 
 
         import matplotlib
-        # matplotlib.use('Agg')
+        matplotlib.use('Agg')
         actions = ['directions', 'discussion', 'eating', 'greeting', 'phoning',
                    'posing', 'purchases', 'sitting', 'sitting down', 'smoking',
                    'taking photo', 'waiting', 'walking', 'walking dog', 'walking together']
 
-        # import matplotlib.pyplot as plt
+        import matplotlib.pyplot as plt
 
-        # fig, ax = plt.subplots()
+        fig, ax = plt.subplots()
         # for lab in sorted(set(labs_train)):
         #     idxs = labs_train == lab
         #     xs = seq_tails_train_trans[idxs, 0]
@@ -871,69 +704,48 @@ if __name__ == "__main__":
         # plt.show(block=False)
 
         # Checking sanity of metric
-        # print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_val_trans, seq_tails_val_trans)))
-        compute_ent_metrics(seq_tails_val, seq_tails_val)
+        print("training set sanity check")
+        print("PS Entropy, PS KL(Gen|GT), PS KL(GT|Gen)")
+        compute_ent_metrics(seq_tails_train, seq_tails_train)
 
-
-        # Baseline metric
-        from utils.human36_expmaps_to_h5 import actions
-
-        # h36_coords_used_joints = [0, 1, 2, 3, 6, 7, 8, 12, 13, 14, 15, 17, 18, 19, 25, 26, 27]
-        # parent, offset, rotInd, expmapInd = _some_variables()
-        # 
-        # def to_coords(seq_angles):
-        #     seq_coords = np.empty((1, len(h36_coords_used_joints), seq_angles.shape[0], 3))
-        #     for i in range(seq_angles.shape[0]):
-        #         frame_coords = fkl(seq_angles[i, :], parent, offset, rotInd, expmapInd)
-        #         seq_coords[0, :, i, :] = frame_coords[h36_coords_used_joints, :]
-        #     seq_coords[..., 1] = seq_coords[..., 1] * -1  # Inverting y axis for visualization purposes
-        #     return seq_coords
-
-        def subsample(seq):
-            return seq[range(0, int(seq.shape[0]), 5), :]
-
-        def prepare_expmap(expmap):
-            expmap = subsample(expmap)
-            # expmap = expmap[:int(seq_len * (1 - FLAGS.keep_prob)), :]
-            expmap = expmap.reshape((expmap.shape[0], 33, 3))
-            ex_std = expmap.std(0)
-            dim_to_use = np.where((ex_std >= 1e-4).all(axis=-1))[0]
-            expmap = expmap[:, dim_to_use, :]
-            expmap = expmap.transpose((1, 0, 2))
-            return expmap
-
+        print("validation vs training set")
+        compute_ent_metrics(seq_tails_train, seq_tails_val)
 
         ### Compute comparison with HMP dataset, only valid for h36 models
-        print("HMP Baseline")
-        # gen_tails_hmp = np.empty((len(actions) * 8, njoints, pred_len, 3))
-        expmaps_hmp_gt = []
-        expmaps_hmp = []
-        with h5.File('../human-motion-prediction/samples.h5', "r") as sample_file:
-            for act_idx, action in enumerate(actions):
-                for i in np.arange(8):
-                    expmap_hmp_gt = np.array(sample_file['expmap/gt/{1}_{0}'.format(i, action)], dtype=np.float32)
-                    expmaps_hmp_gt.append(prepare_expmap(expmap_hmp_gt))
-                    expmap_hmp = np.array(sample_file['expmap/preds/{1}_{0}'.format(i, action)], dtype=np.float32)
-                    expmaps_hmp.append(prepare_expmap(expmap_hmp))
+        if configs[0].data_set == "Human36":
+            print("HMP Baseline")
+            from utils.human36_expmaps_to_h5 import actions
 
-        compute_ent_metrics(np.stack(expmaps_hmp_gt, 0), np.stack(expmaps_hmp, 0), 'expmaps')
+            def subsample(seq):
+                return seq[range(0, int(seq.shape[0]), 5), :]
 
-        # gen_tails_hmp = rotate_seq(translate_seq(gen_tails_hmp))
-        # gen_tails_hmp_trans = lda_transform(gen_tails_hmp)
-        # print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_val_trans, gen_tails_hmp_trans)))
+            def prepare_expmap(expmap):
+                expmap = subsample(expmap)
+                expmap = expmap.reshape((expmap.shape[0], 33, 3))
+                ex_std = expmap.std(0)
+                dim_to_use = np.where((ex_std >= 1e-4).all(axis=-1))[0]
+                expmap = expmap[:, dim_to_use, :]
+                expmap = expmap.transpose((1, 0, 2))
+                return expmap
+
+
+            expmaps_hmp_gt = []
+            expmaps_hmp = []
+            with h5.File('../human-motion-prediction/samples.h5', "r") as sample_file:
+                for act_idx, action in enumerate(actions):
+                    for i in np.arange(8):
+                        expmap_hmp_gt = np.array(sample_file['expmap/gt/{1}_{0}'.format(i, action)], dtype=np.float32)
+                        expmaps_hmp_gt.append(prepare_expmap(expmap_hmp_gt))
+                        expmap_hmp = np.array(sample_file['expmap/preds/{1}_{0}'.format(i, action)], dtype=np.float32)
+                        expmaps_hmp.append(prepare_expmap(expmap_hmp))
+
+            compute_ent_metrics(np.stack(expmaps_hmp_gt, 0), np.stack(expmaps_hmp, 0), 'expmaps')
 
         # teaser_0 = lda_transform(data_input.normalize_poses(np.load("save/motiongan_v7_action_nogan_fp_h36_test_images_gif/survey_3_026.npy"))[:, :, seq_len // 2:, :])
         # teaser_1 = lda_transform(data_input.normalize_poses(np.load("save/motiongan_v7_action_nogan_fp_h36_test_images_gif/survey_3_029.npy"))[:, :, seq_len // 2:, :])
 
-        # train_probas = lda.predict_proba(np.reshape(seq_tails_train, (total_samples, -1)))
-        # val_probas = lda.predict_proba(np.reshape(seq_tails_val, (total_samples, -1)))
-        # print('KL: %f %f %f' % (np.mean(sp.stats.entropy(val_probas, train_probas)), np.mean(sp.stats.entropy(train_probas, val_probas)), np.mean(sp.stats.entropy(val_probas, val_probas))))
-
         for m, _ in enumerate(model_wraps):
             print(configs[m].save_path)
-
-            # gen_trans = lda_transform(gen_tails_val[m])
-            # gen_probas = lda.predict_proba(np.reshape(gen_tails_val[m], (total_samples, -1)))
 
             # fig, ax = plt.subplots()
             # ax.scatter(seq_tails_val_trans[:, 0], seq_tails_val_trans[:, 1], marker='.', alpha=0.1, label='GT')
@@ -971,34 +783,26 @@ if __name__ == "__main__":
             # plt.show(block=False)
             # fig.savefig(images_path + ("gen_plot_%d.png" % m), dpi=320)
 
-            # print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(seq_tails_val_trans, gen_trans)))
             compute_ent_metrics(seq_tails_val, gen_tails_val[m])
-            # print('KL: %f %f' % (np.mean(sp.stats.entropy(val_probas, gen_probas)), np.mean(sp.stats.entropy(gen_probas, val_probas))))
 
         # plt.show()
 
+        # Per Action Metrics
         # actions = ['Directions', 'Discussion', 'Eating', 'Greeting', 'Phoning',
         #            'Posing', 'Purchases', 'Sitting', 'SittingDown', 'Smoking',
         #            'Photo', 'Waiting', 'Walking', 'WalkDog', 'WalkTogether']
         #
-        # gen_tails_val_trans = []
-        # for m, _ in enumerate(model_wraps):
-        #     gen_tails_val_trans.append(lda_transform(gen_tails_val[m]))
-        #
         # for lab in sorted(set(labs_train)):
         #     print('\nAction: ' + actions[int(lab)])
         #     idxs = labs_val == lab
-        #     trains_trans = seq_tails_train_trans[idxs, ...]
-        #     vals_trans = seq_tails_val_trans[idxs, ...]
-        #
-        #     print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(trains_trans, vals_trans)))
+        #     seq_tails_val_act = seq_tails_val[idxs, ...]
         #
         #     for m, _ in enumerate(model_wraps):
         #         print(configs[m].save_path)
         #
-        #         vals_gen_trans = gen_tails_val_trans[m][idxs, ...]
+        #         gen_tails_val_act = gen_tails_val[m][idxs, ...]
         #
-        #         print('dist: ' + ' '.join("%.4f" % x for x in compute_metrics(vals_trans, vals_gen_trans)))
+        #         compute_ent_metrics(seq_tails_val_act, gen_tails_val_act)
 
     elif FLAGS.test_mode == "plot_survey":
 

@@ -97,18 +97,31 @@ if __name__ == "__main__":
                   (configs[0].save_path, FLAGS.images_mode)
     if not tf.gfile.Exists(images_path):
         tf.gfile.MkDir(images_path)
+    if "plot_survey" in FLAGS.test_mode:
+        for s in range(4):
+            surv_img_path = images_path + ("survey_%d/" % s)
+            if not tf.gfile.Exists(surv_img_path):
+                tf.gfile.MkDir(surv_img_path)
+            for g in range(2):
+                gt_img_path = surv_img_path + ("gt_%d/" % g)
+                if not tf.gfile.Exists(gt_img_path):
+                    tf.gfile.MkDir(gt_img_path)
+    if "rebuttal" in FLAGS.test_mode:
+        reb_img_path = images_path + "rebuttal/"
+        if not tf.gfile.Exists(reb_img_path):
+            tf.gfile.MkDir(reb_img_path)
 
     njoints = configs[0].njoints
     seq_len = model_wraps[0].seq_len
     body_members = configs[0].body_members  # if not configs[0].data_set == 'Human36' else configs[0].full_body_members
     angle_trans = seq_to_angles_transformer(body_members)
 
-    def get_inputs():
+    def get_inputs(baseline_mode=False):
         labs_batch, poses_batch = val_generator.next()
 
         mask_batch = poses_batch[..., 3, np.newaxis]
         mask_batch = mask_batch * gen_mask(FLAGS.mask_mode, FLAGS.keep_prob,
-                                           batch_size, njoints, seq_len, body_members, False)
+                                           batch_size, njoints, seq_len, body_members, baseline_mode)
         poses_batch = poses_batch[..., :3]
 
         return labs_batch, poses_batch, mask_batch
@@ -116,7 +129,7 @@ if __name__ == "__main__":
     if "images" in FLAGS.test_mode:
 
         for i in trange(val_batches):
-            labs_batch, poses_batch, mask_batch = get_inputs()
+            labs_batch, poses_batch, mask_batch = get_inputs(False)
             labels = np.reshape(labs_batch[:, 2], (batch_size, 1))
 
             gen_outputs = []
@@ -189,7 +202,7 @@ if __name__ == "__main__":
 
         for _ in trange(val_batches):
 
-            labs_batch, poses_batch, mask_batch = get_inputs()
+            labs_batch, poses_batch, mask_batch = get_inputs(False)
 
             for m, model_wrap in enumerate(model_wraps):
                 gen_inputs = [poses_batch, mask_batch]
@@ -278,7 +291,7 @@ if __name__ == "__main__":
             t = trange(val_batches)
             for i in t:
 
-                labs_batch, poses_batch, mask_batch = get_inputs()
+                labs_batch, poses_batch, mask_batch = get_inputs(True)
 
                 unorm_poses_batch = unnormalize_batch(poses_batch)
                 unorm_poses_batch_edm = edm(unorm_poses_batch)
@@ -831,7 +844,7 @@ if __name__ == "__main__":
             FLAGS.mask_mode = mask_mode
             FLAGS.keep_prob = keep_prob
 
-            labs_batch, poses_batch, mask_batch = get_inputs()
+            labs_batch, poses_batch, mask_batch = get_inputs(False)
 
             gen_outputs = []
             for m, model_wrap in enumerate(model_wraps):
@@ -896,7 +909,7 @@ if __name__ == "__main__":
                         coords = np.concatenate([coords_gt, coords_gen])
                     else:
                         coords = np.concatenate([coords_gen, coords_gt])
-                    save_path = images_path + ("survey_0_%03d.gif" % seq_idx)
+                    save_path = images_path + ("survey_0/gt_%d/%03d.gif" % (order[seq_idx], seq_idx))
                     plot_seq_gif(coords, None, configs[0].data_set, save_path=save_path, figwidth=512, figheight=256)
 
         print("plotting survey 1")
@@ -909,7 +922,7 @@ if __name__ == "__main__":
         coords_gen = gen_outputs[1] - gen_outputs[1][:, 0, np.newaxis, :, :]
 
         for seq_idx in range(len(actions) * 8):
-            save_path = images_path + ("survey_1_%03d.gif" % seq_idx)
+            save_path = images_path + ("survey_1/gt_%d/%03d.gif" % (order[seq_idx], seq_idx))
             if order[seq_idx] == 0:
                 coords = np.concatenate([coords_gt[np.newaxis, seq_idx, ...], coords_gen[np.newaxis, seq_idx, ...]])
             else:
@@ -928,9 +941,9 @@ if __name__ == "__main__":
         coords_gen_1 = gen_outputs[1]
 
         for seq_idx in range(len(actions) * 8):
-            save_path_0 = images_path + ("survey_2_%03d.gif" % seq_idx)
-            # save_path_1 = images_path + ("survey_3_%03d.gif" % seq_idx)
-            save_path_1 = images_path + ("survey_3_%03d.png" % seq_idx)
+            save_path_0 = images_path + ("survey_2/gt_%d/%03d.gif" % (order[seq_idx], seq_idx))
+            save_path_1 = images_path + ("survey_3/gt_%d/%03d.gif" % (order[seq_idx], seq_idx))
+            # save_path_1 = images_path + ("survey_1/gt_%d/%03d.png" % (order[seq_idx], seq_idx))
 
             if order[seq_idx] == 0:
                 coords_0 = np.concatenate([coords_gt[np.newaxis, seq_idx, ...], coords_gen_0[np.newaxis, seq_idx, ...]])
@@ -940,8 +953,8 @@ if __name__ == "__main__":
                 coords_1 = np.concatenate([coords_gen_1[np.newaxis, seq_idx, ...], coords_gt[np.newaxis, seq_idx, ...]])
 
             plot_seq_gif(coords_0, None, configs[0].data_set, save_path=save_path_0, figwidth=512, figheight=256)
-            # plot_seq_gif(coords_1, None, configs[0].data_set, save_path=save_path_1, figwidth=512, figheight=256)
-            plot_seq_frozen(coords_1, None, configs[0].data_set, save_path=save_path_1, figwidth=512, figheight=256)
+            plot_seq_gif(coords_1, None, configs[0].data_set, save_path=save_path_1, figwidth=512, figheight=256)
+            # plot_seq_frozen(coords_1, None, configs[0].data_set, save_path=save_path_1, figwidth=512, figheight=256)
             np.save(images_path + ("survey_3_%03d.npy" % seq_idx), coords_1)
 
     elif FLAGS.test_mode == "alternate_seq_dist":
@@ -957,7 +970,7 @@ if __name__ == "__main__":
             FLAGS.keep_prob = prob
 
             for b in trange(total_samples // batch_size):
-                labs_batch, poses_batch, mask_batch = get_inputs()
+                labs_batch, poses_batch, mask_batch = get_inputs(False)
 
                 for m, model_wrap in enumerate(model_wraps):
                     gen_outputs = []
@@ -988,7 +1001,7 @@ if __name__ == "__main__":
         n_futures = 8
 
         for i in trange(val_batches):
-            labs_batch, poses_batch, mask_batch = get_inputs()
+            labs_batch, poses_batch, mask_batch = get_inputs(False)
 
             gen_outputs = []
             for m, model_wrap in enumerate(model_wraps):
@@ -1029,15 +1042,129 @@ if __name__ == "__main__":
                           extra_text='mask mode: %s keep prob: %s' % (MASK_MODES[FLAGS.mask_mode], FLAGS.keep_prob),
                           save_path=save_path, figwidth=figwidth, figheight=figheight)
 
+    elif FLAGS.test_mode == "rebuttal":
 
+        def euc_error(x, y):
+            x = angle_trans(x)
+            y = angle_trans(y)
+            return np.sqrt(np.sum(np.square(x - y), 3))
 
+        from utils.human36_expmaps_to_h5 import actions
+        h36_coords_used_joints = [0, 1, 2, 3, 6, 7, 8, 12, 13, 14, 15, 17, 18, 19, 25, 26, 27]
+        parent, offset, rotInd, expmapInd = _some_variables()
 
+        def to_coords(seq_angles):
+            seq_coords = np.empty((len(h36_coords_used_joints), seq_angles.shape[0], 3))
+            for i in range(seq_angles.shape[0]):
+                frame_coords = fkl(seq_angles[i, :], parent, offset, rotInd, expmapInd)
+                seq_coords[:, i, :] = frame_coords[h36_coords_used_joints, :]
+            seq_coords[..., 1] = seq_coords[..., 1] * -1  # Inverting y axis for visualization purposes
+            return seq_coords
 
+        import os
 
+        def rotate_seq(seq):
+            for l in range(seq.shape[2]):
+                seq[:, :, np.newaxis, l, :], _ = rotate_start(seq[:, :, np.newaxis, l, :], body_members)
+            return seq
 
+        def prep_seq(seq):
+            frames_idxs = [0, 9, 19]
+            seq = seq[:, :, frames_idxs, :]
+            seq = rotate_seq(seq)
+            seq -= seq[:, np.newaxis, 0, :, :]
+            seq[:, :, 0, :2] -= 500
+            seq[:, :, -1, :2] += 500
+            return seq
 
+        file_path = os.path.join(configs[0].data_path, configs[0].data_set + configs[0].data_set_version + '.h5')
+        coords_file = h5.File(file_path, 'r')
+        val_keys = [configs[0].data_set + '/Validate/' + k
+                    for k in coords_file.get(configs[0].data_set + '/Validate').keys()]
 
+        dist_table = []
+        with h5.File('../human-motion-prediction/samples.h5', "r") as expmaps_file:
+            for act_idx, action in enumerate(actions):
+                pred_len = seq_len // 2
+                mean_errors_hmp = np.zeros((8, pred_len))
+                mean_errors_mg = np.zeros((8, pred_len))
+                for i in np.arange(8):
+                    seq_idx = (act_idx * 8) + i
 
+                    encoder_inputs = np.array(expmaps_file['expmap/encoder_inputs/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    decoder_inputs = np.array(expmaps_file['expmap/decoder_inputs/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    # decoder_outputs = np.array(sample_file['expmap/decoder_outputs/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    input_seeds_sact = np.int32(expmaps_file['expmap/input_seeds_sact/{1}_{0}'.format(i, action)])
+                    input_seeds_idx = np.int32(expmaps_file['expmap/input_seeds_idx/{1}_{0}'.format(i, action)])
+                    input_seeds_seqlen = np.int32(expmaps_file['expmap/input_seeds_seqlen/{1}_{0}'.format(i, action)])
 
+                    seq_angles = np.concatenate([encoder_inputs, decoder_inputs[np.newaxis, 0, :]], axis=0)
+                    # seq_angles = np.concatenate([encoder_inputs, decoder_inputs[np.newaxis, 0, :], decoder_outputs], axis=0)
+                    # seq_angles = subsample(seq_angles)
+                    # seq_angles = seq_angles[10 - pred_len:10 + pred_len, :]
 
+                    expmap_gt = np.array(expmaps_file['expmap/gt/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    expmap_gt = np.concatenate([seq_angles, expmap_gt], axis=0)
+                    expmap_gt = expmap_gt[range(0, int(expmap_gt.shape[0]), 5), :]
+                    expmap_gt = expmap_gt[10 - pred_len:10 + pred_len, :]
+                    coords_expmap_gt = to_coords(expmap_gt)
+                    coords_expmap_gt = coords_expmap_gt[np.newaxis, ...]
+
+                    expmap_hmp = np.array(expmaps_file['expmap/preds/{1}_{0}'.format(i, action)], dtype=np.float32)
+                    expmap_hmp = np.concatenate([seq_angles, expmap_hmp], axis=0)
+                    expmap_hmp = expmap_hmp[range(0, int(expmap_hmp.shape[0]), 5), :]
+                    expmap_hmp = expmap_hmp[10 - pred_len:10 + pred_len, :]
+                    coords_expmap_hmp = to_coords(expmap_hmp)
+                    coords_expmap_hmp = coords_expmap_hmp[np.newaxis, ...]
+
+                    for key in val_keys:
+                        coords_act_idx = np.int32(coords_file[key + '/Action']) - 1  # Small hack to reindex the classes from 0
+                        if coords_act_idx == act_idx:
+                            coords_sact = np.int32(coords_file[key + '/Subaction'])
+                            coords_subject = np.int32(coords_file[key + '/Subject'])
+                            coords_pose = np.array(coords_file[key + '/Pose'], dtype=np.float32)
+                            coords_pose = coords_pose[..., range(0, coords_pose.shape[2], 2)]
+                            coords_seq_len = np.int32(coords_pose.shape[2])
+
+                            if input_seeds_sact == coords_sact and coords_seq_len == input_seeds_seqlen:
+                                coords_pose = coords_pose[..., input_seeds_idx:input_seeds_idx+100]
+                                coords_pose = coords_pose[..., range(0, int(coords_pose.shape[2]), 5)]
+                                coords_pose = np.transpose(coords_pose, (0, 2, 1))
+                                coords_pose = coords_pose[h36_coords_used_joints, ...]
+                                coords_pose = coords_pose[np.newaxis, ...]
+
+                                poses_batch = coords_pose
+                                mask_batch = gen_mask(1, 0.5, batch_size, njoints, seq_len, body_members, False)
+
+                                gen_outputs = []
+                                for m, model_wrap in enumerate(model_wraps):
+                                    if configs[m].normalize_data:
+                                        poses_batch = data_input.normalize_poses(poses_batch)
+                                    gen_inputs = [poses_batch, mask_batch]
+                                    if configs[m].action_cond:
+                                        labels = np.reshape(act_idx, (batch_size, 1))
+                                        gen_inputs.append(labels)
+                                    if configs[m].latent_cond_dim > 0:
+                                        latent_noise = gen_latent_noise(batch_size, configs[m].latent_cond_dim)
+                                        gen_inputs.append(latent_noise)
+                                    gen_output = model_wrap.gen_model.predict(gen_inputs, batch_size)
+                                    if configs[m].normalize_data:
+                                        gen_output = data_input.unnormalize_poses(gen_output)
+                                    gen_outputs.append(gen_output)
+
+                                # To add global position
+                                # coords_expmap_gt += coords_pose[:, np.newaxis, 0, :, :]
+                                # coords_expmap_hmp += coords_pose[:, np.newaxis, 0, :, :]
+
+                                save_path = images_path + ("rebuttal/%03d.png" % seq_idx)
+                                coords = np.concatenate([#coords_expmap_gt[:,:,frames_idxs,:],
+                                                         prep_seq(coords_pose),
+                                                         prep_seq(coords_expmap_hmp),] +
+                                                         [prep_seq(gen_output) for gen_output in gen_outputs], axis=0)
+                                plot_seq_frozen(coords, None, configs[0].data_set, save_path=save_path, figwidth=256 * coords.shape[0], figheight=256)
+                                # plot_seq_pano(coords, None, configs[0].data_set, save_path=save_path, figwidth=256 * coords.shape[0], figheight=256)
+                                dist_table.append(np.stack([seq_idx] +
+                                                           [np.mean(euc_error(coords_expmap_gt, coords_expmap_hmp))] +
+                                                           [np.mean(euc_error(coords_pose, gen_output)) for gen_output in gen_outputs]))
+        np.savetxt(images_path + 'rebuttal/dists.txt', np.stack(dist_table), '%.4f', ',', '\n')
 

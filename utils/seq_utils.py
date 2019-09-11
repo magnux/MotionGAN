@@ -7,7 +7,7 @@ from utils.npangles import quaternion_between, quaternion_to_expmap, expmap_to_r
 MASK_MODES = ('No mask', 'Future Prediction', 'Missing Frames', 'Occlusion Simulation', 'Structured Occlusion', 'Noisy Transmission')
 
 
-def gen_mask(mask_type, keep_prob, batch_size, njoints, seq_len, body_members, test_mode=False):
+def gen_mask(mask_type, keep_prob, batch_size, njoints, seq_len, body_members, baseline_mode=False):
     # Default mask, no mask
     mask = np.ones(shape=(batch_size, njoints, seq_len, 1))
     if mask_type == 1:  # Future Prediction
@@ -29,7 +29,7 @@ def gen_mask(mask_type, keep_prob, batch_size, njoints, seq_len, body_members, t
     elif mask_type == 5:  # Noisy transmission
         mask = np.random.binomial(1, keep_prob, size=mask.shape)
 
-    if test_mode:
+    if baseline_mode:
         # This unmasks first and last frame for all sequences (required for baselines)
         mask[:, :, [0, -1], :] = 1.0
     return mask
@@ -218,8 +218,8 @@ def seq_to_angles_transformer(body_members):
                 child_bone = coords_list[child_idx] - coords_list[joint_idx]
                 angle = quaternion_between(parent_bone, child_bone)
                 angle = quaternion_to_expmap(angle)
-                # angle = expmap_to_rotmat(angle)
-                # angle = rotmat_to_euler(angle)
+                angle = expmap_to_rotmat(angle)
+                angle = rotmat_to_euler(angle)
                 angles.append(angle)
 
             for child_idx in body_graph[joint_idx]:
@@ -440,7 +440,8 @@ def rotate_start(x, body_members):
     torso_rot = np.cross(coords_list[left_shoulder] - coords_list[hip],
                          coords_list[right_shoulder] - coords_list[hip])
     side_rot = np.reshape(np.cross(coords_list[head_top] - coords_list[hip], torso_rot), base_shape)
-    theta_diff = ((np.pi / 2) - np.arctan2(side_rot[..., 1], side_rot[..., 0])) / 2
+    # theta_diff = ((np.pi / 2) - np.arctan2(side_rot[..., 1], side_rot[..., 0])) / 2
+    theta_diff = -np.arctan2(side_rot[..., 1], side_rot[..., 0]) / 2
     cos_theta_diff = np.cos(theta_diff)
     sin_theta_diff = np.sin(theta_diff)
     zeros_theta = np.zeros_like(sin_theta_diff)

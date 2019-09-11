@@ -456,9 +456,12 @@ def plot_seq_frozen(seqs, labs, data_set, seq_masks=None, extra_text=None, save_
     lcolor = "#3498db"
     rcolor = "#e74c3c"
     for i in range(n_seqs):
-        axs[i].set_xlabel("x")
-        axs[i].set_ylabel("y")
-        axs[i].set_zlabel("z")
+        axs[i].set_xlabel("")
+        axs[i].set_ylabel("")
+        axs[i].set_zlabel("")
+        axs[i].set_xticklabels([])
+        axs[i].set_yticklabels([])
+        axs[i].set_zticklabels([])
         r = 1000
         axs[i].set_xlim3d([np.mean(seqs[:, :, :, 0])-r, np.mean(seqs[:, :, :, 0])+r])
         axs[i].set_ylim3d([np.mean(seqs[:, :, :, 1])-r, np.mean(seqs[:, :, :, 1])+r])
@@ -486,7 +489,15 @@ def plot_seq_frozen(seqs, labs, data_set, seq_masks=None, extra_text=None, save_
                     x = np.array([seqs[i, j_idx_start, f, 0], seqs[i, j_idx_end, f, 0]])
                     y = np.array([seqs[i, j_idx_start, f, 1], seqs[i, j_idx_end, f, 1]])
                     z = np.array([seqs[i, j_idx_start, f, 2], seqs[i, j_idx_end, f, 2]])
-                    axs[i].plot(x, y, z, lw=4 if f == (seq_len // 2)-1 else 2, c=(0, 0, 0, 1) if f == (seq_len // 2)-1 else cmap(f / seq_len))
+                    lw = 2
+                    c = cmap(f / seq_len)
+                    if f == 0:
+                        c = "blue"
+                    elif f == (seq_len // 2):
+                        c = "black"
+                    elif f == seq_len -1:
+                        c = "red"
+                    axs[i].plot(x, y, z, lw=lw, c=c)
 
             # if mask is not None:
             #     for j in range(njoints):

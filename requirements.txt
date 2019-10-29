@@ -70,5 +70,5 @@ Twisted==16.0.0
 txaio==1.0.0
 virtualenv==15.1.0
 WebOb==1.5.1
-Werkzeug==0.14.1
+Werkzeug==0.15.3
 zope.interface==4.1.3

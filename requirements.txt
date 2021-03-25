@@ -53,7 +53,7 @@ python-cloudfiles==1.7.10
 python-dateutil==2.6.1
 pytz==2017.3
 pyxdg==0.25
-PyYAML==3.11
+PyYAML==5.4
 repoze.lru==0.6
 requests==2.9.1
 Routes==2.2

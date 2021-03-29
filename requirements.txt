@@ -45,7 +45,7 @@ Pillow==3.1.2
 protobuf==3.5.1
 pyasn1==0.1.9
 pyasn1-modules==0.0.7
-Pygments==2.1
+Pygments==2.7.4
 pymanopt==0.2.3
 pyparsing==2.2.0
 pyserial==3.0.1

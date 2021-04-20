@@ -1,6 +1,6 @@
 absl-py==0.1.10
 attrs==15.2.0
-autobahn==0.10.3
+autobahn==20.12.3
 autograd==1.2
 backports.functools-lru-cache==1.5
 backports.weakref==1.0.post1

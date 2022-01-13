@@ -41,7 +41,7 @@ netifaces==0.10.4
 networkx==1.11
 numpy==1.14.0
 pbr==3.0.1
-Pillow==3.1.2
+Pillow==9.0.0
 protobuf==3.5.1
 pyasn1==0.1.9
 pyasn1-modules==0.0.7

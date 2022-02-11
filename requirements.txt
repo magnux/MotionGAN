@@ -42,7 +42,7 @@ networkx==1.11
 numpy==1.14.0
 pbr==3.0.1
 Pillow==3.1.2
-protobuf==3.5.1
+protobuf==3.15.0
 pyasn1==0.1.9
 pyasn1-modules==0.0.7
 Pygments==2.1

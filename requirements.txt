@@ -63,7 +63,7 @@ service-identity==16.0.0
 six==1.11.0
 stevedore==1.21.0
 subprocess32==3.2.7
-tensorflow-gpu==1.5.0
+tensorflow-gpu==2.6.4
 tensorflow-tensorboard==1.5.0
 tqdm==4.19.5
 Twisted==16.0.0
